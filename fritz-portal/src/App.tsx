@@ -20,15 +20,24 @@ export default function App() {
 
   // HA Add-on: Auto-Session prüfen beim Start (wenn Server mit Env-Vars konfiguriert)
   useEffect(() => {
+    console.log('App starting - checking auto-session...');
     apiFetch('/api/fritz/auto-session')
-      .then((r: Response) => r.json())
+      .then((r: Response) => {
+        console.log('Auto-session response status:', r.status);
+        return r.json();
+      })
       .then((data: any) => {
+        console.log('Auto-session data:', data);
         if (data.active && data.sid) {
+          console.log('Auto-session active, setting SID');
           setSid(data.sid);
+        } else {
+          console.log('Auto-session not active');
         }
         setLoading(false);
       })
-      .catch(() => {
+      .catch((err: any) => {
+        console.error('Auto-session error:', err);
         setLoading(false);
       });
   }, []);

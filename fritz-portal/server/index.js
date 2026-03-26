@@ -1100,27 +1100,29 @@ app.get('/api/fritz/traffic-counters', async (req, res) => {
 });
 
 app.get('/api/fritz/auto-session', async (req, res) => {
-  // Auto-session endpoint - attempts auto-login if credentials are configured
+  // Auto-session endpoint - checks if credentials are configured (without testing connection)
   const host = process.env.FRITZBOX_HOST;
   const username = process.env.FRITZBOX_USER;
   const password = process.env.FRITZBOX_PASSWORD;
   
+  console.log('Auto-session check:', { host: !!host, username: !!username, password: !!password });
+  
   // If no credentials configured, return inactive
   if (!host || !username || !password) {
+    console.log('Auto-session: No credentials configured');
     return res.json({ active: false });
   }
   
   try {
+    // Generate a session ID for this auto-login
+    const sid = Math.random().toString(36).substring(2) + Date.now().toString(36);
+    
+    // Create FritzBox instance (but don't test connection yet)
     const fb = new FritzBox({
       username,
       password,
       host: host,
     });
-
-    // Test connection by getting device info
-    await fb.deviceInfo.getInfo();
-    
-    const sid = Math.random().toString(36).substring(2) + Date.now().toString(36);
 
     // Discover service control URLs from device description
     const controlUrls = {};
@@ -1144,11 +1146,16 @@ app.get('/api/fritz/auto-session', async (req, res) => {
       }
     }
 
-    // Parse both TR-064 and UPnP IGD descriptions
-    await Promise.all([
-      parseDescXml(`http://${host}:49000/tr64desc.xml`),
-      parseDescXml(`http://${host}:49000/igddesc.xml`),
-    ]);
+    // Parse both TR-064 and UPnP IGD descriptions with timeout
+    await Promise.race([
+      Promise.all([
+        parseDescXml(`http://${host}:49000/tr64desc.xml`),
+        parseDescXml(`http://${host}:49000/igddesc.xml`),
+      ]),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2000))
+    ]).catch(() => {
+      // Timeout or error - continue with fallbacks
+    });
 
     // Known fallback URLs in case discovery fails
     const fallbacks = {
@@ -1163,9 +1170,10 @@ app.get('/api/fritz/auto-session', async (req, res) => {
       if (!controlUrls[svc]) controlUrls[svc] = url;
     }
 
-    // Store auto-session in sessions
+    // Store auto-session in sessions (connection will be tested on first API call)
     sessions.set(sid, { host, username, password, fb, controlUrls, isAutoSession: true });
     
+    console.log('Auto-session: Created session with SID:', sid.substring(0, 8) + '...');
     return res.json({ active: true, sid });
   } catch (err) {
     console.error('Auto-session error:', err.message);
