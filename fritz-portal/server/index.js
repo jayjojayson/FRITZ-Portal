@@ -31,19 +31,53 @@ if (staticPath) {
   app.use(express.static(staticPath));
   app.get('*', (req, res, next) => {
     if (!req.path.startsWith('/api')) {
-      // HA Ingress: X-Ingress-Path-Header → Basispfad als JS-Variable ins HTML injizieren
-      const rawIngress = req.headers['x-ingress-path'];
-      if (rawIngress) {
-        const ingressPath = rawIngress.replace(/[^a-zA-Z0-9/_-]/g, '');
+      // HA Ingress: Extract ingress path for frontend
+      // Try multiple header variations and URL extraction
+      let ingressPath = '';
+      
+      // Try x-ingress-path header (most common)
+      const rawIngressHeader = req.headers['x-ingress-path'];
+      if (rawIngressHeader) {
+        ingressPath = rawIngressHeader.replace(/[^a-zA-Z0-9/_-]/g, '');
+        console.log('HA Ingress: Found x-ingress-path header:', ingressPath);
+      }
+      
+      // Try to extract from URL if running via ingress proxy
+      // URL format: /api/hassio/proxy/<TOKEN>/path
+      if (!ingressPath && req.url.includes('/api/hassio/proxy/')) {
+        const match = req.url.match(/\/api\/hassio\/proxy\/[a-f0-9]+/);
+        if (match) {
+          ingressPath = match[0];
+          console.log('HA Ingress: Extracted from URL:', ingressPath);
+        }
+      }
+
+      // Try x-proxy-token (some HA versions use this)
+      if (!ingressPath && req.headers['x-proxy-token']) {
+        const token = req.headers['x-proxy-token'];
+        ingressPath = `/api/hassio/proxy/${token}`;
+        console.log('HA Ingress: Built from x-proxy-token:', ingressPath);
+      }
+
+      // Inject ingress path into HTML
+      if (ingressPath) {
         try {
           let html = readFileSync(join(staticPath, 'index.html'), 'utf-8');
           html = html.replace(
             '<head>',
-            `<head><script>window.__INGRESS_PATH__="${ingressPath}";</script>`
+            `<head><script>window.__INGRESS_PATH__="${ingressPath}"; console.log('Ingress path:', window.__INGRESS_PATH__);</script>`
           );
+          console.log('Injecting ingress path into HTML:', ingressPath);
           return res.send(html);
-        } catch { /* fall through */ }
+        } catch (err) {
+          console.error('Error injecting ingress path:', err.message);
+        }
       }
+
+      // Fallback: serve HTML without ingress path
+      console.log('HA Ingress: No ingress path found, serving standard HTML');
+      console.log('  Request URL:', req.url);
+      console.log('  Request headers:', Object.keys(req.headers).filter(h => h.includes('ingress') || h.includes('proxy')));
       res.sendFile(join(staticPath, 'index.html'));
     } else {
       next();
