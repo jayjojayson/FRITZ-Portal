@@ -16,13 +16,21 @@ export default function App() {
   const [sid, setSid] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   // HA Add-on: Auto-Session prüfen beim Start (wenn Server mit Env-Vars konfiguriert)
   useEffect(() => {
     apiFetch('/api/fritz/auto-session')
       .then((r: Response) => r.json())
-      .then((data: any) => { if (data.active && data.sid) setSid(data.sid); })
-      .catch(() => {});
+      .then((data: any) => {
+        if (data.active && data.sid) {
+          setSid(data.sid);
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        setLoading(false);
+      });
   }, []);
 
   const handleLogin = (newSid: string) => {
@@ -57,6 +65,21 @@ export default function App() {
     setSelectedDevice(null);
     setCurrentPage('devices');
   };
+
+  // Show loading while checking for auto-session
+  if (loading) {
+    return (
+      <div className="login-container">
+        <div className="login-card">
+          <div className="logo">
+            <div className="icon"></div>
+            <h1>FRITZ!Portal</h1>
+            <p>Wird initialisiert...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!sid) {
     return <Login onLogin={handleLogin} />;
