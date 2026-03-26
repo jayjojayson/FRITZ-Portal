@@ -1,0 +1,11 @@
+build_from:
+  aarch64: ghcr.io/home-assistant/aarch64-base-python:latest
+  amd64: ghcr.io/home-assistant/amd64-base-python:latest
+  armv7: ghcr.io/home-assistant/armv7-base-python:latest
+  armhf: ghcr.io/home-assistant/armhf-base-python:latest
+  i386: ghcr.io/home-assistant/i386-base-python:latest
+
+addons:
+  fritz_portal:
+    image: "{arch}-fritz-portal"
+    build: fritz-portal
