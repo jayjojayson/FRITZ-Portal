@@ -1099,9 +1099,78 @@ app.get('/api/fritz/traffic-counters', async (req, res) => {
   }
 });
 
-app.get('/api/fritz/auto-session', (req, res) => {
-  // Auto-session endpoint - returns false when no auto-login is configured
-  res.json({ active: false });
+app.get('/api/fritz/auto-session', async (req, res) => {
+  // Auto-session endpoint - attempts auto-login if credentials are configured
+  const host = process.env.FRITZBOX_HOST;
+  const username = process.env.FRITZBOX_USER;
+  const password = process.env.FRITZBOX_PASSWORD;
+  
+  // If no credentials configured, return inactive
+  if (!host || !username || !password) {
+    return res.json({ active: false });
+  }
+  
+  try {
+    const fb = new FritzBox({
+      username,
+      password,
+      host: host,
+    });
+
+    // Test connection by getting device info
+    await fb.deviceInfo.getInfo();
+    
+    const sid = Math.random().toString(36).substring(2) + Date.now().toString(36);
+
+    // Discover service control URLs from device description
+    const controlUrls = {};
+
+    async function parseDescXml(url) {
+      try {
+        const descRes = await fetch(url);
+        const descXml = await descRes.text();
+        const serviceRegex = /<service>([\/\S\s]*?)<\/service>/g;
+        let m;
+        while ((m = serviceRegex.exec(descXml)) !== null) {
+          const block = m[1];
+          const type = block.match(/<serviceType>([^<]*)<\/serviceType>/)?.[1] || '';
+          const ctrlUrl = block.match(/<controlURL>([^<]*)<\/controlURL>/)?.[1] || '';
+          if (type && ctrlUrl) {
+            controlUrls[type] = ctrlUrl;
+          }
+        }
+      } catch (err) {
+        console.error(`Failed to parse ${url}:`, err.message);
+      }
+    }
+
+    // Parse both TR-064 and UPnP IGD descriptions
+    await Promise.all([
+      parseDescXml(`http://${host}:49000/tr64desc.xml`),
+      parseDescXml(`http://${host}:49000/igddesc.xml`),
+    ]);
+
+    // Known fallback URLs in case discovery fails
+    const fallbacks = {
+      'urn:schemas-upnp-org:service:WANCommonInterfaceConfig:1': '/igdupnp/control/WANCommonIFC1',
+      'urn:dslforum-org:service:WANCommonInterfaceConfig:1': '/upnp/control/WANCommonIFC1',
+      'urn:dslforum-org:service:X_AVM-DE_HostFilter:1': '/upnp/control/x_hostfilter',
+      'urn:dslforum-org:service:X_AVM-DE_OnTel:1': '/upnp/control/x_contact',
+      'urn:dslforum-org:service:X_AVM-DE_Dect:1': '/upnp/control/x_dect',
+      'urn:dslforum-org:service:X_AVM-DE_VoIP:1': '/upnp/control/x_voip',
+    };
+    for (const [svc, url] of Object.entries(fallbacks)) {
+      if (!controlUrls[svc]) controlUrls[svc] = url;
+    }
+
+    // Store auto-session in sessions
+    sessions.set(sid, { host, username, password, fb, controlUrls, isAutoSession: true });
+    
+    return res.json({ active: true, sid });
+  } catch (err) {
+    console.error('Auto-session error:', err.message);
+    return res.json({ active: false });
+  }
 });
 
 app.post('/api/fritz/logout', (req, res) => {
