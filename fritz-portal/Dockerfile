@@ -19,15 +19,15 @@ FROM node:20-alpine
 WORKDIR /app
 
 # Server-Abhängigkeiten installieren (explicitly from fritz-portal/server/)
-COPY server/package.json ./server/
+COPY ./server/package.json ./server/
 RUN cd server && npm install --omit=dev
 
 # Cable-Modell-Patch für @lukesthl/fritzbox anwenden
-COPY patch-fritzbox.mjs /tmp/patch-fritzbox.mjs
+COPY ./patch-fritzbox.mjs /tmp/patch-fritzbox.mjs
 RUN node /tmp/patch-fritzbox.mjs && rm /tmp/patch-fritzbox.mjs
 
-# Server-Quellcode kopieren (this is the current fritz-portal/server/index.js)
-COPY server/index.js ./server/
+# Server-Quellcode kopieren (this is the current fritz-portal/server/index.js - NOT root/server/)
+COPY ./server/index.js ./server/
 
 # Kompiliertes Frontend aus Stage 1 übernehmen
 COPY --from=builder /build/dist ./dist
