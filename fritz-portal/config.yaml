@@ -12,6 +12,12 @@ arch:
   - armhf
   - i386
 
+# Add-On Startup & Services
+startup: application
+boot: auto
+services:
+  - http:want
+
 # Kein s6-overlay (plain Node.js CMD)
 init: false
 
