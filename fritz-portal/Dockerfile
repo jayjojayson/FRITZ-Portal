@@ -32,8 +32,5 @@ COPY server/index.js ./server/
 # Kompiliertes Frontend aus Stage 1 übernehmen
 COPY --from=builder /build/dist ./dist
 
-# Startskript
-COPY run.sh /run.sh
-RUN chmod +x /run.sh
-
-CMD ["/run.sh"]
+# Start server directly
+CMD ["node", "server/index.js"]
