@@ -1,0 +1,3 @@
+repositories:
+  - name: FRITZ!Portal
+    url: https://github.com/jayjojayson/FRITZ-Portal/tree/main/fritz-portal
