@@ -4,7 +4,7 @@ slug: "fritz_portal"
 description: "Web-Oberfläche für die FRITZ!Box — Geräte, Netzwerk, Telefonie & mehr"
 url: "https://github.com/jayjojayson/FRITZ-Portal"
 
-# Unterstützte Architekturen (node:20-alpine ist multi-arch)
+# Unterstützte Architekturen
 arch:
   - aarch64
   - amd64
@@ -15,8 +15,6 @@ arch:
 # Add-On Startup & Services
 startup: application
 boot: auto
-services:
-  - http:want
 
 # Kein s6-overlay (plain Node.js CMD)
 init: false
