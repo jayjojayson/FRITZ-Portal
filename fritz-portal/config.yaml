@@ -1,5 +1,5 @@
 name: "FRITZ!Portal"
-version: "1.2.0"
+version: "1.2.1"
 slug: "fritz_portal"
 description: "Web-Oberfläche für die FRITZ!Box — Geräte, Netzwerk, Telefonie & mehr"
 url: "https://github.com/jayjojayson/FRITZ-Portal"

@@ -8,7 +8,7 @@ ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:latest
 FROM node:20-alpine AS builder
 WORKDIR /build
 
-# Dependency-Dateien zuerst
+# Dependency-Dateien zuerst (from fritz-portal root context)
 COPY package.json tsconfig.json vite.config.ts index.html ./
 COPY src/ ./src/
 RUN npm install --include=dev
@@ -18,7 +18,7 @@ RUN npm run build
 FROM node:20-alpine
 WORKDIR /app
 
-# Server-Abhängigkeiten installieren
+# Server-Abhängigkeiten installieren (explicitly from fritz-portal/server/)
 COPY server/package.json ./server/
 RUN cd server && npm install --omit=dev
 
@@ -26,7 +26,7 @@ RUN cd server && npm install --omit=dev
 COPY patch-fritzbox.mjs /tmp/patch-fritzbox.mjs
 RUN node /tmp/patch-fritzbox.mjs && rm /tmp/patch-fritzbox.mjs
 
-# Server-Quellcode kopieren
+# Server-Quellcode kopieren (this is the current fritz-portal/server/index.js)
 COPY server/index.js ./server/
 
 # Kompiliertes Frontend aus Stage 1 übernehmen
