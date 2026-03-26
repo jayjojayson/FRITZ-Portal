@@ -32,6 +32,9 @@ COPY ./server/index.js ./server/
 # Kompiliertes Frontend aus Stage 1 übernehmen
 COPY --from=builder /build/dist ./dist
 
-# Start server directly
-# Build timestamp for cache invalidation: 2026-03-27T00:00:00Z
-CMD ["node", "server/index.js"]
+# Copy startup script
+COPY ./run.sh /run.sh
+RUN chmod +x /run.sh
+
+# Start via run.sh (required by HA Supervisor)
+CMD ["/run.sh"]
