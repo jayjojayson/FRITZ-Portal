@@ -1,0 +1,7 @@
+# Build-Basis-Images pro Architektur (node:20-alpine ist offiziell multi-arch)
+build_from:
+  aarch64: "node:20-alpine"
+  amd64:   "node:20-alpine"
+  armv7:   "node:20-alpine"
+  armhf:   "node:20-alpine"
+  i386:    "node:20-alpine"
