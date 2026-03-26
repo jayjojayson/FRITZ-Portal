@@ -1099,8 +1099,20 @@ app.get('/api/fritz/traffic-counters', async (req, res) => {
   }
 });
 
+app.get('/api/fritz/auto-session', (req, res) => {
+  // Auto-session endpoint - returns false when no auto-login is configured
+  res.json({ active: false });
+});
+
+app.post('/api/fritz/logout', (req, res) => {
+  const sid = req.headers['x-fritz-sid'];
+  if (sessions.has(sid)) {
+    sessions.delete(sid);
+  }
+  res.json({ success: true });
+});
+
 const PORT = 3003;
 app.listen(PORT, () => {
   console.log(`FritzBox Proxy Server läuft auf http://localhost:${PORT}`);
-  initAutoLogin();
 });
