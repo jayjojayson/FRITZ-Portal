@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
-import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import DeviceList from './pages/DeviceList';
 import DeviceDetail from './pages/DeviceDetail';
@@ -17,10 +16,11 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // HA Add-on: Auto-Session prüfen beim Start (wenn Server mit Env-Vars konfiguriert)
+  // HA Add-on: Auto-Session beim Start - KEINE Login-Seite
   useEffect(() => {
-    console.log('App starting - checking auto-session...');
+    console.log('App starting - attempting auto-login...');
     apiFetch('/api/fritz/auto-session')
       .then((r: Response) => {
         console.log('Auto-session response status:', r.status);
@@ -29,23 +29,21 @@ export default function App() {
       .then((data: any) => {
         console.log('Auto-session data:', data);
         if (data.active && data.sid) {
-          console.log('Auto-session active, setting SID');
+          console.log('Auto-login successful, setting SID');
           setSid(data.sid);
+          setError(null);
         } else {
-          console.log('Auto-session not active');
+          console.log('Auto-login failed - no credentials configured in Add-On');
+          setError('Add-On nicht konfiguriert. Bitte FRITZ!Box Zugangsdaten im Add-On eintragen.');
         }
         setLoading(false);
       })
       .catch((err: any) => {
-        console.error('Auto-session error:', err);
+        console.error('Auto-login error:', err);
+        setError('Verbindung zum Server fehlgeschlagen. Add-On läuft nicht korrekt.');
         setLoading(false);
       });
   }, []);
-
-  const handleLogin = (newSid: string) => {
-    setSid(newSid);
-    setCurrentPage('dashboard');
-  };
 
   const handleLogout = async () => {
     if (sid) {
@@ -63,6 +61,7 @@ export default function App() {
       if (data.active && data.sid) { setSid(data.sid); return; }
     } catch {}
     setSid(null);
+    setError('Abgemeldet. Bitte Add-On neu starten.');
   };
 
   const handleSelectDevice = (mac: string) => {
@@ -90,8 +89,26 @@ export default function App() {
     );
   }
 
-  if (!sid) {
-    return <Login onLogin={handleLogin} />;
+  // Show error if auto-login failed - NO LOGIN FORM
+  if (error || !sid) {
+    return (
+      <div className="login-container">
+        <div className="login-card">
+          <div className="logo">
+            <div className="icon"></div>
+            <h1>FRITZ!Portal</h1>
+          </div>
+          <div className="error-message">
+            {error || 'Fehler beim Autostart. Bitte Add-On-Konfiguration überprüfen.'}
+          </div>
+          <div style={{ padding: '20px', fontSize: '14px', color: '#999', textAlign: 'center' }}>
+            <p><strong>Konfiguration erforderlich:</strong></p>
+            <p>Home Assistant → Einstellungen → Add-Ons → FRITZ!Portal → Konfiguration</p>
+            <p>Geben Sie FRITZ!Box-Adresse, Benutzername und Passwort ein.</p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
