@@ -1,0 +1,38 @@
+name: "FRITZ!Portal"
+version: "1.0.0"
+slug: "fritz_portal"
+description: "Web-Oberfläche für die FRITZ!Box — Geräte, Netzwerk, Telefonie & mehr"
+url: "https://github.com/YOUR_USERNAME/fritz-api-ui/tree/main/ha-addon"
+
+# Unterstützte Architekturen (node:20-alpine ist multi-arch)
+arch:
+  - aarch64
+  - amd64
+  - armv7
+  - armhf
+  - i386
+
+# Kein s6-overlay (plain Node.js CMD)
+init: false
+
+# HA Ingress: Zugriff über das HA-Dashboard ohne eigenen Port
+ingress: true
+ingress_port: 3003
+ingress_entry: /
+
+# Optionaler direkter Port-Zugriff (z.B. http://homeassistant.local:3003)
+ports:
+  3003/tcp: 3003
+ports_description:
+  3003/tcp: "FRITZ!Portal Web-Oberfläche"
+
+# Konfigurationsoptionen (werden in /data/options.json geschrieben)
+options:
+  fritzbox_host: "fritz.box"
+  fritzbox_user: "admin"
+  fritzbox_password: ""
+
+schema:
+  fritzbox_host: str
+  fritzbox_user: str
+  fritzbox_password: str
