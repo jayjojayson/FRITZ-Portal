@@ -4,6 +4,9 @@
 
 ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:latest
 
+# Force Docker to invalidate cache on rebuild
+RUN echo "Force rebuild from fresh source"
+
 # ── Stage 1: Frontend-Build ──────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 WORKDIR /build
