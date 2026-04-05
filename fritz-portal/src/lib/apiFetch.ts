@@ -1,25 +1,29 @@
 /**
  * apiFetch — zentraler fetch-Wrapper für HA Ingress-Kompatibilität
  *
- * Wenn das Add-on über HA Ingress geöffnet wird, setzt der Server
- * window.__INGRESS_PATH__ (z.B. "/api/hassio_ingress/TOKEN").
- * Alle API-Aufrufe müssen diesen Präfix voranstellen, damit der
- * Browser die Anfragen durch den Ingress-Proxy schickt.
- *
- * Außerhalb von HA (direkter Zugriff, Entwicklung) ist der Wert
- * leer → alle Pfade bleiben unverändert.
+ * Verwendet relative Pfade, damit die Anfragen automatisch
+ * durch den HA Ingress-Proxy geleitet werden.
  */
 
-declare global {
-  interface Window {
-    __INGRESS_PATH__?: string;
-  }
+export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  // Absoluten Pfad in relativen umwandeln
+  // Aus '/api/fritz/...' wird './api/fritz/...'
+  const relativePath = path.startsWith('/') ? '.' + path : path;
+  return fetch(relativePath, init);
+}
 }
 
-const ingressBase: string = window.__INGRESS_PATH__ ?? '';
+function getIngressBase(): string {
+  // 1. Vom Server injiziert
+  if (window.__INGRESS_PATH__) return window.__INGRESS_PATH__;
+  // 2. Aus der aktuellen URL extrahieren
+  const match = window.location.pathname.match(/(\/api\/hassio_ingress\/[^/]+)/);
+  if (match) return match[1];
+  return '';
+}
+
+const ingressBase = getIngressBase();
 
 export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  // path beginnt immer mit '/api/...'
-  // ingressBase ist z.B. '/api/hassio_ingress/TOKEN' oder ''
   return fetch(ingressBase + path, init);
 }
