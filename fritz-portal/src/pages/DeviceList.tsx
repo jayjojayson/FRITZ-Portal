@@ -13,6 +13,7 @@ interface IpStats {
   total: number;
   used: number;
   free: number;
+  freeIps: string[];
 }
 
 interface DeviceListProps {
@@ -103,6 +104,20 @@ export default function DeviceList({ sid, onSelectDevice }: DeviceListProps) {
           </div>
           <h3>Offline</h3>
           <div className="value">{offlineCount}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon" style={{ background: 'rgba(139,92,246,0.12)' }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="2" width="20" height="8" rx="2" /><rect x="2" y="14" width="20" height="8" rx="2" />
+              <line x1="6" y1="6" x2="6.01" y2="6" /><line x1="6" y1="18" x2="6.01" y2="18" />
+            </svg>
+          </div>
+          <h3>Freie IPs</h3>
+          <div className="value" style={{ fontSize: 16, color: '#8b5cf6' }}>
+            {ipStats.freeIps && ipStats.freeIps.length > 0
+              ? ipStats.freeIps.map(ip => ip.split('.').pop()).join(', ')
+              : '-'}
+          </div>
         </div>
       </div>
 

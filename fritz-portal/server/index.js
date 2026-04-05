@@ -723,15 +723,23 @@ app.get('/api/fritz/ip-stats', async (req, res) => {
       if (parts.length !== 4) return 0;
       return ((parseInt(parts[0], 10) << 24) | (parseInt(parts[1], 10) << 16) | (parseInt(parts[2], 10) << 8) | parseInt(parts[3], 10)) >>> 0;
     }
+    function intToIp(n) {
+      return `${(n >>> 24) & 255}.${(n >>> 16) & 255}.${(n >>> 8) & 255}.${n & 255}`;
+    }
     const minInt = ipToInt(minAddress);
     const maxInt = ipToInt(maxAddress);
     const total = (minInt && maxInt && maxInt >= minInt) ? maxInt - minInt + 1 : 0;
+    const usedIps = new Set(hosts.filter(h => h.ip).map(h => ipToInt(h.ip)));
     const used = hosts.filter(h => { if (!h.ip) return false; const ipInt = ipToInt(h.ip); return ipInt >= minInt && ipInt <= maxInt; }).length;
     const free = Math.max(0, total - used);
-    return res.json({ total, used, free, minAddress, maxAddress });
+    const freeIps = [];
+    for (let i = minInt; i <= maxInt && freeIps.length < 5; i++) {
+      if (!usedIps.has(i)) freeIps.push(intToIp(i));
+    }
+    return res.json({ total, used, free, minAddress, maxAddress, freeIps });
   } catch (err) {
     console.error('IP-Stats error:', err.message);
-    return res.json({ total: 0, used: 0, free: 0, minAddress: '', maxAddress: '' });
+    return res.json({ total: 0, used: 0, free: 0, minAddress: '', maxAddress: '', freeIps: [] });
   }
 });
 
