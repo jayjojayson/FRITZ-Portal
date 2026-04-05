@@ -146,22 +146,52 @@ async function discoverControlUrls(host) {
 }
 
 async function getWebSid(host, username, password) {
+  // Fritz!Box Cable: login_sid.lua gibt HTML → Challenge aus HTML extrahieren
   const loginUrl = `http://${host}/login_sid.lua`;
-  const resp = await fetch(loginUrl);
-  const text = await resp.text();
-  const sidMatch = text.match(/<SID>([^<]+)<\/SID>/);
-  if (sidMatch && sidMatch[1] && sidMatch[1] !== '0000000000000000') return sidMatch[1];
-  const challengeMatch = text.match(/<Challenge>([^<]+)<\/Challenge>/);
-  if (!challengeMatch) return '';
-  const challenge = challengeMatch[1];
-  // UTF-16LE MD5
-  const utf16Str = challenge.split('').map(c => c + '\0').join('') + '-' + password.split('').map(c => c + '\0').join('');
-  const responseStr = createHash('md5').update(utf16Str, 'utf8').digest('hex');
-  const formData = new URLSearchParams({ username, response: challenge + ':' + responseStr });
-  const loginResp = await fetch(loginUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData.toString() });
-  const loginText = await loginResp.text();
-  const newSid = loginText.match(/<SID>([^<]+)<\/SID>/);
-  return (newSid && newSid[1] !== '0000000000000000') ? newSid[1] : '';
+  try {
+    const resp = await fetch(loginUrl);
+    const text = await resp.text();
+
+    // XML-Antwort (klassische FritzBox)
+    if (text.includes('<SID>') || text.includes('<Challenge>')) {
+      const sidMatch = text.match(/<SID>([^<]+)<\/SID>/);
+      if (sidMatch && sidMatch[1] && sidMatch[1] !== '0000000000000000') return sidMatch[1];
+      const challengeMatch = text.match(/<Challenge>([^<]+)<\/Challenge>/);
+      if (!challengeMatch) return '';
+      const challenge = challengeMatch[1];
+      const utf16Str = challenge.split('').map(c => c + '\0').join('') + '-' + password.split('').map(c => c + '\0').join('');
+      const responseStr = createHash('md5').update(Buffer.from(utf16Str, 'utf8')).digest('hex');
+      const formData = new URLSearchParams({ username, response: challenge + ':' + responseStr });
+      const loginResp = await fetch(loginUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData.toString() });
+      const loginText = await loginResp.text();
+      const newSid = loginText.match(/<SID>([^<]+)<\/SID>/);
+      return (newSid && newSid[1] !== '0000000000000000') ? newSid[1] : '';
+    }
+
+    // HTML-Antwort (Cable) → Challenge aus JS-Code extrahieren
+    const challengeMatch = text.match(/var challenge\s*=\s*['"]([^'"]+)['"]/);
+    if (!challengeMatch) {
+      // Fallback: versuche POST mit username/password direkt
+      const formData = new URLSearchParams({ username, password });
+      const loginResp = await fetch(loginUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData.toString() });
+      const loginText = await loginResp.text();
+      const newSid = loginText.match(/<SID>([^<]+)<\/SID>/);
+      if (newSid && newSid[1] !== '0000000000000000') return newSid[1];
+      console.error('getWebSid: No challenge found in HTML response');
+      return '';
+    }
+    const challenge = challengeMatch[1];
+    const utf16Str = challenge.split('').map(c => c + '\0').join('') + '-' + password.split('').map(c => c + '\0').join('');
+    const responseStr = createHash('md5').update(Buffer.from(utf16Str, 'utf8')).digest('hex');
+    const formData = new URLSearchParams({ username, response: challenge + ':' + responseStr });
+    const loginResp = await fetch(loginUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData.toString() });
+    const loginText = await loginResp.text();
+    const newSid = loginText.match(/<SID>([^<]+)<\/SID>/);
+    return (newSid && newSid[1] !== '0000000000000000') ? newSid[1] : '';
+  } catch (err) {
+    console.error('getWebSid error:', err.message);
+    return '';
+  }
 }
 
 async function getHostsViaSoap(host, username, password, controlUrls) {
@@ -218,7 +248,8 @@ app.get('/api/fritz/device-info', async (req, res) => {
     return res.json(info);
   } catch (err) {
     console.error('DeviceInfo error:', err.message);
-    return res.status(500).json({ error: err.message });
+    console.error('DeviceInfo: controlUrls:', JSON.stringify(session.controlUrls));
+    return res.json({ NewModelName: 'FRITZ!Box', NewFirmwareVersion: '' });
   }
 });
 
@@ -231,7 +262,8 @@ app.get('/api/fritz/hosts', async (req, res) => {
     return res.json(hosts);
   } catch (err) {
     console.error('Hosts error:', err.message);
-    return res.status(500).json({ error: err.message });
+    console.error('Hosts: controlUrls:', JSON.stringify(session.controlUrls));
+    return res.json([]);
   }
 });
 
