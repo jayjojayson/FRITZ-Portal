@@ -153,6 +153,21 @@ body {
   min-height: calc(100vh - 56px);
 }
 
+.page-header {
+  margin-bottom: 32px;
+}
+
+.page-header h2 {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.page-header p {
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+
 /* Cards */
 .stats-grid {
   display: grid;
