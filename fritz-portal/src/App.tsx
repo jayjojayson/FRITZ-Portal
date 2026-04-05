@@ -21,7 +21,6 @@ export default function App() {
   // HA Add-on: Auto-Session beim Start - KEINE Login-Seite
   useEffect(() => {
     console.log('App starting - attempting auto-login...');
-    console.log('Ingress path:', window.__INGRESS_PATH__);
     
     apiFetch('/api/fritz/auto-session')
       .then((r: Response) => {
