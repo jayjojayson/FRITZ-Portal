@@ -36,13 +36,19 @@ export default function System({ sid }: SystemProps) {
   const loadVersion = async () => {
     try {
       const r = await apiFetch('/api/fritz/version');
-      const data = await r.json();
-      setVersion(data.version || '');
-    } catch {}
+      if (r.ok) {
+        const data = await r.json();
+        if (data.version) setVersion(data.version);
+      }
+    } catch (e) {
+      console.error('Version fetch error:', e);
+    }
     try {
       const r = await apiFetch('/api/fritz/auto-session');
-      const data = await r.json();
-      if (data.host) setFritzHost(data.host);
+      if (r.ok) {
+        const data = await r.json();
+        if (data.host) setFritzHost(data.host);
+      }
     } catch {}
   };
 

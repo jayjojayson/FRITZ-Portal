@@ -206,43 +206,39 @@ async function discoverControlUrls(host) {
 async function getWebSid(host, username, password) {
   const loginUrl = `http://${host}/login_sid.lua`;
   try {
-    // Schritt 1: Challenge holen
     const resp = await fetch(loginUrl);
     const text = await resp.text();
-    console.log('getWebSid: login_sid.lua response length:', text.length, 'starts with:', text.substring(0, 100));
 
-    // XML-Antwort (klassische FritzBox + neueres Fritz!OS)
+    // XML-Antwort (klassische FritzBox)
     if (text.includes('<SID>') || text.includes('<Challenge>')) {
       const sidMatch = text.match(/<SID>([^<]+)<\/SID>/);
       if (sidMatch && sidMatch[1] && sidMatch[1] !== '0000000000000000') return sidMatch[1];
       const challengeMatch = text.match(/<Challenge>([^<]+)<\/Challenge>/);
       if (!challengeMatch) return '';
       const challenge = challengeMatch[1];
-      // UTF-16LE: challenge + '-' + password
       const challengeBuf = Buffer.from(challenge + '-' + password, 'utf16le');
       const responseStr = createHash('md5').update(challengeBuf).digest('hex');
       const formData = new URLSearchParams({ username, response: challenge + '-' + responseStr });
-      console.log('getWebSid: sending challenge-response, username:', username);
       const loginResp = await fetch(loginUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData.toString() });
       const loginText = await loginResp.text();
-      console.log('getWebSid: login response:', loginText.substring(0, 200));
       const newSid = loginText.match(/<SID>([^<]+)<\/SID>/);
       if (newSid && newSid[1] !== '0000000000000000') return newSid[1];
     }
 
-    // Fritz!Box Cable: versuche /login Endpoint
-    try {
-      const loginPageUrl = `http://${host}/login_sid.lua?username=${encodeURIComponent(username)}`;
-      const pageResp = await fetch(loginPageUrl);
-      const pageText = await pageResp.text();
-      console.log('getWebSid: login_sid.lua?username response length:', pageText.length);
-      if (pageText.includes('<SID>')) {
-        const sidMatch = pageText.match(/<SID>([^<]+)<\/SID>/);
-        if (sidMatch && sidMatch[1] && sidMatch[1] !== '0000000000000000') return sidMatch[1];
-      }
-    } catch {}
+    // Fritz!Box Cable: HTML-Antwort mit challenge in JS
+    const challengeMatch = text.match(/var challenge\s*=\s*['"]([^'"]+)['"]/);
+    if (challengeMatch) {
+      const challenge = challengeMatch[1];
+      const challengeBuf = Buffer.from(challenge + '-' + password, 'utf16le');
+      const responseStr = createHash('md5').update(challengeBuf).digest('hex');
+      const formData = new URLSearchParams({ username, response: challenge + '-' + responseStr });
+      const loginResp = await fetch(loginUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData.toString() });
+      const loginText = await loginResp.text();
+      const newSid = loginText.match(/<SID>([^<]+)<\/SID>/);
+      if (newSid && newSid[1] !== '0000000000000000') return newSid[1];
+    }
 
-    // Fallback: versuche data.lua ohne SID (manche Boxen erlauben das)
+    // Fallback: data.lua ohne SID testen
     try {
       const testR = await fetch(`http://${host}/data.lua`, {
         method: 'POST',
@@ -255,7 +251,6 @@ async function getWebSid(host, username, password) {
       }
     } catch {}
 
-    console.error('getWebSid: No valid SID obtained for', host);
     return '';
   } catch (err) {
     console.error('getWebSid error:', err.message);
@@ -348,12 +343,12 @@ app.get('/api/fritz/eco-stats', async (req, res) => {
   if (cached) return res.json(cached);
   try {
     const webSid = await getCachedWebSid(session);
+    if (!webSid) return res.json({ cpu: 0, ram: 0, cpu_temp: 0 });
 
-    // Versuche verschiedene pages mit SID
-    const pages = ['home', 'eco', 'overview', 'syslog'];
+    const pages = ['home', 'eco', 'overview'];
     for (const page of pages) {
       try {
-        const params = new URLSearchParams({ xhr: '1', sid: webSid || '', lang: 'de', page, xhrId: 'all' });
+        const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
         const r = await fetch(`http://${session.host}/data.lua`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -363,79 +358,24 @@ app.get('/api/fritz/eco-stats', async (req, res) => {
         if (text.trim().startsWith('{')) {
           const data = JSON.parse(text);
           const d = data?.data || {};
-          console.log(`eco-stats page=${page}:`, JSON.stringify(d).substring(0, 500));
-
-          // Verschiedene Feldnamen für CPU/RAM/Temp
-          const cpu = parseInt(d.cpu || d.cpu_usage || d.cpuload || d.CpuUsage || d.cpu_load || '0', 10) || 0;
-          const ram = parseInt(d.ram || d.ram_usage || d.memusage || d.MemUsage || d.ramusage || '0', 10) || 0;
-          const cpu_temp = parseInt(d.cpu_temp || d.temperature || d.temp || d.CpuTemp || d.cputemp || '0', 10) || 0;
-
-          // Series-Daten (eco page)
           const cpuSeries = d.cpuutil?.series?.[0] || [];
           const ramSeries = d.ramusage?.series?.[2] || [];
           const tempSeries = d.cputemp?.series?.[0] || [];
-          const cpu2 = cpuSeries.length > 0 ? parseInt(cpuSeries[cpuSeries.length - 1], 10) : 0;
-          const ram2 = ramSeries.length > 0 ? Math.round(ramSeries[ramSeries.length - 1]) : 0;
-          const temp2 = tempSeries.length > 0 ? parseInt(tempSeries[tempSeries.length - 1], 10) : 0;
-
-          const result = {
-            cpu: cpu2 || cpu,
-            ram: ram2 || ram,
-            cpu_temp: temp2 || cpu_temp,
-          };
-          if (result.cpu > 0 || result.ram > 0 || result.cpu_temp > 0) {
+          const cpu = cpuSeries.length > 0 ? parseInt(cpuSeries[cpuSeries.length - 1], 10) : 0;
+          const ram = ramSeries.length > 0 ? Math.round(ramSeries[ramSeries.length - 1]) : 0;
+          const cpu_temp = tempSeries.length > 0 ? parseInt(tempSeries[tempSeries.length - 1], 10) : 0;
+          if (cpu > 0 || ram > 0 || cpu_temp > 0) {
+            const result = { cpu, ram, cpu_temp };
             setCached('eco-stats', result);
             return res.json(result);
           }
-        } else if (text.includes('<html') || text.includes('<!DOCTYPE')) {
-          console.log(`eco-stats page=${page}: returned HTML (login page or no SID)`);
-          // Zeige erste 200 Zeichen um zu sehen was die Box zurückgibt
-          console.log(`eco-stats page=${page} HTML preview:`, text.substring(0, 200));
-        } else {
-          console.log(`eco-stats page=${page}: unknown format, first 200 chars:`, text.substring(0, 200));
         }
-      } catch (e) {
-        console.log(`eco-stats page=${page}: error ${e.message}`);
-      }
+      } catch {}
     }
-
     return res.json({ cpu: 0, ram: 0, cpu_temp: 0 });
   } catch (err) {
     console.error('EcoStats error:', err.message);
     return res.json({ cpu: 0, ram: 0, cpu_temp: 0 });
-  }
-});
-
-// Debug endpoint: zeigt rohe data.lua Antwort MIT SID
-app.get('/api/fritz/debug/eco', async (req, res) => {
-  const sid = req.headers['x-fritz-sid'];
-  const session = sessions.get(sid);
-  if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
-  try {
-    const webSid = await getCachedWebSid(session);
-    console.log('debug/eco: webSid =', webSid ? webSid.substring(0, 20) + '...' : '(empty)');
-    const results = {};
-    for (const page of ['home', 'eco', 'overview', 'syslog']) {
-      try {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 3000);
-        const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
-        const r = await fetch(`http://${session.host}/data.lua`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: params.toString(),
-          signal: ctrl.signal,
-        });
-        clearTimeout(timer);
-        const text = await r.text();
-        results[page] = text.substring(0, 3000);
-      } catch (e) {
-        results[page] = `Error: ${e.message}`;
-      }
-    }
-    res.json(results);
-  } catch (e) {
-    res.json({ error: e.message });
   }
 });
 
