@@ -342,6 +342,57 @@ app.get('/api/fritz/eco-stats', async (req, res) => {
   const cached = getCached('eco-stats');
   if (cached) return res.json(cached);
   try {
+    // 1. Versuche data.lua OHNE SID (page=eco für DSL-Modelle)
+    try {
+      const params = new URLSearchParams({ xhr: '1', lang: 'de', page: 'eco', xhrId: 'all' });
+      const r = await fetch(`http://${session.host}/data.lua`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+      const text = await r.text();
+      if (text.trim().startsWith('{')) {
+        const data = JSON.parse(text);
+        const eco = data?.data || {};
+        const cpuSeries = eco.cpuutil?.series?.[0] || [];
+        const cpu = cpuSeries.length > 0 ? parseInt(cpuSeries[cpuSeries.length - 1], 10) : 0;
+        const ramSeries = eco.ramusage?.series?.[2] || [];
+        const ram = ramSeries.length > 0 ? Math.round(ramSeries[ramSeries.length - 1]) : 0;
+        const tempSeries = eco.cputemp?.series?.[0] || [];
+        const cpu_temp = tempSeries.length > 0 ? parseInt(tempSeries[tempSeries.length - 1], 10) : 0;
+        if (cpu > 0 || ram > 0 || cpu_temp > 0) {
+          const result = { cpu, ram, cpu_temp };
+          setCached('eco-stats', result);
+          return res.json(result);
+        }
+      }
+    } catch {}
+
+    // 2. Versuche page=home (Cable-Modelle liefern Systeminfo hier)
+    try {
+      const params = new URLSearchParams({ xhr: '1', lang: 'de', page: 'home', xhrId: 'all' });
+      const r = await fetch(`http://${session.host}/data.lua`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+      const text = await r.text();
+      if (text.trim().startsWith('{')) {
+        const data = JSON.parse(text);
+        const d = data?.data || {};
+        // Cable-Modelle: cpu_temp, cpu, ram können direkt im data-Objekt stehen
+        const cpu = parseInt(d.cpu || d.cpu_usage || d.cpuload || '0', 10) || 0;
+        const ram = parseInt(d.ram || d.ram_usage || d.memusage || '0', 10) || 0;
+        const cpu_temp = parseInt(d.cpu_temp || d.temperature || d.temp || '0', 10) || 0;
+        if (cpu > 0 || ram > 0 || cpu_temp > 0) {
+          const result = { cpu, ram, cpu_temp };
+          setCached('eco-stats', result);
+          return res.json(result);
+        }
+      }
+    } catch {}
+
+    // 3. Mit Web-SID versuchen
     const webSid = await getCachedWebSid(session);
     if (webSid) {
       const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page: 'eco', xhrId: 'all' });
