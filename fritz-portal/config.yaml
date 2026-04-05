@@ -1,9 +1,9 @@
 name: "FRITZ!Portal"
 version: "1.0.0"
-slug: "fritz_portal"
+slug: "fritz-portal"
 description: "FRITZ!Box Dashboard für Home Assistant"
-url: "https://github.com/YOUR_USERNAME/fritz-api-ui"
-image: "ghcr.io/YOUR_USERNAME/fritz-portal-addon"
+url: "https://github.com/jayjojayson/FRITZ-Portal"
+image: "ghcr.io/jayjojayson/fritz-portal-addon"
 arch:
   - armhf
   - armv7
