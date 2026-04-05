@@ -52,6 +52,99 @@ if (staticPath) {
 const sessions = new Map();
 const AUTO_SID = 'auto-session-ha-addon';
 
+// ── Caching ──
+const cache = new Map();
+const CACHE_TTL = 10000; // 10 Sekunden
+
+// Traffic history tracking (server-seitig, alle 10 Sekunden)
+const trafficHistory = { down: [], up: [], startTime: Date.now() };
+// Periodische Traffic-Zähler (werden alle 10s aktualisiert)
+const trafficPeriods = {
+  today: { down: 0, up: 0, resetDay: new Date().getDate() },
+  yesterday: { down: 0, up: 0 },
+  week: { down: 0, up: 0, resetWeek: getWeekNumber(new Date()) },
+  month: { down: 0, up: 0, resetMonth: new Date().getMonth() },
+  lastMonth: { down: 0, up: 0 },
+};
+
+function getWeekNumber(d) {
+  const onejan = new Date(d.getFullYear(), 0, 1);
+  return Math.ceil(((d - onejan) / 86400000 + onejan.getDay() + 1) / 7);
+}
+
+function updateTrafficPeriods() {
+  const now = new Date();
+  const currentDay = now.getDate();
+  const currentWeek = getWeekNumber(now);
+  const currentMonth = now.getMonth();
+
+  // Tag-Wechsel
+  if (currentDay !== trafficPeriods.today.resetDay) {
+    trafficPeriods.yesterday.down = trafficPeriods.today.down;
+    trafficPeriods.yesterday.up = trafficPeriods.today.up;
+    trafficPeriods.today.down = 0;
+    trafficPeriods.today.up = 0;
+    trafficPeriods.today.resetDay = currentDay;
+  }
+  // Wochen-Wechsel
+  if (currentWeek !== trafficPeriods.week.resetWeek) {
+    trafficPeriods.week.down = trafficPeriods.today.down;
+    trafficPeriods.week.up = trafficPeriods.today.up;
+    trafficPeriods.week.resetWeek = currentWeek;
+  }
+  // Monats-Wechsel
+  if (currentMonth !== trafficPeriods.month.resetMonth) {
+    trafficPeriods.lastMonth.down = trafficPeriods.month.down;
+    trafficPeriods.lastMonth.up = trafficPeriods.month.up;
+    trafficPeriods.month.down = trafficPeriods.today.down;
+    trafficPeriods.month.up = trafficPeriods.today.up;
+    trafficPeriods.month.resetMonth = currentMonth;
+  }
+}
+
+setInterval(async () => {
+  for (const [sid, session] of sessions) {
+    try {
+      let addonInfo = await soapRequest(session.host, 'urn:schemas-upnp-org:service:WANCommonInterfaceConfig:1', 'GetAddonInfos', session.username, session.password, session.controlUrls);
+      if (!addonInfo['NewByteSendRate'] && !addonInfo['NewTotalBytesReceived']) {
+        addonInfo = await soapRequest(session.host, 'urn:dslforum-org:service:WANCommonInterfaceConfig:1', 'GetAddonInfos', session.username, session.password, session.controlUrls);
+      }
+      const downBps = parseInt(addonInfo['NewByteReceiveRate'] || '0', 10) || 0;
+      const upBps = parseInt(addonInfo['NewByteSendRate'] || '0', 10) || 0;
+      const now = Date.now();
+      trafficHistory.down.push({ time: now, value: downBps });
+      trafficHistory.up.push({ time: now, value: upBps });
+      // 30 Min History
+      const cutoff = now - 30 * 60 * 1000;
+      trafficHistory.down = trafficHistory.down.filter(p => p.time > cutoff);
+      trafficHistory.up = trafficHistory.up.filter(p => p.time > cutoff);
+
+      // Traffic für Perioden akkumulieren (Bytes = Bytes/s * 10s)
+      const downBytes = downBps * 10;
+      const upBytes = upBps * 10;
+      trafficPeriods.today.down += downBytes;
+      trafficPeriods.today.up += upBytes;
+      trafficPeriods.week.down += downBytes;
+      trafficPeriods.week.up += upBytes;
+      trafficPeriods.month.down += downBytes;
+      trafficPeriods.month.up += upBytes;
+
+      updateTrafficPeriods();
+    } catch {}
+  }
+}, 10000);
+
+function getCached(key) {
+  const entry = cache.get(key);
+  if (entry && Date.now() - entry.ts < CACHE_TTL) return entry.data;
+  cache.delete(key);
+  return null;
+}
+
+function setCached(key, data) {
+  cache.set(key, { data, ts: Date.now() });
+}
+
 // ── Helpers ──
 
 function parseXml(xml) {
@@ -243,12 +336,14 @@ app.get('/api/fritz/device-info', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  const cached = getCached('device-info');
+  if (cached) return res.json(cached);
   try {
     const info = await getDeviceInfoViaSoap(session.host, session.username, session.password, session.controlUrls);
+    setCached('device-info', info);
     return res.json(info);
   } catch (err) {
     console.error('DeviceInfo error:', err.message);
-    console.error('DeviceInfo: controlUrls:', JSON.stringify(session.controlUrls));
     return res.json({ NewModelName: 'FRITZ!Box', NewFirmwareVersion: '' });
   }
 });
@@ -257,12 +352,14 @@ app.get('/api/fritz/hosts', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  const cached = getCached('hosts');
+  if (cached) return res.json(cached);
   try {
     const hosts = await getHostsViaSoap(session.host, session.username, session.password, session.controlUrls);
+    setCached('hosts', hosts);
     return res.json(hosts);
   } catch (err) {
     console.error('Hosts error:', err.message);
-    console.error('Hosts: controlUrls:', JSON.stringify(session.controlUrls));
     return res.json([]);
   }
 });
@@ -271,6 +368,8 @@ app.get('/api/fritz/eco-stats', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  const cached = getCached('eco-stats');
+  if (cached) return res.json(cached);
   try {
     const webSid = await getWebSid(session.host, session.username, session.password);
     if (webSid) {
@@ -290,7 +389,9 @@ app.get('/api/fritz/eco-stats', async (req, res) => {
         const ram = ramSeries.length > 0 ? Math.round(ramSeries[ramSeries.length - 1]) : 0;
         const tempSeries = eco.cputemp?.series?.[0] || [];
         const cpu_temp = tempSeries.length > 0 ? parseInt(tempSeries[tempSeries.length - 1], 10) : 0;
-        return res.json({ cpu, ram, cpu_temp });
+        const result = { cpu, ram, cpu_temp };
+        setCached('eco-stats', result);
+        return res.json(result);
       }
     }
     return res.json({ cpu: 0, ram: 0, cpu_temp: 0 });
@@ -304,6 +405,10 @@ app.get('/api/fritz/network-stats', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
+
+  const cached = getCached('network-stats');
+  if (cached) return res.json(cached);
+
   let downBps = 0, upBps = 0, dsHistory = [], usHistory = [];
   try {
     const webSid = await getWebSid(session.host, session.username, session.password);
@@ -341,18 +446,26 @@ app.get('/api/fritz/network-stats', async (req, res) => {
     } catch (e) { console.error('AddonInfos fallback error:', e.message); }
   }
 
+  // Server-side history for Cable models (fills dsHistory/usHistory)
+  if (dsHistory.length === 0 && trafficHistory.down.length > 0) {
+    const now = Date.now();
+    dsHistory = trafficHistory.down.filter(p => now - p.time <= 30 * 60 * 1000).map(p => p.value);
+    usHistory = trafficHistory.up.filter(p => now - p.time <= 30 * 60 * 1000).map(p => p.value);
+  }
+
   let totalDown = 0, totalUp = 0;
   try {
     let addonInfo = await soapRequest(session.host, 'urn:schemas-upnp-org:service:WANCommonInterfaceConfig:1', 'GetAddonInfos', session.username, session.password, session.controlUrls);
     if (!addonInfo['NewTotalBytesReceived'] && !addonInfo['NewX_AVM_DE_TotalBytesReceived64']) {
       addonInfo = await soapRequest(session.host, 'urn:dslforum-org:service:WANCommonInterfaceConfig:1', 'GetAddonInfos', session.username, session.password, session.controlUrls);
     }
-    console.log('AddonInfos response:', JSON.stringify(addonInfo));
     totalDown = parseInt(addonInfo['NewX_AVM_DE_TotalBytesReceived64'] || addonInfo['NewTotalBytesReceived'] || '0', 10) || 0;
     totalUp = parseInt(addonInfo['NewX_AVM_DE_TotalBytesSent64'] || addonInfo['NewTotalBytesSent'] || '0', 10) || 0;
   } catch (e) { console.error('AddonInfos error:', e.message); }
 
-  return res.json({ currentDown: downBps, currentUp: upBps, totalDown, totalUp, dsHistory, usHistory });
+  const result = { currentDown: downBps, currentUp: upBps, totalDown, totalUp, dsHistory, usHistory };
+  setCached('network-stats', result);
+  return res.json(result);
 });
 
 app.get('/api/fritz/device-stats', async (req, res) => {
@@ -877,24 +990,25 @@ app.get('/api/fritz/traffic-counters', async (req, res) => {
     }
   }
 
-  // 2. Fallback: SOAP-basierte Traffic-Daten (funktioniert bei Cable)
+  // 2. Fallback: Server-tracked traffic periods + SOAP totals (funktioniert bei Cable)
   try {
     let addonInfo = await soapRequest(session.host, 'urn:schemas-upnp-org:service:WANCommonInterfaceConfig:1', 'GetAddonInfos', session.username, session.password, session.controlUrls);
     if (!addonInfo['NewTotalBytesReceived'] && !addonInfo['NewX_AVM_DE_TotalBytesReceived64']) {
       addonInfo = await soapRequest(session.host, 'urn:dslforum-org:service:WANCommonInterfaceConfig:1', 'GetAddonInfos', session.username, session.password, session.controlUrls);
     }
-    const totalDown = parseInt(addonInfo['NewX_AVM_DE_TotalBytesReceived64'] || addonInfo['NewTotalBytesReceived'] || '0', 10) || 0;
-    const totalUp = parseInt(addonInfo['NewX_AVM_DE_TotalBytesSent64'] || addonInfo['NewTotalBytesSent'] || '0', 10) || 0;
     const currentDown = parseInt(addonInfo['NewByteReceiveRate'] || '0', 10) || 0;
     const currentUp = parseInt(addonInfo['NewByteSendRate'] || '0', 10) || 0;
 
-    return res.json({
-      rows: [
-        { name: 'Aktueller Monat', received: totalDown, sent: totalUp, onlineTime: '', connections: 0 },
-      ],
-      currentDown,
-      currentUp,
-    });
+    // Server-seitig getrackte Perioden
+    const rows = [
+      { name: 'Heute', received: trafficPeriods.today.down, sent: trafficPeriods.today.up, onlineTime: '', connections: 0 },
+      { name: 'Gestern', received: trafficPeriods.yesterday.down, sent: trafficPeriods.yesterday.up, onlineTime: '', connections: 0 },
+      { name: 'Aktuelle Woche', received: trafficPeriods.week.down, sent: trafficPeriods.week.up, onlineTime: '', connections: 0 },
+      { name: 'Aktueller Monat', received: trafficPeriods.month.down, sent: trafficPeriods.month.up, onlineTime: '', connections: 0 },
+      { name: 'Vormonat', received: trafficPeriods.lastMonth.down, sent: trafficPeriods.lastMonth.up, onlineTime: '', connections: 0 },
+    ];
+
+    return res.json({ rows, currentDown, currentUp });
   } catch (err) {
     console.error('Traffic counters SOAP fallback error:', err.message);
     return res.json({ rows: [], currentDown: 0, currentUp: 0 });
