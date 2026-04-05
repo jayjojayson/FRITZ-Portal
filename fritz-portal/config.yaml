@@ -1,5 +1,5 @@
 name: "FRITZ!Portal"
-version: "1.0.0"
+version: "1.0.4"
 slug: "fritz-portal"
 description: "FRITZ!Box Dashboard für Home Assistant"
 url: "https://github.com/jayjojayson/FRITZ-Portal"
