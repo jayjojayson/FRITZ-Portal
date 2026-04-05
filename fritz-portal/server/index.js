@@ -57,13 +57,23 @@ const cache = new Map();
 const CACHE_TTL = 10000; // 10 Sekunden
 
 // ── Cached Web-SID (vermeidet langsame Login-Requests bei jedem Aufruf) ──
-let cachedWebSid = '';
+let cachedWebSid = null;
 let cachedWebSidTime = 0;
 const WEB_SID_TTL = 300000; // 5 Minuten
 
 async function getCachedWebSid(session) {
-  if (cachedWebSid && Date.now() - cachedWebSidTime < WEB_SID_TTL) return cachedWebSid;
-  cachedWebSid = await getWebSid(session.host, session.username, session.password);
+  if (cachedWebSid !== null && Date.now() - cachedWebSidTime < WEB_SID_TTL) return cachedWebSid;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 3000);
+    cachedWebSid = await Promise.race([
+      getWebSid(session.host, session.username, session.password),
+      new Promise((_, reject) => ctrl.signal.addEventListener('abort', () => reject(new Error('Timeout'))))
+    ]);
+    clearTimeout(timer);
+  } catch {
+    cachedWebSid = '';
+  }
   cachedWebSidTime = Date.now();
   return cachedWebSid;
 }

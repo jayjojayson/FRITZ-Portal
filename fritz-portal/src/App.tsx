@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import Sidebar from './components/Sidebar';
+import Header from './components/Header';
 import Dashboard from './pages/Dashboard';
 import DeviceList from './pages/DeviceList';
 import DeviceDetail from './pages/DeviceDetail';
@@ -114,10 +114,9 @@ export default function App() {
 
   return (
     <div className="app">
-      <Sidebar
+      <Header
         currentPage={currentPage === 'device-detail' ? 'devices' : currentPage}
         onNavigate={(page) => { setCurrentPage(page); setSelectedDevice(null); }}
-        onLogout={handleLogout}
       />
       <main className="main-content">
         {currentPage === 'dashboard' && <Dashboard sid={sid} />}
