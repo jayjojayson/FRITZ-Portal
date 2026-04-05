@@ -301,7 +301,7 @@ app.get('/api/fritz/auto-session', async (req, res) => {
     const controlUrls = await discoverControlUrls(host);
     sessions.set(AUTO_SID, { host, username, password, controlUrls, isAutoSession: true });
     console.log('Auto-session: Created session with SID:', AUTO_SID);
-    return res.json({ active: true, sid: AUTO_SID });
+    return res.json({ active: true, sid: AUTO_SID, host });
   } catch (err) {
     console.error('Auto-session error:', err.message);
     return res.json({ active: false });
@@ -1070,6 +1070,17 @@ app.get('/api/fritz/traffic-counters', async (req, res) => {
   } catch (err) {
     console.error('Traffic counters SOAP fallback error:', err.message);
     return res.json({ rows: [], currentDown: 0, currentUp: 0 });
+  }
+});
+
+// Version endpoint
+app.get('/api/fritz/version', async (req, res) => {
+  try {
+    const pkgPath = join(__dirname, '..', 'package.json');
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+    return res.json({ version: pkg.version });
+  } catch {
+    return res.json({ version: '1.1.2' });
   }
 });
 
