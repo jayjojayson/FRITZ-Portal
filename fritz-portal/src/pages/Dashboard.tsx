@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import {
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { apiFetch } from '../lib/apiFetch';
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell
-} from 'recharts';
 
 interface Host {
   mac: string;
