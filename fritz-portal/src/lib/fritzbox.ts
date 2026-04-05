@@ -1,5 +1,3 @@
-import { Md5 } from 'ts-md5';
-
 export interface FritzBoxConfig {
   username: string;
   password: string;
