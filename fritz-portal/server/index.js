@@ -204,48 +204,54 @@ async function discoverControlUrls(host) {
 }
 
 async function getWebSid(host, username, password) {
-  // Fritz!Box Cable: login_sid.lua gibt HTML → Challenge aus HTML extrahieren
   const loginUrl = `http://${host}/login_sid.lua`;
   try {
     const resp = await fetch(loginUrl);
     const text = await resp.text();
 
-    // XML-Antwort (klassische FritzBox)
+    // XML-Antwort (klassische FritzBox + neueres Fritz!OS)
     if (text.includes('<SID>') || text.includes('<Challenge>')) {
       const sidMatch = text.match(/<SID>([^<]+)<\/SID>/);
       if (sidMatch && sidMatch[1] && sidMatch[1] !== '0000000000000000') return sidMatch[1];
       const challengeMatch = text.match(/<Challenge>([^<]+)<\/Challenge>/);
       if (!challengeMatch) return '';
       const challenge = challengeMatch[1];
-      const utf16Str = challenge.split('').map(c => c + '\0').join('') + '-' + password.split('').map(c => c + '\0').join('');
-      const responseStr = createHash('md5').update(Buffer.from(utf16Str, 'utf8')).digest('hex');
-      const formData = new URLSearchParams({ username, response: challenge + ':' + responseStr });
-      const loginResp = await fetch(loginUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData.toString() });
-      const loginText = await loginResp.text();
-      const newSid = loginText.match(/<SID>([^<]+)<\/SID>/);
-      return (newSid && newSid[1] !== '0000000000000000') ? newSid[1] : '';
-    }
-
-    // HTML-Antwort (Cable) → Challenge aus JS-Code extrahieren
-    const challengeMatch = text.match(/var challenge\s*=\s*['"]([^'"]+)['"]/);
-    if (!challengeMatch) {
-      // Fallback: versuche POST mit username/password direkt
-      const formData = new URLSearchParams({ username, password });
+      // UTF-16LE: challenge + '-' + password
+      const challengeBuf = Buffer.from(challenge + '-' + password, 'utf16le');
+      const responseStr = createHash('md5').update(challengeBuf).digest('hex');
+      const formData = new URLSearchParams({ username, response: challenge + '-' + responseStr });
       const loginResp = await fetch(loginUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData.toString() });
       const loginText = await loginResp.text();
       const newSid = loginText.match(/<SID>([^<]+)<\/SID>/);
       if (newSid && newSid[1] !== '0000000000000000') return newSid[1];
-      console.error('getWebSid: No challenge found in HTML response');
-      return '';
     }
-    const challenge = challengeMatch[1];
-    const utf16Str = challenge.split('').map(c => c + '\0').join('') + '-' + password.split('').map(c => c + '\0').join('');
-    const responseStr = createHash('md5').update(Buffer.from(utf16Str, 'utf8')).digest('hex');
-    const formData = new URLSearchParams({ username, response: challenge + ':' + responseStr });
-    const loginResp = await fetch(loginUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData.toString() });
-    const loginText = await loginResp.text();
-    const newSid = loginText.match(/<SID>([^<]+)<\/SID>/);
-    return (newSid && newSid[1] !== '0000000000000000') ? newSid[1] : '';
+
+    // Fritz!Box Cable: versuche /login Endpoint
+    try {
+      const loginPageUrl = `http://${host}/login_sid.lua?username=${encodeURIComponent(username)}`;
+      const pageResp = await fetch(loginPageUrl);
+      const pageText = await pageResp.text();
+      if (pageText.includes('<SID>')) {
+        const sidMatch = pageText.match(/<SID>([^<]+)<\/SID>/);
+        if (sidMatch && sidMatch[1] && sidMatch[1] !== '0000000000000000') return sidMatch[1];
+      }
+    } catch {}
+
+    // Fallback: versuche data.lua ohne SID (manche Boxen erlauben das)
+    try {
+      const testR = await fetch(`http://${host}/data.lua`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ xhr: '1', lang: 'de', page: 'netCnt', xhrId: 'all' }).toString(),
+      });
+      const testText = await testR.text();
+      if (testText.trim().startsWith('{') || testText.includes('const data')) {
+        return 'no-auth-needed';
+      }
+    } catch {}
+
+    console.error('getWebSid: No valid SID obtained');
+    return '';
   } catch (err) {
     console.error('getWebSid error:', err.message);
     return '';
