@@ -206,8 +206,10 @@ async function discoverControlUrls(host) {
 async function getWebSid(host, username, password) {
   const loginUrl = `http://${host}/login_sid.lua`;
   try {
+    // Schritt 1: Challenge holen
     const resp = await fetch(loginUrl);
     const text = await resp.text();
+    console.log('getWebSid: login_sid.lua response length:', text.length, 'starts with:', text.substring(0, 100));
 
     // XML-Antwort (klassische FritzBox + neueres Fritz!OS)
     if (text.includes('<SID>') || text.includes('<Challenge>')) {
@@ -220,8 +222,10 @@ async function getWebSid(host, username, password) {
       const challengeBuf = Buffer.from(challenge + '-' + password, 'utf16le');
       const responseStr = createHash('md5').update(challengeBuf).digest('hex');
       const formData = new URLSearchParams({ username, response: challenge + '-' + responseStr });
+      console.log('getWebSid: sending challenge-response, username:', username);
       const loginResp = await fetch(loginUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData.toString() });
       const loginText = await loginResp.text();
+      console.log('getWebSid: login response:', loginText.substring(0, 200));
       const newSid = loginText.match(/<SID>([^<]+)<\/SID>/);
       if (newSid && newSid[1] !== '0000000000000000') return newSid[1];
     }
@@ -231,6 +235,7 @@ async function getWebSid(host, username, password) {
       const loginPageUrl = `http://${host}/login_sid.lua?username=${encodeURIComponent(username)}`;
       const pageResp = await fetch(loginPageUrl);
       const pageText = await pageResp.text();
+      console.log('getWebSid: login_sid.lua?username response length:', pageText.length);
       if (pageText.includes('<SID>')) {
         const sidMatch = pageText.match(/<SID>([^<]+)<\/SID>/);
         if (sidMatch && sidMatch[1] && sidMatch[1] !== '0000000000000000') return sidMatch[1];
@@ -250,7 +255,7 @@ async function getWebSid(host, username, password) {
       }
     } catch {}
 
-    console.error('getWebSid: No valid SID obtained');
+    console.error('getWebSid: No valid SID obtained for', host);
     return '';
   } catch (err) {
     console.error('getWebSid error:', err.message);
@@ -401,18 +406,20 @@ app.get('/api/fritz/eco-stats', async (req, res) => {
   }
 });
 
-// Debug endpoint: zeigt rohe data.lua Antwort (ohne SID)
+// Debug endpoint: zeigt rohe data.lua Antwort MIT SID
 app.get('/api/fritz/debug/eco', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
   try {
+    const webSid = await getCachedWebSid(session);
+    console.log('debug/eco: webSid =', webSid ? webSid.substring(0, 20) + '...' : '(empty)');
     const results = {};
     for (const page of ['home', 'eco', 'overview', 'syslog']) {
       try {
         const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 2000);
-        const params = new URLSearchParams({ xhr: '1', lang: 'de', page, xhrId: 'all' });
+        const timer = setTimeout(() => ctrl.abort(), 3000);
+        const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
         const r = await fetch(`http://${session.host}/data.lua`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -421,7 +428,7 @@ app.get('/api/fritz/debug/eco', async (req, res) => {
         });
         clearTimeout(timer);
         const text = await r.text();
-        results[page] = text.substring(0, 2000);
+        results[page] = text.substring(0, 3000);
       } catch (e) {
         results[page] = `Error: ${e.message}`;
       }

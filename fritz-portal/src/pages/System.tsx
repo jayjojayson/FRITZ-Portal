@@ -83,7 +83,7 @@ export default function System({ sid }: SystemProps) {
               </tr>
               <tr>
                 <td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>FRITZ!Portal</td>
-                <td>v1.1.0</td>
+                <td>v1.1.1</td>
               </tr>
               <tr>
                 <td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>Firmware</td>
