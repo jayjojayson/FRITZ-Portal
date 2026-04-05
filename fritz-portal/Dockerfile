@@ -1,40 +1,37 @@
-# =============================================================================
-# FRITZ!Portal — Home Assistant Add-on
-# =============================================================================
+# syntax=docker/dockerfile:1
 
-ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:latest
-
-# ── Stage 1: Frontend-Build ──────────────────────────────────────────────────
-FROM node:20-alpine AS builder
-WORKDIR /build
-
-# Dependency-Dateien zuerst (from fritz-portal root context)
+# ── Stage 1: Frontend bauen ──
+FROM node:20-alpine AS frontend
+WORKDIR /app
 COPY package.json tsconfig.json vite.config.ts index.html ./
-COPY src/ ./src/
-RUN npm install --include=dev
+COPY src ./src
+RUN npm install
 RUN npm run build
 
-# ── Stage 2: Runtime ─────────────────────────────────────────────────────────
+# ── Stage 2: Server Dependencies ──
+FROM node:20-alpine AS server-deps
+WORKDIR /app/server
+COPY server/package.json ./
+RUN npm install --omit=dev
+
+# ── Stage 3: Runtime ──
 FROM node:20-alpine
+LABEL maintainer="FRITZ!Portal Add-on"
+
 WORKDIR /app
 
-# Server-Abhängigkeiten installieren (explicitly from fritz-portal/server/)
-COPY ./server/package.json ./server/
-RUN cd server && npm install --omit=dev
+# Frontend (built)
+COPY --from=frontend /app/dist ./dist
 
-# Cable-Modell-Patch für @lukesthl/fritzbox anwenden
-COPY ./patch-fritzbox.mjs /tmp/patch-fritzbox.mjs
-RUN node /tmp/patch-fritzbox.mjs && rm /tmp/patch-fritzbox.mjs
+# Server code + dependencies
+COPY server/index.js ./server/index.js
+COPY --from=server-deps /app/server/node_modules ./server/node_modules
+COPY server/package.json ./server/package.json
 
-# Server-Quellcode kopieren (this is the current fritz-portal/server/index.js - NOT root/server/)
-COPY ./server/index.js ./server/
-
-# Kompiliertes Frontend aus Stage 1 übernehmen
-COPY --from=builder /build/dist ./dist
-
-# Copy startup script
-COPY ./run.sh /run.sh
+# Start script
+COPY run.sh /run.sh
 RUN chmod +x /run.sh
 
-# Start via run.sh (required by HA Supervisor)
+EXPOSE 3003
+
 CMD ["/run.sh"]

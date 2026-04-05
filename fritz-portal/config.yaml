@@ -1,42 +1,36 @@
 name: "FRITZ!Portal"
-version: "1.3.0"
+version: "1.0.0"
 slug: "fritz_portal"
-description: "Web-Oberfläche für die FRITZ!Box — Geräte, Netzwerk, Telefonie & mehr"
-url: "https://github.com/jayjojayson/FRITZ-Portal"
-
-# Unterstützte Architekturen
+description: "FRITZ!Box Dashboard für Home Assistant"
+url: "https://github.com/YOUR_USERNAME/fritz-api-ui"
+image: "ghcr.io/YOUR_USERNAME/fritz-portal-addon"
 arch:
+  - armhf
+  - armv7
   - aarch64
   - amd64
-  - armv7
-  - armhf
   - i386
-
-# Add-On Startup & Services
+init: false
 startup: application
 boot: auto
-
-# Kein s6-overlay (plain Node.js CMD)
-init: false
-
-# HA Ingress: Zugriff über das HA-Dashboard ohne eigenen Port
 ingress: true
 ingress_port: 3003
-ingress_entry: /
-
-# Optionaler direkter Port-Zugriff (z.B. http://homeassistant.local:3003)
+ingress_stream: false
+panel_icon: "mdi:router-wireless"
+panel_title: "FRITZ!Portal"
+panel_admin: true
+hassio_api: false
+homeassistant_api: false
+host_network: true
 ports:
-  3003/tcp: 3003
+  3003/tcp: null
 ports_description:
-  3003/tcp: "FRITZ!Portal Web-Oberfläche"
-
-# Konfigurationsoptionen (werden in /data/options.json geschrieben)
+  3003/tcp: "FRITZ!Portal Web UI"
 options:
   fritzbox_host: "fritz.box"
-  fritzbox_user: "admin"
+  fritzbox_user: ""
   fritzbox_password: ""
-
 schema:
-  fritzbox_host: str
-  fritzbox_user: str
-  fritzbox_password: str
+  fritzbox_host: "str"
+  fritzbox_user: "str"
+  fritzbox_password: "str"

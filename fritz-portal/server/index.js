@@ -86,6 +86,7 @@ if (staticPath) {
 }
 
 const sessions = new Map();
+const AUTO_SID = 'auto-session-ha-addon';
 
 // Traffic tracking for monthly consumption
 const trafficData = new Map();
@@ -1148,10 +1149,7 @@ app.get('/api/fritz/auto-session', async (req, res) => {
   }
   
   try {
-    // Generate a session ID for this auto-login
-    const sid = Math.random().toString(36).substring(2) + Date.now().toString(36);
-    
-    // Create FritzBox instance (but don't test connection yet)
+    // Create FritzBox instance
     const fb = new FritzBox({
       username,
       password,
@@ -1204,11 +1202,11 @@ app.get('/api/fritz/auto-session', async (req, res) => {
       if (!controlUrls[svc]) controlUrls[svc] = url;
     }
 
-    // Store auto-session in sessions (connection will be tested on first API call)
-    sessions.set(sid, { host, username, password, fb, controlUrls, isAutoSession: true });
+    // Store auto-session with fixed AUTO_SID so logout check works
+    sessions.set(AUTO_SID, { host, username, password, fb, controlUrls, isAutoSession: true });
     
-    console.log('Auto-session: Created session with SID:', sid.substring(0, 8) + '...');
-    return res.json({ active: true, sid });
+    console.log('Auto-session: Created session with SID:', AUTO_SID);
+    return res.json({ active: true, sid: AUTO_SID });
   } catch (err) {
     console.error('Auto-session error:', err.message);
     return res.json({ active: false });
@@ -1217,13 +1215,14 @@ app.get('/api/fritz/auto-session', async (req, res) => {
 
 app.post('/api/fritz/logout', (req, res) => {
   const sid = req.headers['x-fritz-sid'];
-  if (sessions.has(sid)) {
+  if (sid !== AUTO_SID) {
     sessions.delete(sid);
+    trafficData.delete(sid);
   }
-  res.json({ success: true });
+  return res.json({ success: true });
 });
 
 const PORT = 3003;
-app.listen(PORT, () => {
-  console.log(`FritzBox Proxy Server läuft auf http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`FritzBox Proxy Server läuft auf http://0.0.0.0:${PORT}`);
 });

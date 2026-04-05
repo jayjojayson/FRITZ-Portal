@@ -7,7 +7,7 @@ import Network from './pages/Network';
 import Traffic from './pages/Traffic';
 import Telefonie from './pages/Telefonie';
 import System from './pages/System';
-import { apiFetch } from './lib/apiFetch';
+import { apiFetch } from '../lib/apiFetch';
 
 type Page = 'dashboard' | 'devices' | 'device-detail' | 'network' | 'traffic' | 'telefonie' | 'system';
 
