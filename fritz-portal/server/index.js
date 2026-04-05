@@ -273,23 +273,25 @@ app.get('/api/fritz/eco-stats', async (req, res) => {
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
   try {
     const webSid = await getWebSid(session.host, session.username, session.password);
-    const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page: 'eco', xhrId: 'all' });
-    const r = await fetch(`http://${session.host}/data.lua`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString(),
-    });
-    const text = await r.text();
-    if (text.trim().startsWith('{')) {
-      const data = JSON.parse(text);
-      const eco = data?.data || {};
-      const cpuSeries = eco.cpuutil?.series?.[0] || [];
-      const cpu = cpuSeries.length > 0 ? parseInt(cpuSeries[cpuSeries.length - 1], 10) : 0;
-      const ramSeries = eco.ramusage?.series?.[2] || [];
-      const ram = ramSeries.length > 0 ? Math.round(ramSeries[ramSeries.length - 1]) : 0;
-      const tempSeries = eco.cputemp?.series?.[0] || [];
-      const cpu_temp = tempSeries.length > 0 ? parseInt(tempSeries[tempSeries.length - 1], 10) : 0;
-      return res.json({ cpu, ram, cpu_temp });
+    if (webSid) {
+      const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page: 'eco', xhrId: 'all' });
+      const r = await fetch(`http://${session.host}/data.lua`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+      const text = await r.text();
+      if (text.trim().startsWith('{')) {
+        const data = JSON.parse(text);
+        const eco = data?.data || {};
+        const cpuSeries = eco.cpuutil?.series?.[0] || [];
+        const cpu = cpuSeries.length > 0 ? parseInt(cpuSeries[cpuSeries.length - 1], 10) : 0;
+        const ramSeries = eco.ramusage?.series?.[2] || [];
+        const ram = ramSeries.length > 0 ? Math.round(ramSeries[ramSeries.length - 1]) : 0;
+        const tempSeries = eco.cputemp?.series?.[0] || [];
+        const cpu_temp = tempSeries.length > 0 ? parseInt(tempSeries[tempSeries.length - 1], 10) : 0;
+        return res.json({ cpu, ram, cpu_temp });
+      }
     }
     return res.json({ cpu: 0, ram: 0, cpu_temp: 0 });
   } catch (err) {
@@ -305,25 +307,39 @@ app.get('/api/fritz/network-stats', async (req, res) => {
   let downBps = 0, upBps = 0, dsHistory = [], usHistory = [];
   try {
     const webSid = await getWebSid(session.host, session.username, session.password);
-    const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page: 'netMon', xhrId: 'all' });
-    const r = await fetch(`http://${session.host}/data.lua`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString(),
-    });
-    const text = await r.text();
-    if (text.trim().startsWith('{')) {
-      const data = JSON.parse(text);
-      const syncGroups = data?.data?.sync_groups || [];
-      if (syncGroups[0]) {
-        const group = syncGroups[0];
-        dsHistory = group.ds_bps_curr || [];
-        usHistory = group.us_default_bps_curr || [];
-        if (dsHistory.length > 0) downBps = dsHistory[dsHistory.length - 1] || 0;
-        if (usHistory.length > 0) upBps = usHistory[usHistory.length - 1] || 0;
+    if (webSid) {
+      const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page: 'netMon', xhrId: 'all' });
+      const r = await fetch(`http://${session.host}/data.lua`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+      const text = await r.text();
+      if (text.trim().startsWith('{')) {
+        const data = JSON.parse(text);
+        const syncGroups = data?.data?.sync_groups || [];
+        if (syncGroups[0]) {
+          const group = syncGroups[0];
+          dsHistory = group.ds_bps_curr || [];
+          usHistory = group.us_default_bps_curr || [];
+          if (dsHistory.length > 0) downBps = dsHistory[dsHistory.length - 1] || 0;
+          if (usHistory.length > 0) upBps = usHistory[usHistory.length - 1] || 0;
+        }
       }
     }
   } catch (e) { console.error('NetworkMonitor error:', e.message); }
+
+  // Fallback: GetAddonInfos für Live-Speeds
+  if (downBps === 0 && upBps === 0) {
+    try {
+      let addonInfo = await soapRequest(session.host, 'urn:schemas-upnp-org:service:WANCommonInterfaceConfig:1', 'GetAddonInfos', session.username, session.password, session.controlUrls);
+      if (!addonInfo['NewByteSendRate'] && !addonInfo['NewTotalBytesReceived']) {
+        addonInfo = await soapRequest(session.host, 'urn:dslforum-org:service:WANCommonInterfaceConfig:1', 'GetAddonInfos', session.username, session.password, session.controlUrls);
+      }
+      downBps = parseInt(addonInfo['NewByteReceiveRate'] || '0', 10) || 0;
+      upBps = parseInt(addonInfo['NewByteSendRate'] || '0', 10) || 0;
+    } catch (e) { console.error('AddonInfos fallback error:', e.message); }
+  }
 
   let totalDown = 0, totalUp = 0;
   try {
@@ -761,102 +777,127 @@ app.get('/api/fritz/traffic-counters', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
-  try {
-    const webSid = await getWebSid(session.host, session.username, session.password);
-    const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page: 'netCnt', xhrId: 'all' });
-    const r = await fetch(`http://${session.host}/data.lua`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString(),
-    });
-    const text = await r.text();
 
-    if (text.trim().startsWith('{') || text.trim().startsWith('[')) {
-      try {
-        const raw = JSON.parse(text);
-        const d = raw?.data || raw || {};
-        function rowBytes(e, dirIn) {
-          const fields = dirIn ? [e.grossbytes_in, e.bytes_in, e.rx_bytes, e.rx, e.in] : [e.grossbytes_out, e.bytes_out, e.tx_bytes, e.tx, e.out];
-          for (const f of fields) if (f !== undefined && f !== null) return parseInt(f) || 0;
-          return 0;
+  // 1. Versuche data.lua mit Web-SID (klassische FritzBox)
+  const webSid = await getWebSid(session.host, session.username, session.password);
+  if (webSid) {
+    try {
+      const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page: 'netCnt', xhrId: 'all' });
+      const r = await fetch(`http://${session.host}/data.lua`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+      const text = await r.text();
+
+      if (text.trim().startsWith('{') || text.trim().startsWith('[')) {
+        try {
+          const raw = JSON.parse(text);
+          const d = raw?.data || raw || {};
+          function rowBytes(e, dirIn) {
+            const fields = dirIn ? [e.grossbytes_in, e.bytes_in, e.rx_bytes, e.rx, e.in] : [e.grossbytes_out, e.bytes_out, e.tx_bytes, e.tx, e.out];
+            for (const f of fields) if (f !== undefined && f !== null) return parseInt(f) || 0;
+            return 0;
+          }
+          function rowTime(e) {
+            const fields = [e.time, e.onlinetime, e.online_time, e.onlineTime, e.duration];
+            for (const f of fields) if (f !== undefined) { const s = parseInt(f) || 0; return `${String(Math.floor(s/3600)).padStart(2,'0')}:${String(Math.floor((s%3600)/60)).padStart(2,'0')}`; }
+            return '00:00';
+          }
+          const labels = ['Heute', 'Gestern', 'Aktuelle Woche', 'Aktueller Monat', 'Vormonat'];
+          const mkRow = (e, i) => ({ name: e.name || labels[i], received: rowBytes(e, true), sent: rowBytes(e, false), onlineTime: rowTime(e), connections: parseInt(e.connections || '0') || 0 });
+          if (d.today !== undefined) return res.json({ rows: ['today','yesterday','week','month','last_month'].map((k,i) => mkRow(d[k]||{},i)) });
+          if (d.heute !== undefined) return res.json({ rows: ['heute','gestern','woche','monat','vormonat'].map((k,i) => mkRow(d[k]||{},i)) });
+          const arr = Array.isArray(d) ? d : (d.tablelist || d.netCnt || d.count || d.stat || d.rows || d.list);
+          if (Array.isArray(arr) && arr.length > 0) return res.json({ rows: arr.slice(0,5).map((e,i) => mkRow(e,i)) });
+        } catch {}
+      }
+
+      // HTML fallback
+      function parseNetCntHtml(html) {
+        function extractJsData(h) {
+          const idx = h.indexOf('const data = ');
+          if (idx === -1) return null;
+          const start = h.indexOf('{', idx);
+          if (start === -1) return null;
+          let depth = 0;
+          for (let i = start; i < h.length; i++) {
+            if (h[i] === '{') depth++;
+            else if (h[i] === '}') { depth--; if (depth === 0) { try { return JSON.parse(h.substring(start, i + 1)); } catch { return null; } } }
+          }
+          return null;
         }
-        function rowTime(e) {
-          const fields = [e.time, e.onlinetime, e.online_time, e.onlineTime, e.duration];
-          for (const f of fields) if (f !== undefined) { const s = parseInt(f) || 0; return `${String(Math.floor(s/3600)).padStart(2,'0')}:${String(Math.floor((s%3600)/60)).padStart(2,'0')}`; }
-          return '00:00';
+        function highLow(high, low) { return parseInt(high || '0') * 4294967296 + parseInt(low || '0'); }
+        function jsKey(name) {
+          const n = name.toLowerCase();
+          if (n.includes('vormonat')) return 'LastMonth';
+          if (n.includes('monat')) return 'ThisMonth';
+          if (n.includes('woche')) return 'ThisWeek';
+          if (n.includes('gestern')) return 'Yesterday';
+          if (n.includes('heute')) return 'Today';
+          return null;
+        }
+        const jsData = extractJsData(html);
+        const trMatches = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
+        const allRows = trMatches.map(m => {
+          const cells = [...m[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(c => c[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim());
+          return cells;
+        }).filter(cells => cells.length >= 2);
+        const keywords = ['heute', 'gestern', 'woche', 'monat', 'vormonat'];
+        const dataRows = allRows.filter(row => row[0] && keywords.some(k => row[0].toLowerCase().includes(k)));
+        if (dataRows.length === 0 && jsData) {
+          const mapping = [
+            { key: 'Today', name: 'Heute' }, { key: 'Yesterday', name: 'Gestern' },
+            { key: 'ThisWeek', name: 'Aktuelle Woche' }, { key: 'ThisMonth', name: 'Aktueller Monat' },
+            { key: 'LastMonth', name: 'Vormonat' },
+          ];
+          return mapping.filter(e => jsData[e.key]).map(e => ({
+            name: e.name, onlineTime: '00:00',
+            received: highLow(jsData[e.key].BytesReceivedHigh, jsData[e.key].BytesReceivedLow),
+            sent: highLow(jsData[e.key].BytesSentHigh, jsData[e.key].BytesSentLow),
+            connections: 0,
+          }));
         }
         const labels = ['Heute', 'Gestern', 'Aktuelle Woche', 'Aktueller Monat', 'Vormonat'];
-        const mkRow = (e, i) => ({ name: e.name || labels[i], received: rowBytes(e, true), sent: rowBytes(e, false), onlineTime: rowTime(e), connections: parseInt(e.connections || '0') || 0 });
-        if (d.today !== undefined) return res.json({ rows: ['today','yesterday','week','month','last_month'].map((k,i) => mkRow(d[k]||{},i)) });
-        if (d.heute !== undefined) return res.json({ rows: ['heute','gestern','woche','monat','vormonat'].map((k,i) => mkRow(d[k]||{},i)) });
-        const arr = Array.isArray(d) ? d : (d.tablelist || d.netCnt || d.count || d.stat || d.rows || d.list);
-        if (Array.isArray(arr) && arr.length > 0) return res.json({ rows: arr.slice(0,5).map((e,i) => mkRow(e,i)) });
-      } catch {}
-    }
+        return dataRows.slice(0, 5).map((cells, i) => {
+          const name = cells[0] || labels[i];
+          const onlineTime = cells.find(c => /^\d+:\d+$/.test(c)) || '00:00';
+          const connCell = [...cells].reverse().find(c => /^\d+$/.test(c));
+          const connections = connCell ? parseInt(connCell) : 0;
+          let received = 0, sent = 0;
+          if (jsData) { const k = jsKey(name); if (k && jsData[k]) { received = highLow(jsData[k].BytesReceivedHigh, jsData[k].BytesReceivedLow); sent = highLow(jsData[k].BytesSentHigh, jsData[k].BytesSentLow); } }
+          return { name, onlineTime, received, sent, connections };
+        });
+      }
 
-    // HTML fallback
-    function parseNetCntHtml(html) {
-      function extractJsData(h) {
-        const idx = h.indexOf('const data = ');
-        if (idx === -1) return null;
-        const start = h.indexOf('{', idx);
-        if (start === -1) return null;
-        let depth = 0;
-        for (let i = start; i < h.length; i++) {
-          if (h[i] === '{') depth++;
-          else if (h[i] === '}') { depth--; if (depth === 0) { try { return JSON.parse(h.substring(start, i + 1)); } catch { return null; } } }
-        }
-        return null;
-      }
-      function highLow(high, low) { return parseInt(high || '0') * 4294967296 + parseInt(low || '0'); }
-      function jsKey(name) {
-        const n = name.toLowerCase();
-        if (n.includes('vormonat')) return 'LastMonth';
-        if (n.includes('monat')) return 'ThisMonth';
-        if (n.includes('woche')) return 'ThisWeek';
-        if (n.includes('gestern')) return 'Yesterday';
-        if (n.includes('heute')) return 'Today';
-        return null;
-      }
-      const jsData = extractJsData(html);
-      const trMatches = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
-      const allRows = trMatches.map(m => {
-        const cells = [...m[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(c => c[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim());
-        return cells;
-      }).filter(cells => cells.length >= 2);
-      const keywords = ['heute', 'gestern', 'woche', 'monat', 'vormonat'];
-      const dataRows = allRows.filter(row => row[0] && keywords.some(k => row[0].toLowerCase().includes(k)));
-      if (dataRows.length === 0 && jsData) {
-        const mapping = [
-          { key: 'Today', name: 'Heute' }, { key: 'Yesterday', name: 'Gestern' },
-          { key: 'ThisWeek', name: 'Aktuelle Woche' }, { key: 'ThisMonth', name: 'Aktueller Monat' },
-          { key: 'LastMonth', name: 'Vormonat' },
-        ];
-        return mapping.filter(e => jsData[e.key]).map(e => ({
-          name: e.name, onlineTime: '00:00',
-          received: highLow(jsData[e.key].BytesReceivedHigh, jsData[e.key].BytesReceivedLow),
-          sent: highLow(jsData[e.key].BytesSentHigh, jsData[e.key].BytesSentLow),
-          connections: 0,
-        }));
-      }
-      const labels = ['Heute', 'Gestern', 'Aktuelle Woche', 'Aktueller Monat', 'Vormonat'];
-      return dataRows.slice(0, 5).map((cells, i) => {
-        const name = cells[0] || labels[i];
-        const onlineTime = cells.find(c => /^\d+:\d+$/.test(c)) || '00:00';
-        const connCell = [...cells].reverse().find(c => /^\d+$/.test(c));
-        const connections = connCell ? parseInt(connCell) : 0;
-        let received = 0, sent = 0;
-        if (jsData) { const k = jsKey(name); if (k && jsData[k]) { received = highLow(jsData[k].BytesReceivedHigh, jsData[k].BytesReceivedLow); sent = highLow(jsData[k].BytesSentHigh, jsData[k].BytesSentLow); } }
-        return { name, onlineTime, received, sent, connections };
-      });
+      const parsed = parseNetCntHtml(text);
+      if (parsed && parsed.length > 0) return res.json({ rows: parsed });
+    } catch (err) {
+      console.error('Traffic counters data.lua error:', err.message);
     }
+  }
 
-    const parsed = parseNetCntHtml(text);
-    if (parsed && parsed.length > 0) return res.json({ rows: parsed });
-    return res.json({ rows: [], debug: `Unbekanntes Format: ${text.substring(0, 300)}` });
+  // 2. Fallback: SOAP-basierte Traffic-Daten (funktioniert bei Cable)
+  try {
+    let addonInfo = await soapRequest(session.host, 'urn:schemas-upnp-org:service:WANCommonInterfaceConfig:1', 'GetAddonInfos', session.username, session.password, session.controlUrls);
+    if (!addonInfo['NewTotalBytesReceived'] && !addonInfo['NewX_AVM_DE_TotalBytesReceived64']) {
+      addonInfo = await soapRequest(session.host, 'urn:dslforum-org:service:WANCommonInterfaceConfig:1', 'GetAddonInfos', session.username, session.password, session.controlUrls);
+    }
+    const totalDown = parseInt(addonInfo['NewX_AVM_DE_TotalBytesReceived64'] || addonInfo['NewTotalBytesReceived'] || '0', 10) || 0;
+    const totalUp = parseInt(addonInfo['NewX_AVM_DE_TotalBytesSent64'] || addonInfo['NewTotalBytesSent'] || '0', 10) || 0;
+    const currentDown = parseInt(addonInfo['NewByteReceiveRate'] || '0', 10) || 0;
+    const currentUp = parseInt(addonInfo['NewByteSendRate'] || '0', 10) || 0;
+
+    return res.json({
+      rows: [
+        { name: 'Aktueller Monat', received: totalDown, sent: totalUp, onlineTime: '', connections: 0 },
+      ],
+      currentDown,
+      currentUp,
+    });
   } catch (err) {
-    console.error('Traffic counters error:', err.message);
-    return res.json({ rows: [], debug: `Server-Fehler: ${err.message}` });
+    console.error('Traffic counters SOAP fallback error:', err.message);
+    return res.json({ rows: [], currentDown: 0, currentUp: 0 });
   }
 });
 
