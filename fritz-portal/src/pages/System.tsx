@@ -82,6 +82,10 @@ export default function System({ sid }: SystemProps) {
                 <td>{deviceInfo?.NewHardwareVersion || '-'}</td>
               </tr>
               <tr>
+                <td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>FRITZ!Portal</td>
+                <td>v1.1.0</td>
+              </tr>
+              <tr>
                 <td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>Firmware</td>
                 <td>{deviceInfo?.NewFirmwareVersion || '-'}</td>
               </tr>

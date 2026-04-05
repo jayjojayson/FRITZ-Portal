@@ -383,7 +383,11 @@ app.get('/api/fritz/eco-stats', async (req, res) => {
             return res.json(result);
           }
         } else if (text.includes('<html') || text.includes('<!DOCTYPE')) {
-          console.log(`eco-stats page=${page}: returned HTML (no SID or page not available)`);
+          console.log(`eco-stats page=${page}: returned HTML (login page or no SID)`);
+          // Zeige erste 200 Zeichen um zu sehen was die Box zurückgibt
+          console.log(`eco-stats page=${page} HTML preview:`, text.substring(0, 200));
+        } else {
+          console.log(`eco-stats page=${page}: unknown format, first 200 chars:`, text.substring(0, 200));
         }
       } catch (e) {
         console.log(`eco-stats page=${page}: error ${e.message}`);
@@ -397,22 +401,25 @@ app.get('/api/fritz/eco-stats', async (req, res) => {
   }
 });
 
-// Debug endpoint: zeigt rohe data.lua Antwort
+// Debug endpoint: zeigt rohe data.lua Antwort (ohne SID)
 app.get('/api/fritz/debug/eco', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
   try {
-    const webSid = await getCachedWebSid(session);
     const results = {};
     for (const page of ['home', 'eco', 'overview', 'syslog']) {
       try {
-        const params = new URLSearchParams({ xhr: '1', sid: webSid || '', lang: 'de', page, xhrId: 'all' });
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 2000);
+        const params = new URLSearchParams({ xhr: '1', lang: 'de', page, xhrId: 'all' });
         const r = await fetch(`http://${session.host}/data.lua`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: params.toString(),
+          signal: ctrl.signal,
         });
+        clearTimeout(timer);
         const text = await r.text();
         results[page] = text.substring(0, 2000);
       } catch (e) {
