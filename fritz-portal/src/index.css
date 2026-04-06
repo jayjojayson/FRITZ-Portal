@@ -50,128 +50,107 @@ body {
 .app {
   min-height: 100vh;
   display: flex;
-}
-
-/* Sidebar */
-.sidebar {
-  width: 250px;
-  background: var(--bg-sidebar);
-  display: flex;
   flex-direction: column;
-  position: fixed;
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  height: 56px;
+  position: sticky;
   top: 0;
-  left: 0;
-  height: 100vh;
   z-index: 100;
+  box-shadow: var(--shadow);
 }
 
-.sidebar-header {
-  padding: 24px 20px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-}
-
-.sidebar-header h1 {
-  color: #fff;
-  font-size: 20px;
-  font-weight: 700;
+.header-brand {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-right: 32px;
+  flex-shrink: 0;
 }
 
-.sidebar-header h1 span {
-  font-size: 24px;
+.header-logo {
+  width: 24px;
+  height: 24px;
 }
 
-.sidebar-nav {
-  flex: 1;
-  padding: 16px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.header-title {
+  font-size: 18px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
-.nav-item {
+.header-nav {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
+  gap: 4px;
+  flex: 1;
+  overflow-x: auto;
+}
+
+.header-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
   border-radius: 8px;
   cursor: pointer;
-  color: var(--text-sidebar);
-  font-size: 14px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 13px;
   font-weight: 500;
   transition: all 0.15s;
-  text-decoration: none;
+  white-space: nowrap;
 }
 
-.nav-item:hover {
-  background: var(--bg-hover);
-  color: var(--text-sidebar-active);
+.header-nav-item:hover {
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
-.nav-item.active {
+.header-nav-item.active {
   background: var(--accent);
   color: #fff;
 }
 
-.nav-item svg {
-  width: 20px;
-  height: 20px;
+.header-nav-item svg {
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
 }
 
-.sidebar-footer {
-  padding: 16px;
-  border-top: 1px solid rgba(255,255,255,0.08);
-}
-
-.theme-toggle {
+.header-theme-toggle {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
+  justify-content: center;
+  padding: 8px;
   border-radius: 8px;
   cursor: pointer;
   background: none;
-  border: 1px solid rgba(255,255,255,0.1);
-  color: var(--text-sidebar);
-  font-size: 13px;
-  width: 100%;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  margin-left: 12px;
+  flex-shrink: 0;
   transition: all 0.15s;
 }
 
-.theme-toggle:hover {
-  background: var(--bg-hover);
-  color: #fff;
-}
-
-.logout-btn {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border-radius: 8px;
-  cursor: pointer;
-  background: none;
-  border: 1px solid rgba(239,68,68,0.3);
-  color: #ef4444;
-  font-size: 13px;
-  width: 100%;
-  margin-top: 8px;
-  transition: all 0.15s;
-}
-
-.logout-btn:hover {
-  background: rgba(239,68,68,0.1);
+.header-theme-toggle:hover {
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 /* Main Content */
 .main-content {
   flex: 1;
-  margin-left: 250px;
   padding: 32px;
-  min-height: 100vh;
+  min-height: calc(100vh - 56px);
 }
 
 .page-header {
@@ -189,7 +168,7 @@ body {
   font-size: 15px;
 }
 
-/* Stats Grid */
+/* Cards */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -242,7 +221,6 @@ body {
   font-weight: 700;
 }
 
-/* Cards */
 .card {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -535,17 +513,23 @@ tbody tr:last-child td {
 
 /* Responsive */
 @media (max-width: 768px) {
-  .sidebar {
-    width: 60px;
+  .header {
+    padding: 0 12px;
+    height: 52px;
   }
-  .sidebar-header h1 span:last-child,
-  .nav-item span,
-  .theme-toggle span,
-  .logout-btn span {
+  .header-title {
     display: none;
   }
+  .header-brand {
+    margin-right: 12px;
+  }
+  .header-nav-item span {
+    display: none;
+  }
+  .header-nav-item {
+    padding: 8px 12px;
+  }
   .main-content {
-    margin-left: 60px;
     padding: 16px;
   }
 }

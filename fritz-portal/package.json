@@ -1,7 +1,7 @@
 {
   "name": "fritz-portal-addon",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.6",
   "type": "module",
   "scripts": {
     "build": "tsc -b && vite build"
@@ -9,8 +9,7 @@
   "dependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "recharts": "^2.15.0",
-    "ts-md5": "^2.0.1"
+    "recharts": "^2.15.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.6",

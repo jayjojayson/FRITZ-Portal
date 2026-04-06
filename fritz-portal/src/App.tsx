@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import Sidebar from './components/Sidebar';
+import Header from './components/Header';
 import Dashboard from './pages/Dashboard';
 import DeviceList from './pages/DeviceList';
 import DeviceDetail from './pages/DeviceDetail';
@@ -7,7 +7,7 @@ import Network from './pages/Network';
 import Traffic from './pages/Traffic';
 import Telefonie from './pages/Telefonie';
 import System from './pages/System';
-import { apiFetch } from '../lib/apiFetch';
+import { apiFetch } from './lib/apiFetch';
 
 type Page = 'dashboard' | 'devices' | 'device-detail' | 'network' | 'traffic' | 'telefonie' | 'system';
 
@@ -21,7 +21,6 @@ export default function App() {
   // HA Add-on: Auto-Session beim Start - KEINE Login-Seite
   useEffect(() => {
     console.log('App starting - attempting auto-login...');
-    console.log('Ingress path:', window.__INGRESS_PATH__);
     
     apiFetch('/api/fritz/auto-session')
       .then((r: Response) => {
@@ -115,10 +114,9 @@ export default function App() {
 
   return (
     <div className="app">
-      <Sidebar
+      <Header
         currentPage={currentPage === 'device-detail' ? 'devices' : currentPage}
         onNavigate={(page) => { setCurrentPage(page); setSelectedDevice(null); }}
-        onLogout={handleLogout}
       />
       <main className="main-content">
         {currentPage === 'dashboard' && <Dashboard sid={sid} />}

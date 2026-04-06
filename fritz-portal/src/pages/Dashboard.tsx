@@ -305,7 +305,7 @@ export default function Dashboard({ sid }: DashboardProps) {
                     borderRadius: 8,
                     fontSize: 13,
                   }}
-                  formatter={(value: number, name: string) => [`${value} Mbit/s`, name === 'download' ? 'Download' : 'Upload']}
+                  formatter={(value: number, name: string) => [`${value} Mbit/s`, name]}
                 />
                 <Area type="monotone" dataKey="download" stroke="#3b82f6" fill="url(#colorDown)" strokeWidth={2} name="Download" isAnimationActive={false} />
                 <Area type="monotone" dataKey="upload" stroke="#22c55e" fill="url(#colorUp)" strokeWidth={2} name="Upload" isAnimationActive={false} />

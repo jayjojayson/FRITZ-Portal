@@ -15,7 +15,7 @@ Dashboard für Ihre FRITZ!Box, direkt in Home Assistant integriert.
 
 1. Dieses Repository als Custom Repository in Home Assistant einbinden:
    - Einstellungen → Add-ons → Add-on Store → ⋮ → Benutzerdefinierte Repositories
-   - URL: `https://github.com/YOUR_USERNAME/fritz-api-ui`
+   - URL: `https://github.com/jayjojayson/FRITZ-Portal`
 2. **FRITZ!Portal** im Store finden und installieren
 3. Konfiguration ausfüllen (siehe unten)
 4. Add-on starten und über die Seitenleiste öffnen
@@ -37,4 +37,4 @@ Dashboard für Ihre FRITZ!Box, direkt in Home Assistant integriert.
 
 ## Support
 
-Bei Problemen: https://github.com/YOUR_USERNAME/fritz-api-ui/issues
+Bei Problemen: https://github.com/jayjojayson/FRITZ-Portal/issues
