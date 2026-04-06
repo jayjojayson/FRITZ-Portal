@@ -6,12 +6,12 @@ Dashboard für Ihre FRITZ!Box, direkt in Home Assistant integriert.
 
 ## Funktionen
 
-- **Dashboard**: Übersicht über FRITZ!Box-Status, CPU, RAM, Temperatur
-- **Geräte**: Alle verbundenen Geräte anzeigen und verwalten
+- **Dashboard**: Übersicht über FRITZ!Box-Status, CPU, RAM, Temperatur, aktueller Traffic
+- **Geräte**: Alle verbundenen Geräte anzeigen und verwalten, inkl. freie IP-Adressen
 - **Netzwerk**: LAN, WAN, WLAN-Einstellungen einsehen und ändern
 - **Traffic**: Datenverbrauch (Tag, Woche, Monat, Vormonat)
 - **Telefonie**: Anrufliste und DECT-Telefonie
-- **System**: FRITZ!Box-Informationen und Neustart
+- **System**: FRITZ!Box-Informationen, Neustart, FRITZ!Portal Version
 
 ## Installation
 

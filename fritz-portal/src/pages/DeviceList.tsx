@@ -30,8 +30,24 @@ export default function DeviceList({ sid, onSelectDevice }: DeviceListProps) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [sortField, setSortField] = useState<'name' | 'status' | 'ip' | 'connection'>('name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   const headers = { 'X-Fritz-SID': sid };
+
+  const handleSort = (field: 'name' | 'status' | 'ip' | 'connection') => {
+    if (sortField === field) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDir('asc');
+    }
+  };
+
+  const getSortIndicator = (field: string) => {
+    if (sortField !== field) return null;
+    return sortDir === 'asc' ? ' ▲' : ' ▼';
+  };
 
   useEffect(() => {
     if (!dataLoaded) {
@@ -118,6 +134,25 @@ export default function DeviceList({ sid, onSelectDevice }: DeviceListProps) {
     h.ip.includes(search) ||
     h.mac.toLowerCase().includes(search.toLowerCase())
   );
+
+  const sorted = [...filtered].sort((a, b) => {
+    let cmp = 0;
+    switch (sortField) {
+      case 'name':
+        cmp = (a.name || 'Unbekannt').localeCompare(b.name || 'Unbekannt');
+        break;
+      case 'status':
+        cmp = (a.active ? 1 : 0) - (b.active ? 1 : 0);
+        break;
+      case 'ip':
+        cmp = a.ip.localeCompare(b.ip);
+        break;
+      case 'connection':
+        cmp = (isWlan(a.interface) ? 'wlan' : 'lan').localeCompare(isWlan(b.interface) ? 'wlan' : 'lan');
+        break;
+    }
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
 
   const onlineCount = hosts.filter(h => h.active).length;
   const offlineCount = hosts.filter(h => !h.active).length;
@@ -206,15 +241,15 @@ export default function DeviceList({ sid, onSelectDevice }: DeviceListProps) {
             <table>
               <thead>
                 <tr>
-                  <th>Status</th>
-                  <th>Name</th>
-                  <th>IP-Adresse</th>
+                  <th style={{ cursor: 'pointer' }} onClick={() => handleSort('status')}>Status{getSortIndicator('status')}</th>
+                  <th style={{ cursor: 'pointer' }} onClick={() => handleSort('name')}>Name{getSortIndicator('name')}</th>
+                  <th style={{ cursor: 'pointer' }} onClick={() => handleSort('ip')}>IP-Adresse{getSortIndicator('ip')}</th>
                   <th>MAC-Adresse</th>
-                  <th>Verbindung</th>
+                  <th style={{ cursor: 'pointer' }} onClick={() => handleSort('connection')}>Verbindung{getSortIndicator('connection')}</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((host, i) => (
+                {sorted.map((host, i) => (
                   <tr key={i} onClick={() => onSelectDevice(host.mac)} style={{ cursor: 'pointer' }}>
                     <td>
                       <span className={`status-dot ${host.active ? 'online' : 'offline'}`} />
