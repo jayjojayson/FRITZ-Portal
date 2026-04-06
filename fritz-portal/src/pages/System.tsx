@@ -11,7 +11,7 @@ export default function System({ sid }: SystemProps) {
   const [rebooting, setRebooting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [version] = useState('1.1.18');
+  const [version] = useState('1.1.19');
   const [fritzHost, setFritzHost] = useState('fritz.box');
 
   const headers = { 'X-Fritz-SID': sid };

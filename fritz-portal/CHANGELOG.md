@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.19
+
+- Fix: apiFetch - Pfad-Konkatenierung korrigiert für HA Ingress
+
 ## 1.1.18
 
 - Fix: DeviceDetail - apiFetch statt fetch für blockstate und static-dhcp

@@ -10,10 +10,7 @@ function getIngressBase(): string {
 }
 
 export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  // Bei jedem Aufruf neu ermitteln (nicht cachen — Timing-Probleme beim Modul-Load)
   const ingressBase = getIngressBase();
-  // Führenden Slash vom Pfad entfernen, da ingressBase bereits einen hat
-  const cleanPath = ingressBase && path.startsWith('/') ? path.slice(1) : path;
-  const url = ingressBase + cleanPath;
+  const url = ingressBase + path;
   return fetch(url, init);
 }
