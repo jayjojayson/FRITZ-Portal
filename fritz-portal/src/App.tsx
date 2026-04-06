@@ -20,7 +20,7 @@ interface AppCache {
   [key: string]: CacheData | undefined;
 }
 
-const CACHE_TTL = 30000;
+const CACHE_TTL = 600000; // 10 minutes
 
 function getApiCache(key: string): any {
   const cached = (window as any).__apiCache?.[key];
