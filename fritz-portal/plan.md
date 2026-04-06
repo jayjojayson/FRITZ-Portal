@@ -1,11 +1,12 @@
 # FRITZ!Portal Plan
 
 ## Ablauf bei jeder Änderung:
-1. Version in config.yaml erhöhen (z.B. 1.1.12 → 1.1.13)
-2. GUI: Systemseite zeigt Version aus GitHub (muss im Frontend eingebaut werden)
-3. Commit zu GitHub mit Message v1.1.12 
-4. GitHub Actions baut automatisch das Docker Image → pusht nach ghcr.io
-5. Home Assistant zeigt Update-Benachrichtigung und kann installieren
+1. Version in config.yaml erhöhen (z.B. 1.1.13 → 1.1.14)
+2. package.json: Version erhöhen
+3. server/package.json: Version erhöhen
+4. System.tsx: Version in GUI erhöhen
+5. GitHub Actions baut automatisch das Docker Image → pusht nach ghcr.io
+6. Home Assistant zeigt Update-Benachrichtigung und kann installieren
 
 ## GitHub Ordner Struktur:
 - .github/workflows
