@@ -33,6 +33,8 @@ jobs:
         run: |
           VERSION=$(grep '^version:' fritz-portal/config.yaml | awk '{print $2}' | tr -d '"')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "repo=$REPO_LOWER" >> $GITHUB_OUTPUT
 
       - name: Build and push
         uses: docker/build-push-action@v5
@@ -40,8 +42,8 @@ jobs:
           context: ./fritz-portal
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}/fritz-portal-addon:${{ steps.version.outputs.version }}
-            ghcr.io/${{ github.repository }}/fritz-portal-addon:latest
+            ghcr.io/${{ steps.version.outputs.repo }}/fritz-portal-addon:${{ steps.version.outputs.version }}
+            ghcr.io/${{ steps.version.outputs.repo }}/fritz-portal-addon:latest
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           cache-from: type=gha
           cache-to: type=gha,mode=max
