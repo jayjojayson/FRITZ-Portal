@@ -13,6 +13,8 @@ interface IpStats {
   total: number;
   used: number;
   free: number;
+  minAddress: string;
+  maxAddress: string;
 }
 
 interface DeviceListProps {
@@ -22,7 +24,8 @@ interface DeviceListProps {
 
 export default function DeviceList({ sid, onSelectDevice }: DeviceListProps) {
   const [hosts, setHosts] = useState<Host[]>([]);
-  const [ipStats, setIpStats] = useState<IpStats>({ total: 0, used: 0, free: 0 });
+  const [ipStats, setIpStats] = useState<IpStats>({ total: 0, used: 0, free: 0, minAddress: '', maxAddress: '' });
+  const [freeIpNumbers, setFreeIpNumbers] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
@@ -41,6 +44,31 @@ export default function DeviceList({ sid, onSelectDevice }: DeviceListProps) {
       const [data, ipData] = await Promise.all([hostsRes.json(), ipRes.json()]);
       setHosts(data);
       setIpStats(ipData);
+      const usedNumbers = new Set(
+        data
+          .filter((h: Host) => h.ip)
+          .map((h: Host) => {
+            const parts = h.ip.split('.');
+            return parseInt(parts[parts.length - 1], 10);
+          })
+      );
+      
+      const getLastOctet = (ip: string) => {
+        const parts = ip.split('.');
+        return parseInt(parts[parts.length - 1], 10);
+      };
+      
+      const minNum = getLastOctet(ipData.minAddress);
+      const maxNum = getLastOctet(ipData.maxAddress);
+      const freeIps: number[] = [];
+      
+      for (let i = minNum; i <= maxNum && freeIps.length < 5; i++) {
+        if (!usedNumbers.has(i)) {
+          freeIps.push(i);
+        }
+      }
+      
+      setFreeIpNumbers(freeIps);
     } catch (err) {
       console.error(err);
     } finally {
@@ -103,6 +131,17 @@ export default function DeviceList({ sid, onSelectDevice }: DeviceListProps) {
           </div>
           <h3>Offline</h3>
           <div className="value">{offlineCount}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon purple">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a855f7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="2" width="20" height="8" rx="2" /><rect x="2" y="14" width="20" height="8" rx="2" /><line x1="6" y1="6" x2="6.01" y2="6" /><line x1="6" y1="18" x2="6.01" y2="18" />
+            </svg>
+          </div>
+          <h3>Freie IPs</h3>
+          <div className="value" style={{ fontSize: 16, fontWeight: 500 }}>
+            {freeIpNumbers.length > 0 ? freeIpNumbers.join(', ') : '-'}
+          </div>
         </div>
       </div>
 
