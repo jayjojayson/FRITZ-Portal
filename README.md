@@ -1,6 +1,6 @@
 # FRITZ!Portal — Home Assistant Add-on Repository
 
-Dieses Verzeichnis enthält die **korrigierte** Home Assistant Add-on Infrastruktur für **FRITZ!Portal**.
+Dieses Verzeichnis enthält die Home Assistant Add-on Infrastruktur für **FRITZ!Portal**.
 
 ## Inhaltsverzeichnis
 
@@ -24,12 +24,6 @@ ha-addon-fixed/
     src/                  ← React Frontend Source
 ```
 
-## Behobene Probleme (vs. ursprüngliches ha-addon/)
-
-1. **`AUTO_SID` nicht definiert** — Der logout handler referenzierte eine nicht existierende Variable
-2. **Doppelter `/api/fritz/logout` endpoint** — Zwei Definitionen desselben Endpoints
-3. **Server lauschte nur auf `localhost`** — Muss auf `0.0.0.0` hören für Docker/HA
-4. **Fehlende HA Add-on Dateien** — Dockerfile, config.yaml, run.sh, build.yaml, DOCS.md, CHANGELOG.md
 
 ## Lokal bauen & testen
 
@@ -49,10 +43,9 @@ docker run --rm -p 3003:3003 \
 
 ## Als Custom Repository in Home Assistant einbinden
 
-1. Dieses Verzeichnis (`ha-addon-fixed/`) in ein **eigenes GitHub-Repository** kopieren
-2. In HA: **Einstellungen → Add-ons → Store → ⋮ → Benutzerdefinierte Repositories**
-3. URL des neuen Repos einfügen
-4. Add-on "FRITZ!Portal" erscheint im Store → Installieren → Konfigurieren → Starten
+1. In HA: **Einstellungen → Add-ons → Store → ⋮ → Benutzerdefinierte Repositories**
+2. URL (https://github.com/jayjojayson/FRITZ-Portal) des neuen Repos einfügen
+3. Add-on "FRITZ!Portal" erscheint im Store → Installieren → Konfigurieren → Starten
 
 ## Konfiguration
 
