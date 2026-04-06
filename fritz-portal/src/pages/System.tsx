@@ -11,14 +11,13 @@ export default function System({ sid }: SystemProps) {
   const [rebooting, setRebooting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [version, setVersion] = useState('');
+  const [version] = useState('1.1.9');
   const [fritzHost, setFritzHost] = useState('fritz.box');
 
   const headers = { 'X-Fritz-SID': sid };
 
   useEffect(() => {
     loadInfo();
-    loadVersion();
   }, []);
 
   const loadInfo = async () => {
@@ -31,25 +30,6 @@ export default function System({ sid }: SystemProps) {
     } finally {
       setLoading(false);
     }
-  };
-
-  const loadVersion = async () => {
-    try {
-      const r = await apiFetch('/api/fritz/version');
-      if (r.ok) {
-        const data = await r.json();
-        if (data.version) setVersion(data.version);
-      }
-    } catch (e) {
-      console.error('Version fetch error:', e);
-    }
-    try {
-      const r = await apiFetch('/api/fritz/auto-session');
-      if (r.ok) {
-        const data = await r.json();
-        if (data.host) setFritzHost(data.host);
-      }
-    } catch {}
   };
 
   const handleReboot = async () => {
