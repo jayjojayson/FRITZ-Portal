@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.20
+
+- Fix: apiFetch - Pfad-Konkatenierung fürHA Ingress und Nicht-Ingress korrigiert
+
 ## 1.1.19
 
 - Fix: apiFetch - Pfad-Konkatenierung korrigiert für HA Ingress

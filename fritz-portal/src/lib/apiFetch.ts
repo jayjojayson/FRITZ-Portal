@@ -11,6 +11,12 @@ function getIngressBase(): string {
 
 export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const ingressBase = getIngressBase();
-  const url = ingressBase + path;
+  let url: string;
+  if (ingressBase) {
+    const cleanPath = path.startsWith('/') ? path.slice(1) : path;
+    url = ingressBase + cleanPath;
+  } else {
+    url = path.startsWith('/') ? path : '/' + path;
+  }
   return fetch(url, init);
 }
