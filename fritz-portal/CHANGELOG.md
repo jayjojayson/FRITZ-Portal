@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.16
+
+- Fix: Sortierung nach Verbindung - Fehler bei leeren Interfaces behoben
+
 ## 1.1.15
 
 - Neu: Sortierung auf der Geräteseite nach Name, Status, IP-Adresse oder Verbindung

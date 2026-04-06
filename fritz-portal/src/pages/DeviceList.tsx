@@ -135,6 +135,11 @@ export default function DeviceList({ sid, onSelectDevice }: DeviceListProps) {
     h.mac.toLowerCase().includes(search.toLowerCase())
   );
 
+  const isWlan = (iface: string) => {
+    const s = String(iface || '').toLowerCase();
+    return s.includes('wlan') || s.includes('802');
+  };
+
   const sorted = [...filtered].sort((a, b) => {
     let cmp = 0;
     switch (sortField) {
@@ -145,10 +150,10 @@ export default function DeviceList({ sid, onSelectDevice }: DeviceListProps) {
         cmp = (a.active ? 1 : 0) - (b.active ? 1 : 0);
         break;
       case 'ip':
-        cmp = a.ip.localeCompare(b.ip);
+        cmp = (a.ip || '').localeCompare(b.ip || '');
         break;
       case 'connection':
-        cmp = (isWlan(a.interface) ? 'wlan' : 'lan').localeCompare(isWlan(b.interface) ? 'wlan' : 'lan');
+        cmp = (isWlan(a.interface || '') ? 'wlan' : 'lan').localeCompare(isWlan(b.interface || '') ? 'wlan' : 'lan');
         break;
     }
     return sortDir === 'asc' ? cmp : -cmp;
@@ -156,11 +161,6 @@ export default function DeviceList({ sid, onSelectDevice }: DeviceListProps) {
 
   const onlineCount = hosts.filter(h => h.active).length;
   const offlineCount = hosts.filter(h => !h.active).length;
-
-  const isWlan = (iface: string) => {
-    const s = String(iface || '').toLowerCase();
-    return s.includes('wlan') || s.includes('802');
-  };
 
   if (loading) return <div className="loading"><div className="spinner" /></div>;
 
