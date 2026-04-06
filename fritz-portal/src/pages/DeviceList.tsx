@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { apiFetch } from '../lib/apiFetch';
+import { getApiCache, setApiCache } from '../App';
 
 interface Host {
   mac: string;
@@ -28,22 +29,58 @@ export default function DeviceList({ sid, onSelectDevice }: DeviceListProps) {
   const [freeIpNumbers, setFreeIpNumbers] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [dataLoaded, setDataLoaded] = useState(false);
 
   const headers = { 'X-Fritz-SID': sid };
 
   useEffect(() => {
-    loadDevices();
-  }, []);
+    if (!dataLoaded) {
+      loadDevices();
+    }
+  }, [dataLoaded]);
 
   const loadDevices = async () => {
     try {
+      const cachedHosts = getApiCache('hosts');
+      const cachedIpStats = getApiCache('ip-stats');
+
+      if (cachedHosts) {
+        const usedNumbers = new Set(
+          cachedHosts
+            .filter((h: Host) => h.ip)
+            .map((h: Host) => {
+              const parts = h.ip.split('.');
+              return parseInt(parts[parts.length - 1], 10);
+            })
+        );
+        setHosts(cachedHosts);
+        
+        if (cachedIpStats) {
+          setIpStats(cachedIpStats);
+          const minNum = parseInt(cachedIpStats.minAddress?.split('.')[3] || '0', 10);
+          const maxNum = parseInt(cachedIpStats.maxAddress?.split('.')[3] || '255', 10);
+          const freeIps: number[] = [];
+          for (let i = minNum; i <= maxNum && freeIps.length < 5; i++) {
+            if (!usedNumbers.has(i)) {
+              freeIps.push(i);
+            }
+          }
+          setFreeIpNumbers(freeIps);
+        }
+      }
+
       const [hostsRes, ipRes] = await Promise.all([
         apiFetch('/api/fritz/hosts', { headers }),
         apiFetch('/api/fritz/ip-stats', { headers }),
       ]);
       const [data, ipData] = await Promise.all([hostsRes.json(), ipRes.json()]);
+
+      setApiCache('hosts', data);
+      setApiCache('ip-stats', ipData);
+
       setHosts(data);
       setIpStats(ipData);
+      setDataLoaded(true);
       const usedNumbers = new Set(
         data
           .filter((h: Host) => h.ip)

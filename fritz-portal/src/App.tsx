@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
 import Header from './components/Header';
 import Dashboard from './pages/Dashboard';
 import DeviceList from './pages/DeviceList';
@@ -10,6 +10,33 @@ import System from './pages/System';
 import { apiFetch } from './lib/apiFetch';
 
 type Page = 'dashboard' | 'devices' | 'device-detail' | 'network' | 'traffic' | 'telefonie' | 'system';
+
+interface CacheData {
+  data: any;
+  timestamp: number;
+}
+
+interface AppCache {
+  [key: string]: CacheData | undefined;
+}
+
+const CACHE_TTL = 30000;
+
+function getApiCache(key: string): any {
+  const cached = (window as any).__apiCache?.[key];
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+  return null;
+}
+
+function setApiCache(key: string, data: any) {
+  const cache: AppCache = (window as any).__apiCache || {};
+  cache[key] = { data, timestamp: Date.now() };
+  (window as any).__apiCache = cache;
+}
+
+export { getApiCache, setApiCache };
 
 export default function App() {
   const [sid, setSid] = useState<string | null>(null);

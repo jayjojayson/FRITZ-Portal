@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { apiFetch } from '../lib/apiFetch';
+import { getApiCache, setApiCache } from '../App';
 
 interface Host {
   mac: string;
@@ -29,6 +30,7 @@ export default function Dashboard({ sid }: DashboardProps) {
   const [monthlyUp, setMonthlyUp] = useState(0);
   const [ipStats, setIpStats] = useState({ total: 0, used: 0, free: 0, minAddress: '', maxAddress: '' });
   const [loading, setLoading] = useState(true);
+  const [dataLoaded, setDataLoaded] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const headers = { 'X-Fritz-SID': sid };
@@ -37,14 +39,29 @@ export default function Dashboard({ sid }: DashboardProps) {
   const textColor = isDark ? '#9ca3af' : '#6b7280';
 
   useEffect(() => {
-    loadData();
+    if (!dataLoaded) {
+      loadData();
+    }
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, []);
+  }, [dataLoaded]);
 
   const loadData = async () => {
     try {
+      const cachedDeviceInfo = getApiCache('device-info');
+      const cachedHosts = getApiCache('hosts');
+      const cachedEcoStats = getApiCache('eco-stats');
+      const cachedNetworkStats = getApiCache('network-stats');
+      const cachedIpStats = getApiCache('ip-stats');
+      const cachedTrafficCounters = getApiCache('traffic-counters');
+
+      if (cachedDeviceInfo) setDeviceInfo(cachedDeviceInfo);
+      if (cachedHosts) setHosts(cachedHosts.filter((h: Host) => h.active));
+      if (cachedEcoStats) setEcoStats(cachedEcoStats);
+      if (cachedNetworkStats) setTraffic(cachedNetworkStats);
+      if (cachedIpStats) setIpStats(cachedIpStats);
+
       const [infoRes, hostsRes, statsRes, trafficRes, ipStatsRes] = await Promise.all([
         apiFetch('/api/fritz/device-info', { headers }),
         apiFetch('/api/fritz/hosts', { headers }),
@@ -59,11 +76,18 @@ export default function Dashboard({ sid }: DashboardProps) {
       const trafficData = await trafficRes.json();
       const ipStatsData = await ipStatsRes.json();
 
+      setApiCache('device-info', info);
+      setApiCache('hosts', hostList);
+      setApiCache('eco-stats', stats);
+      setApiCache('network-stats', trafficData);
+      setApiCache('ip-stats', ipStatsData);
+
       setDeviceInfo(info);
       setHosts(hostList.filter((h: Host) => h.active));
       setEcoStats(stats);
       setTraffic(trafficData);
       setIpStats(ipStatsData);
+      setDataLoaded(true);
 
       // Traffic-Zähler separat – Fritz!Box Cable braucht dafür extra Zeit
       apiFetch('/api/fritz/traffic-counters', { headers })
