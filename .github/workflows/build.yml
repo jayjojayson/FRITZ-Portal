@@ -1,4 +1,4 @@
-name: Build and Push Add-on 
+name: Build and Push Add-on
 
 on:
   push:
