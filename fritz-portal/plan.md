@@ -1,7 +1,7 @@
 # FRITZ!Portal Plan
 
 ## Ablauf bei jeder Änderung:
-1. Version in config.yaml erhöhen (z.B. 1.1.11 → 1.1.12)
+1. Version in config.yaml erhöhen (z.B. 1.1.12 → 1.1.13)
 2. GUI: Systemseite zeigt Version aus GitHub (muss im Frontend eingebaut werden)
 3. Commit zu GitHub mit Message v1.1.12 
 4. GitHub Actions baut automatisch das Docker Image → pusht nach ghcr.io
