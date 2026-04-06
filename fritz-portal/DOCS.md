@@ -2,7 +2,7 @@
 
 Dashboard für Ihre FRITZ!Box, direkt in Home Assistant integriert.
 
-<img width="80%" height="auto" alt="FRITZ!Portal" src="https://github.com/jayjojayson/FRITZ-Portal/blob/main/docs/images/screenshot.png" />
+<img width="80%" height="auto" alt="FRITZ!Portal" src="https://github.com/jayjojayson/FRITZ-Portal/blob/main/fritz-portal/docs/images/screenshot.png" />
 
 ## Funktionen
 
