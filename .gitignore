@@ -1,0 +1,17 @@
+node_modules
+server
+src
+dist
+electron-dist
+release
+vite.config.ts
+tsconfig.tsbuildinfo
+tsconfig.json
+package-lock.json
+package.json
+info.md
+index.html
+electron-main.js
+build-standalone.mjs
+.vscode/settings.json
+ha-addon-fixed/

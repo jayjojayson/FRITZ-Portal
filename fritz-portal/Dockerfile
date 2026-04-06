@@ -28,6 +28,7 @@ COPY server/index.js ./server/index.js
 COPY --from=server-deps /app/server/node_modules ./server/node_modules
 COPY server/package.json ./server/package.json
 
+# Start script
 COPY run.sh /run.sh
 RUN chmod +x /run.sh
 

@@ -11,14 +11,11 @@ export default function System({ sid }: SystemProps) {
   const [rebooting, setRebooting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [version, setVersion] = useState('');
-  const [fritzHost, setFritzHost] = useState('fritz.box');
 
   const headers = { 'X-Fritz-SID': sid };
 
   useEffect(() => {
     loadInfo();
-    loadVersion();
   }, []);
 
   const loadInfo = async () => {
@@ -33,27 +30,8 @@ export default function System({ sid }: SystemProps) {
     }
   };
 
-  const loadVersion = async () => {
-    try {
-      const r = await apiFetch('/api/fritz/version');
-      if (r.ok) {
-        const data = await r.json();
-        if (data.version) setVersion(data.version);
-      }
-    } catch (e) {
-      console.error('Version fetch error:', e);
-    }
-    try {
-      const r = await apiFetch('/api/fritz/auto-session');
-      if (r.ok) {
-        const data = await r.json();
-        if (data.host) setFritzHost(data.host);
-      }
-    } catch {}
-  };
-
   const handleReboot = async () => {
-    if (!confirm('Möchten Sie die FritzBox wirklich neustarten?')) return;
+    if (!confirm('M\u00f6chten Sie die FritzBox wirklich neustarten?')) return;
     setRebooting(true);
     setMessage('');
     setError('');
@@ -61,7 +39,7 @@ export default function System({ sid }: SystemProps) {
       const res = await apiFetch('/api/fritz/reboot', { method: 'POST', headers });
       const data = await res.json();
       if (data.success) {
-        setMessage('Neustart wurde ausgelöst. Die FritzBox startet jetzt neu...');
+        setMessage('Neustart wurde ausgel\u00f6st. Die FritzBox startet jetzt neu...');
       } else {
         setError(data.error || 'Neustart fehlgeschlagen');
       }
@@ -77,8 +55,6 @@ export default function System({ sid }: SystemProps) {
   const upTime = deviceInfo?.NewUpTime
     ? `${Math.floor(deviceInfo.NewUpTime / 86400)}d ${Math.floor((deviceInfo.NewUpTime % 86400) / 3600)}h ${Math.floor((deviceInfo.NewUpTime % 3600) / 60)}m`
     : '-';
-
-  const fritzUrl = `http://${fritzHost}`;
 
   return (
     <div>
@@ -106,8 +82,8 @@ export default function System({ sid }: SystemProps) {
                 <td>{deviceInfo?.NewHardwareVersion || '-'}</td>
               </tr>
               <tr>
-                <td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>FRITZ!Portal</td>
-                <td>v{version || '-'}</td>
+                <td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>Firmware</td>
+                <td>{deviceInfo?.NewFirmwareVersion || '-'}</td>
               </tr>
               <tr>
                 <td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>Seriennummer</td>
@@ -130,7 +106,7 @@ export default function System({ sid }: SystemProps) {
             </svg>
           </div>
           <h4>Neustart</h4>
-          <p>Starten Sie Ihre FritzBox neu. Die Verbindung wird währenddessen kurzzeitig unterbrochen.</p>
+          <p>Starten Sie Ihre FritzBox neu. Die Verbindung wird w\u00e4hrenddessen kurzzeitig unterbrochen.</p>
           <button className="btn btn-danger" onClick={handleReboot} disabled={rebooting}>
             {rebooting ? 'Startet neu...' : 'Jetzt neustarten'}
           </button>
@@ -143,9 +119,9 @@ export default function System({ sid }: SystemProps) {
             </svg>
           </div>
           <h4>Firmware Update</h4>
-          <p>Prüfen Sie auf verfügbare Firmware-Updates für Ihre FritzBox.</p>
-          <button className="btn btn-primary" onClick={() => window.open(fritzUrl, '_blank')}>
-            In FritzBox öffnen
+          <p>{'Pr\u00fcfen'} Sie auf verf\u00fcgbare Firmware-Updates f\u00fcr Ihre FritzBox.</p>
+          <button className="btn btn-primary" onClick={() => window.open('http://fritz.box', '_blank')}>
+            {'In FritzBox \u00f6ffnen'}
           </button>
         </div>
 
@@ -156,9 +132,9 @@ export default function System({ sid }: SystemProps) {
             </svg>
           </div>
           <h4>FritzBox Webinterface</h4>
-          <p>Öffnen Sie das originale FritzBox Webinterface für erweiterte Einstellungen.</p>
-          <button className="btn btn-outline" onClick={() => window.open(fritzUrl, '_blank')}>
-            Öffnen
+          <p>{'\u00d6ffnen'} Sie das originale FritzBox Webinterface f\u00fcr erweiterte Einstellungen.</p>
+          <button className="btn btn-outline" onClick={() => window.open('http://fritz.box', '_blank')}>
+            {'\u00d6ffnen'}
           </button>
         </div>
       </div>
