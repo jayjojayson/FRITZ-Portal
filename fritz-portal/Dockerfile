@@ -16,7 +16,7 @@ RUN npm install --omit=dev
 
 # ── Stage 3: Runtime ──
 FROM node:20-alpine
-LABEL maintainer="FRITZ!Portal Add-on"
+LABEL maintainer="FRITZ!Portal"
 
 WORKDIR /app
 
