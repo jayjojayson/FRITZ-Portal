@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.17
+
+- Fix: DeviceDetail - apiFetch statt fetch für blockstate und static-dhcp
+
 ## 1.1.16
 
 - Fix: Sortierung nach Verbindung - Fehler bei leeren Interfaces behoben

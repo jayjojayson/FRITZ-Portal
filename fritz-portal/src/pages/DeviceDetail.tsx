@@ -39,12 +39,12 @@ export default function DeviceDetail({ sid, mac, onBack }: DeviceDetailProps) {
       setHosts(hostList);
 
       // Aktuellen Sperrstatus laden
-      const blockRes = await fetch(`/api/fritz/device/blockstate?mac=${encodeURIComponent(mac)}`, { headers });
+      const blockRes = await apiFetch(`/api/fritz/device/blockstate?mac=${encodeURIComponent(mac)}`, { headers });
       const blockData = await blockRes.json();
       setBlocked(blockData.blocked === true);
 
       // DHCP-Reservierung laden
-      const dhcpRes = await fetch(`/api/fritz/device/static-dhcp?mac=${encodeURIComponent(mac)}`, { headers });
+      const dhcpRes = await apiFetch(`/api/fritz/device/static-dhcp?mac=${encodeURIComponent(mac)}`, { headers });
       const dhcpData = await dhcpRes.json();
       setStaticDhcp(dhcpData);
       setStaticDhcpInput(dhcpData.ip || '');
