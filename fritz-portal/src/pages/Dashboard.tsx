@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { apiFetch } from '../lib/apiFetch';
 import { getApiCache, setApiCache } from '../App';
 
@@ -20,6 +20,88 @@ interface DashboardProps {
   sid: string;
 }
 
+type EcoModal = 'cpu' | 'ram' | 'temp' | null;
+
+// ── Eco-History Modal ──────────────────────────────────────────────────────────
+function EcoHistoryModal({ type, sid, onClose }: { type: EcoModal; sid: string; onClose: () => void }) {
+  const [data, setData] = useState<{ time: string; value: number }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const headers = { 'X-Fritz-SID': sid };
+
+  const labels: Record<NonNullable<EcoModal>, { title: string; unit: string; color: string }> = {
+    cpu:  { title: 'CPU-Auslastung',  unit: '%',  color: '#f59e0b' },
+    ram:  { title: 'RAM-Auslastung',  unit: '%',  color: '#8b5cf6' },
+    temp: { title: 'CPU-Temperatur',  unit: '°C', color: '#ef4444' },
+  };
+
+  useEffect(() => {
+    apiFetch('/api/fritz/eco-history', { headers })
+      .then(r => r.json())
+      .then(d => { if (type) setData(d[type] || []); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [type]);
+
+  if (!type) return null;
+  const { title, unit, color } = labels[type];
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const gridColor = isDark ? '#2d3139' : '#e5e7eb';
+  const textColor = isDark ? '#9ca3af' : '#6b7280';
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(0,0,0,0.5)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border)',
+          borderRadius: 14,
+          padding: 24,
+          width: '90%',
+          maxWidth: 620,
+          boxShadow: '0 8px 40px rgba(0,0,0,0.35)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{title} — letzte 3h</h3>
+          <button
+            onClick={onClose}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 20, lineHeight: 1 }}
+          >✕</button>
+        </div>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>Lade Verlauf…</div>
+        ) : data.length < 2 ? (
+          <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>
+            Noch nicht genug Datenpunkte.<br />Daten werden alle 10 Sekunden gesammelt.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={data}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+              <XAxis dataKey="time" stroke={textColor} fontSize={11} tickLine={false} interval={Math.max(1, Math.floor(data.length / 8))} />
+              <YAxis stroke={textColor} fontSize={12} tickLine={false} axisLine={false}
+                label={{ value: unit, angle: -90, position: 'insideLeft', style: { fill: textColor, fontSize: 12 } }} />
+              <Tooltip
+                contentStyle={{ background: isDark ? '#1a1d23' : '#fff', border: `1px solid ${gridColor}`, borderRadius: 8, fontSize: 13 }}
+                formatter={(v: number) => [`${v}${unit}`, title]}
+              />
+              <Line type="monotone" dataKey="value" stroke={color} strokeWidth={2} dot={false} isAnimationActive={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard({ sid }: DashboardProps) {
   const [deviceInfo, setDeviceInfo] = useState<any>(null);
   const [hosts, setHosts] = useState<Host[]>([]);
@@ -30,7 +112,7 @@ export default function Dashboard({ sid }: DashboardProps) {
   const [monthlyUp, setMonthlyUp] = useState(0);
   const [ipStats, setIpStats] = useState({ total: 0, used: 0, free: 0, minAddress: '', maxAddress: '' });
   const [loading, setLoading] = useState(true);
-  const [dataLoaded, setDataLoaded] = useState(false);
+  const [ecoModal, setEcoModal] = useState<EcoModal>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const headers = { 'X-Fritz-SID': sid };
@@ -39,22 +121,20 @@ export default function Dashboard({ sid }: DashboardProps) {
   const textColor = isDark ? '#9ca3af' : '#6b7280';
 
   useEffect(() => {
-    if (!dataLoaded) {
-      loadData();
-    }
+    loadData();
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [dataLoaded]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadData = async () => {
     try {
+      // ── 1. Cache sofort anzeigen (kein Warten) ──────────────────────────────
       const cachedDeviceInfo = getApiCache('device-info');
       const cachedHosts = getApiCache('hosts');
       const cachedEcoStats = getApiCache('eco-stats');
       const cachedNetworkStats = getApiCache('network-stats');
       const cachedIpStats = getApiCache('ip-stats');
-      const cachedTrafficCounters = getApiCache('traffic-counters');
 
       if (cachedDeviceInfo) setDeviceInfo(cachedDeviceInfo);
       if (cachedHosts) setHosts(cachedHosts.filter((h: Host) => h.active));
@@ -62,34 +142,81 @@ export default function Dashboard({ sid }: DashboardProps) {
       if (cachedNetworkStats) setTraffic(cachedNetworkStats);
       if (cachedIpStats) setIpStats(cachedIpStats);
 
-      const [infoRes, hostsRes, statsRes, trafficRes, ipStatsRes] = await Promise.all([
+      // Wenn wir gecachte Daten haben, Spinner sofort ausblenden
+      if (cachedDeviceInfo && cachedHosts) setLoading(false);
+
+      // ── 2. Schnelle Requests zuerst – Seite wird sofort sichtbar ────────────
+      const [infoRes, hostsRes, ipStatsRes] = await Promise.all([
         apiFetch('/api/fritz/device-info', { headers }),
         apiFetch('/api/fritz/hosts', { headers }),
-        apiFetch('/api/fritz/eco-stats', { headers }),
-        apiFetch('/api/fritz/network-stats', { headers }),
         apiFetch('/api/fritz/ip-stats', { headers }),
       ]);
 
       const info = await infoRes.json();
       const hostList = await hostsRes.json();
-      const stats = await statsRes.json();
-      const trafficData = await trafficRes.json();
       const ipStatsData = await ipStatsRes.json();
 
       setApiCache('device-info', info);
       setApiCache('hosts', hostList);
-      setApiCache('eco-stats', stats);
-      setApiCache('network-stats', trafficData);
       setApiCache('ip-stats', ipStatsData);
 
       setDeviceInfo(info);
       setHosts(hostList.filter((h: Host) => h.active));
-      setEcoStats(stats);
-      setTraffic(trafficData);
       setIpStats(ipStatsData);
-      setDataLoaded(true);
 
-      // Traffic-Zähler separat – Fritz!Box Cable braucht dafür extra Zeit
+      // Spinner spätestens jetzt weg – schnelle Daten sind da
+      setLoading(false);
+
+      // ── 3. Langsame Requests (WebSID-Login nötig) im Hintergrund ────────────
+      apiFetch('/api/fritz/eco-stats', { headers })
+        .then(r => r.json())
+        .then(stats => { setApiCache('eco-stats', stats); setEcoStats(stats); })
+        .catch(() => {});
+
+      apiFetch('/api/fritz/network-stats', { headers })
+        .then(r => r.json())
+        .then(trafficData => {
+          setApiCache('network-stats', trafficData);
+          setTraffic(trafficData);
+
+          const toMbps = (b: number) => parseFloat(((b * 8) / (1024 * 1024)).toFixed(2));
+          const dsHist: number[] = trafficData.dsHistory || [];
+          const usHist: number[] = trafficData.usHistory || [];
+          const POINTS = 60;
+          const now = Date.now();
+          const initial: NetworkData[] = Array.from({ length: POINTS }, (_, i) => {
+            const offset = POINTS - i;
+            const idx = dsHist.length - offset;
+            return {
+              time: new Date(now - offset * 5000).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+              download: idx >= 0 ? toMbps(dsHist[idx] || 0) : 0,
+              upload: idx >= 0 ? toMbps(usHist[idx] || 0) : 0,
+            };
+          });
+          setNetworkData(initial);
+
+          // ── 4. Live-Interval erst starten wenn Basisdaten geladen ───────────
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          intervalRef.current = setInterval(async () => {
+            try {
+              const [s, t] = await Promise.all([
+                apiFetch('/api/fritz/eco-stats', { headers }).then(r => r.json()),
+                apiFetch('/api/fritz/network-stats', { headers }).then(r => r.json()),
+              ]);
+              setEcoStats(s);
+              setTraffic(t);
+              const toMbps2 = (b: number) => parseFloat(((b * 8) / (1024 * 1024)).toFixed(2));
+              setNetworkData(prev => [...prev.slice(1), {
+                time: new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                download: toMbps2(t.currentDown || 0),
+                upload: toMbps2(t.currentUp || 0),
+              }]);
+            } catch {}
+          }, 10000);
+        })
+        .catch(() => {});
+
+      // Traffic-Zähler (langsamster Request) ganz am Ende
       apiFetch('/api/fritz/traffic-counters', { headers })
         .then(r => r.json())
         .then(countersData => {
@@ -102,39 +229,6 @@ export default function Dashboard({ sid }: DashboardProps) {
           }
         })
         .catch(() => {});
-
-      const toMbps = (b: number) => parseFloat(((b * 8) / (1024 * 1024)).toFixed(2));
-      const dsHist: number[] = trafficData.dsHistory || [];
-      const usHist: number[] = trafficData.usHistory || [];
-      const POINTS = 60;
-      const now = Date.now();
-      const initial: NetworkData[] = Array.from({ length: POINTS }, (_, i) => {
-        const offset = POINTS - i;
-        const idx = dsHist.length - offset;
-        return {
-          time: new Date(now - offset * 5000).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-          download: idx >= 0 ? toMbps(dsHist[idx] || 0) : 0,
-          upload: idx >= 0 ? toMbps(usHist[idx] || 0) : 0,
-        };
-      });
-      setNetworkData(initial);
-
-      intervalRef.current = setInterval(async () => {
-        try {
-          const [s, t] = await Promise.all([
-            apiFetch('/api/fritz/eco-stats', { headers }).then(r => r.json()),
-            apiFetch('/api/fritz/network-stats', { headers }).then(r => r.json()),
-          ]);
-          setEcoStats(s);
-          setTraffic(t);
-          const toMbps = (b: number) => parseFloat(((b * 8) / (1024 * 1024)).toFixed(2));
-          setNetworkData(prev => [...prev.slice(1), {
-            time: new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-            download: toMbps(t.currentDown || 0),
-            upload: toMbps(t.currentUp || 0),
-          }]);
-        } catch {}
-      }, 10000);
 
     } catch (err) {
       console.error(err);
@@ -167,6 +261,7 @@ export default function Dashboard({ sid }: DashboardProps) {
 
   return (
     <div>
+      {ecoModal && <EcoHistoryModal type={ecoModal} sid={sid} onClose={() => setEcoModal(null)} />}
       <div className="page-header">
         <h2>Dashboard</h2>
         <p>{'FRITZ!Portal'}</p>
@@ -182,7 +277,7 @@ export default function Dashboard({ sid }: DashboardProps) {
           <h3>Modell</h3>
           <div className="value">{deviceInfo?.NewModelName || '-'}</div>
         </div>
-        <div className="stat-card">
+        <div className="stat-card" onClick={() => setEcoModal('cpu')} style={{ cursor: 'pointer' }} title="Verlauf anzeigen">
           <div className="stat-icon orange">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 20V10" /><path d="M12 20V4" /><path d="M6 20v-6" />
@@ -190,8 +285,9 @@ export default function Dashboard({ sid }: DashboardProps) {
           </div>
           <h3>CPU</h3>
           <div className="value">{cpuVal}%</div>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>Verlauf anzeigen →</div>
         </div>
-        <div className="stat-card">
+        <div className="stat-card" onClick={() => setEcoModal('ram')} style={{ cursor: 'pointer' }} title="Verlauf anzeigen">
           <div className="stat-icon purple">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M2 20h20" /><path d="M5 20V8h4v12" /><path d="M11 20V4h4v16" /><path d="M17 20v-8h4v8" />
@@ -199,8 +295,9 @@ export default function Dashboard({ sid }: DashboardProps) {
           </div>
           <h3>RAM</h3>
           <div className="value">{ramVal}%</div>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>Verlauf anzeigen →</div>
         </div>
-        <div className="stat-card">
+        <div className="stat-card" onClick={() => setEcoModal('temp')} style={{ cursor: 'pointer' }} title="Verlauf anzeigen">
           <div className="stat-icon red">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z" />
@@ -208,6 +305,7 @@ export default function Dashboard({ sid }: DashboardProps) {
           </div>
           <h3>Temperatur</h3>
           <div className="value">{tempVal}{'\u00b0'}C</div>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>Verlauf anzeigen →</div>
         </div>
         <div className="stat-card">
           <div className="stat-icon green">

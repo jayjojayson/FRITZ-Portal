@@ -28,7 +28,7 @@ ha-addon-fixed/
 ## Lokal bauen & testen
 
 ```bash
-cd ha-addon-fixed/fritz-portal
+cd fritz-portal
 docker build -t fritz-portal-addon .
 
 # Testen (Auto-Login via Env-Vars):

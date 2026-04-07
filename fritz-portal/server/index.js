@@ -59,10 +59,15 @@ const CACHE_TTL = 10000; // 10 Sekunden
 // ── Cached Web-SID (vermeidet langsame Login-Requests bei jedem Aufruf) ──
 let cachedWebSid = null;
 let cachedWebSidTime = 0;
-const WEB_SID_TTL = 300000; // 5 Minuten
+const WEB_SID_TTL = 300000;      // 5 Minuten für gültige SID
+const WEB_SID_FAIL_TTL = 30000;  // 30 Sekunden Retry bei fehlgeschlagenem Login
 
 async function getCachedWebSid(session) {
-  if (cachedWebSid !== null && Date.now() - cachedWebSidTime < WEB_SID_TTL) return cachedWebSid;
+  const now = Date.now();
+  // Gültige SID: für 5 Minuten cachen
+  if (cachedWebSid !== null && cachedWebSid !== '' && now - cachedWebSidTime < WEB_SID_TTL) return cachedWebSid;
+  // Fehlgeschlagene SID: erst nach 30 Sekunden erneut versuchen
+  if (cachedWebSid === '' && now - cachedWebSidTime < WEB_SID_FAIL_TTL) return cachedWebSid;
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 3000);
@@ -80,6 +85,49 @@ async function getCachedWebSid(session) {
 
 // ── Traffic history für Dashboard-Chart (server-seitig, alle 10 Sekunden) ──
 const trafficHistory = { down: [], up: [] };
+
+// ── Eco-Stats history für Dashboard-Popovers (CPU/RAM/Temp, 1h, alle 10 Sekunden) ──
+const ecoHistory = { cpu: [], ram: [], temp: [] };
+
+async function collectEcoHistory(session) {
+  const webSid = await getCachedWebSid(session);
+  if (!webSid) return;
+  const pages = ['home', 'eco', 'ecoStat', 'overview'];
+  for (const page of pages) {
+    try {
+      const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
+      const r = await fetch(`http://${session.host}/data.lua`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+      const text = await r.text();
+      if (!text.trim().startsWith('{')) continue;
+      const d = JSON.parse(text)?.data || {};
+      const cpuSeries = d.cpuutil?.series?.[0] || [];
+      const ramSeries = d.ramusage?.series?.[2] || d.ramusage?.series?.[0] || [];
+      const tempSeries = d.cputemp?.series?.[0] || [];
+      let cpu = cpuSeries.length > 0 ? parseInt(cpuSeries[cpuSeries.length - 1], 10) : 0;
+      let ram = ramSeries.length > 0 ? Math.round(ramSeries[ramSeries.length - 1]) : 0;
+      let temp = tempSeries.length > 0 ? parseInt(tempSeries[tempSeries.length - 1], 10) : 0;
+      if (cpu === 0) cpu = parseInt(d.cpu || d.cpuload || '0', 10) || 0;
+      if (ram === 0) ram = parseInt(d.ram || d.ramutil || '0', 10) || 0;
+      if (temp === 0) temp = parseInt(d.temp || d.cpu_temp || '0', 10) || 0;
+      if (cpu > 0 || ram > 0 || temp > 0) {
+        const now = Date.now();
+        const cutoff = now - 3 * 60 * 60 * 1000; // 3 Stunden
+        ecoHistory.cpu.push({ time: now, value: cpu });
+        ecoHistory.ram.push({ time: now, value: ram });
+        ecoHistory.temp.push({ time: now, value: temp });
+        ecoHistory.cpu  = ecoHistory.cpu.filter(p => p.time > cutoff);
+        ecoHistory.ram  = ecoHistory.ram.filter(p => p.time > cutoff);
+        ecoHistory.temp = ecoHistory.temp.filter(p => p.time > cutoff);
+        return;
+      }
+    } catch {}
+  }
+}
+
 setInterval(async () => {
   for (const [sid, session] of sessions) {
     try {
@@ -96,12 +144,13 @@ setInterval(async () => {
       trafficHistory.down = trafficHistory.down.filter(p => p.time > cutoff);
       trafficHistory.up = trafficHistory.up.filter(p => p.time > cutoff);
     } catch {}
+    try { await collectEcoHistory(session); } catch {}
   }
 }, 10000);
 
-function getCached(key) {
+function getCached(key, ttl = CACHE_TTL) {
   const entry = cache.get(key);
-  if (entry && Date.now() - entry.ts < CACHE_TTL) return entry.data;
+  if (entry && Date.now() - entry.ts < ttl) return entry.data;
   cache.delete(key);
   return null;
 }
@@ -258,21 +307,71 @@ async function getWebSid(host, username, password) {
   }
 }
 
+// ── AHA-HTTP: Geräteliste als XML parsen (SmartHome / DECT Smart Devices) ──
+function parseAhaDeviceList(xml) {
+  const devices = [];
+  const deviceRegex = /<device\s([^>]*)>([\s\S]*?)<\/device>/g;
+  let dm;
+  while ((dm = deviceRegex.exec(xml)) !== null) {
+    const attrs = dm[1];
+    const body = dm[2];
+    const get = (tag) => body.match(new RegExp(`<${tag}>([^<]*)<\/${tag}>`))?.[1] ?? '';
+    const device = {
+      identifier: attrs.match(/identifier="([^"]*)"/)?.[1] || '',
+      id: attrs.match(/\bid="([^"]*)"/)?.[1] || '',
+      functionbitmask: parseInt(attrs.match(/functionbitmask="([^"]*)"/)?.[1] || '0', 10),
+      productname: attrs.match(/productname="([^"]*)"/)?.[1] || '',
+      manufacturer: attrs.match(/manufacturer="([^"]*)"/)?.[1] || '',
+      present: get('present'),
+      name: get('name'),
+    };
+    const tempBlock = body.match(/<temperature>([\s\S]*?)<\/temperature>/);
+    if (tempBlock) {
+      const celsius = parseInt(tempBlock[1].match(/<celsius>([^<]*)<\/celsius>/)?.[1] || '', 10);
+      const offset  = parseInt(tempBlock[1].match(/<offset>([^<]*)<\/offset>/)?.[1]  || '0', 10);
+      if (!isNaN(celsius)) device.temperature = celsius + offset; // in 0.1 °C
+    }
+    const switchBlock = body.match(/<switch>([\s\S]*?)<\/switch>/);
+    if (switchBlock) device.switch_state = switchBlock[1].match(/<state>([^<]*)<\/state>/)?.[1] || '';
+    const powerBlock = body.match(/<powermeter>([\s\S]*?)<\/powermeter>/);
+    if (powerBlock) {
+      device.power   = parseInt(powerBlock[1].match(/<power>([^<]*)<\/power>/)?.[1]     || '0', 10) || 0; // 0.001 W
+      device.energy  = parseInt(powerBlock[1].match(/<energy>([^<]*)<\/energy>/)?.[1]   || '0', 10) || 0; // Wh
+      device.voltage = parseInt(powerBlock[1].match(/<voltage>([^<]*)<\/voltage>/)?.[1] || '0', 10) || 0; // 0.001 V
+    }
+    const hkrBlock = body.match(/<hkr>([\s\S]*?)<\/hkr>/);
+    if (hkrBlock) {
+      device.tist  = parseInt(hkrBlock[1].match(/<tist>([^<]*)<\/tist>/)?.[1]   || '0', 10) || 0; // Ist-Temp
+      device.tsoll = parseInt(hkrBlock[1].match(/<tsoll>([^<]*)<\/tsoll>/)?.[1] || '0', 10) || 0; // Soll-Temp
+    }
+    devices.push(device);
+  }
+  return devices;
+}
+
 async function getHostsViaSoap(host, username, password, controlUrls) {
   const countRes = await soapRequest(host, 'urn:dslforum-org:service:Hosts:1', 'GetHostNumberOfEntries', username, password, controlUrls);
   const count = parseInt(countRes?.NewHostNumberOfEntries || '0', 10) || 0;
+  // Alle Hosts parallel abrufen (statt sequentiell) – deutlich schneller bei >10 Geräten
+  const BATCH = 15; // max. gleichzeitige Requests
   const hosts = [];
-  for (let i = 0; i < count; i++) {
-    try {
-      const entry = await soapRequest(host, 'urn:dslforum-org:service:Hosts:1', 'GetGenericHostEntry', username, password, controlUrls, { NewIndex: String(i) });
-      hosts.push({
-        mac: (entry.NewMACAddress || '').replace(/-/g, ':').toLowerCase(),
-        ip: entry.NewIPAddress || '',
-        active: entry.NewActive === '1' || entry.NewActive === 'true',
-        name: entry.NewHostName || entry.NewInterfaceType || '',
-        interface: entry.NewInterfaceType || '',
-      });
-    } catch {}
+  for (let i = 0; i < count; i += BATCH) {
+    const indices = Array.from({ length: Math.min(BATCH, count - i) }, (_, j) => i + j);
+    const results = await Promise.allSettled(
+      indices.map(idx => soapRequest(host, 'urn:dslforum-org:service:Hosts:1', 'GetGenericHostEntry', username, password, controlUrls, { NewIndex: String(idx) }))
+    );
+    for (const r of results) {
+      if (r.status === 'fulfilled') {
+        const entry = r.value;
+        hosts.push({
+          mac: (entry.NewMACAddress || '').replace(/-/g, ':').toLowerCase(),
+          ip: entry.NewIPAddress || '',
+          active: entry.NewActive === '1' || entry.NewActive === 'true',
+          name: entry.NewHostName || entry.NewInterfaceType || '',
+          interface: entry.NewInterfaceType || '',
+        });
+      }
+    }
   }
   return hosts;
 }
@@ -296,6 +395,9 @@ app.get('/api/fritz/auto-session', async (req, res) => {
     const controlUrls = await discoverControlUrls(host);
     sessions.set(AUTO_SID, { host, username, password, controlUrls, isAutoSession: true });
     console.log('Auto-session: Created session with SID:', AUTO_SID);
+    // WebSID im Hintergrund vorab cachen, damit eco-stats und network-stats sofort bereit sind
+    const autoSession = sessions.get(AUTO_SID);
+    getCachedWebSid(autoSession).catch(() => {});
     return res.json({ active: true, sid: AUTO_SID, host });
   } catch (err) {
     console.error('Auto-session error:', err.message);
@@ -323,7 +425,7 @@ app.get('/api/fritz/hosts', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
-  const cached = getCached('hosts');
+  const cached = getCached('hosts', 60000); // Hosts 60s cachen – ändert sich selten
   if (cached) return res.json(cached);
   try {
     const hosts = await getHostsViaSoap(session.host, session.username, session.password, session.controlUrls);
@@ -345,7 +447,7 @@ app.get('/api/fritz/eco-stats', async (req, res) => {
     const webSid = await getCachedWebSid(session);
     if (!webSid) return res.json({ cpu: 0, ram: 0, cpu_temp: 0 });
 
-    const pages = ['home', 'eco', 'overview'];
+    const pages = ['home', 'eco', 'ecoStat', 'overview'];
     for (const page of pages) {
       try {
         const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
@@ -358,12 +460,17 @@ app.get('/api/fritz/eco-stats', async (req, res) => {
         if (text.trim().startsWith('{')) {
           const data = JSON.parse(text);
           const d = data?.data || {};
+          // Series-Pfade (Standard-Modelle wie 7590, 6591)
           const cpuSeries = d.cpuutil?.series?.[0] || [];
-          const ramSeries = d.ramusage?.series?.[2] || [];
+          const ramSeries = d.ramusage?.series?.[2] || d.ramusage?.series?.[0] || [];
           const tempSeries = d.cputemp?.series?.[0] || [];
-          const cpu = cpuSeries.length > 0 ? parseInt(cpuSeries[cpuSeries.length - 1], 10) : 0;
-          const ram = ramSeries.length > 0 ? Math.round(ramSeries[ramSeries.length - 1]) : 0;
-          const cpu_temp = tempSeries.length > 0 ? parseInt(tempSeries[tempSeries.length - 1], 10) : 0;
+          let cpu = cpuSeries.length > 0 ? parseInt(cpuSeries[cpuSeries.length - 1], 10) : 0;
+          let ram = ramSeries.length > 0 ? Math.round(ramSeries[ramSeries.length - 1]) : 0;
+          let cpu_temp = tempSeries.length > 0 ? parseInt(tempSeries[tempSeries.length - 1], 10) : 0;
+          // Direktwert-Fallback (ältere Modelle / andere Firmware-Struktur)
+          if (cpu === 0) cpu = parseInt(d.cpu || d.cpuload || d.cpu_util || '0', 10) || 0;
+          if (ram === 0) ram = parseInt(d.ram || d.ramutil || d.memory || '0', 10) || 0;
+          if (cpu_temp === 0) cpu_temp = parseInt(d.temp || d.cpu_temp || d.temperature || '0', 10) || 0;
           if (cpu > 0 || ram > 0 || cpu_temp > 0) {
             const result = { cpu, ram, cpu_temp };
             setCached('eco-stats', result);
@@ -377,6 +484,16 @@ app.get('/api/fritz/eco-stats', async (req, res) => {
     console.error('EcoStats error:', err.message);
     return res.json({ cpu: 0, ram: 0, cpu_temp: 0 });
   }
+});
+
+app.get('/api/fritz/eco-history', (req, res) => {
+  const sid = req.headers['x-fritz-sid'];
+  if (!sessions.get(sid)) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  const fmt = (arr) => arr.map(p => ({
+    time: new Date(p.time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
+    value: p.value,
+  }));
+  return res.json({ cpu: fmt(ecoHistory.cpu), ram: fmt(ecoHistory.ram), temp: fmt(ecoHistory.temp) });
 });
 
 app.get('/api/fritz/network-stats', async (req, res) => {
@@ -742,18 +859,35 @@ app.get('/api/fritz/smartHome', async (req, res) => {
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
   try {
-    const webSid = await getWebSid(session.host, session.username, session.password);
-    const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page: 'smartHome', xhrId: 'all' });
-    const r = await fetch(`http://${session.host}/data.lua`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString(),
-    });
-    const text = await r.text();
-    if (text.trim().startsWith('{')) {
-      const data = JSON.parse(text);
-      const devices = data?.data?.devices || data?.data || [];
-      return res.json(Array.isArray(devices) ? devices : []);
+    const webSid = await getCachedWebSid(session);
+    // Primär: AHA-HTTP XML Interface (offizielle Schnittstelle für SmartHome/DECT-Geräte)
+    if (webSid) {
+      try {
+        const ahaUrl = `http://${session.host}/webservices/homeautoswitch.lua?switchcmd=getdevicelistinfos&sid=${webSid}`;
+        const r = await fetch(ahaUrl);
+        const xml = await r.text();
+        if (xml.includes('<devicelist')) {
+          const devices = parseAhaDeviceList(xml);
+          if (devices.length > 0) return res.json(devices);
+        }
+      } catch {}
+    }
+    // Fallback: data.lua
+    if (webSid) {
+      try {
+        const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page: 'smartHome', xhrId: 'all' });
+        const r = await fetch(`http://${session.host}/data.lua`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params.toString(),
+        });
+        const text = await r.text();
+        if (text.trim().startsWith('{')) {
+          const data = JSON.parse(text);
+          const devices = data?.data?.devices || data?.data || [];
+          if (Array.isArray(devices) && devices.length > 0) return res.json(devices);
+        }
+      } catch {}
     }
     return res.json([]);
   } catch (err) {
@@ -767,9 +901,18 @@ app.get('/api/fritz/dect', async (req, res) => {
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
   try {
-    const baseInfo = await soapRequest(session.host, 'urn:dslforum-org:service:X_AVM-DE_Dect:1', 'GetDECTInfo', session.username, session.password, session.controlUrls);
-    const countRes = await soapRequest(session.host, 'urn:dslforum-org:service:X_AVM-DE_Dect:1', 'GetNumberOfDectEntries', session.username, session.password, session.controlUrls);
-    const count = parseInt(countRes?.NewNumberOfEntries || '0', 10) || 0;
+    // SOAP-Aufrufe einzeln kapseln – ein Fehler darf den data.lua-Fallback nicht blockieren
+    let baseInfo = {};
+    try {
+      baseInfo = await soapRequest(session.host, 'urn:dslforum-org:service:X_AVM-DE_Dect:1', 'GetDECTInfo', session.username, session.password, session.controlUrls);
+    } catch (e) { console.log('DECT GetDECTInfo SOAP fehlgeschlagen (Fallback folgt):', e.message); }
+
+    let count = 0;
+    try {
+      const countRes = await soapRequest(session.host, 'urn:dslforum-org:service:X_AVM-DE_Dect:1', 'GetNumberOfDectEntries', session.username, session.password, session.controlUrls);
+      count = parseInt(countRes?.NewNumberOfEntries || '0', 10) || 0;
+    } catch {}
+
     const handsets = [];
     for (let i = 0; i < count; i++) {
       try {
@@ -786,38 +929,54 @@ app.get('/api/fritz/dect', async (req, res) => {
     }
     const soapOk = baseInfo && (baseInfo.NewDECTActive !== undefined || baseInfo.NewDECTBaseName !== undefined);
     if (!soapOk || handsets.length === 0) {
-      try {
-        const webSid = await getWebSid(session.host, session.username, session.password);
-        const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page: 'dectSet', xhrId: 'all' });
-        const r = await fetch(`http://${session.host}/data.lua`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: params.toString(),
-        });
-        const text = await r.text();
-        if (text.trim().startsWith('{')) {
-          const d = JSON.parse(text);
-          const dectData = d?.data?.dect || d?.data || {};
-          if (!soapOk) {
-            baseInfo.NewDECTActive = dectData.active === true || dectData.active === '1' ? '1' : '0';
-            baseInfo.NewDECTBaseName = dectData.name || dectData.base_name || dectData.basename || '';
-            baseInfo.NewDECTPowerActive = dectData.ecomode === true || dectData.ecomode === '1' ? '1' : '0';
-          }
-          if (handsets.length === 0) {
-            const list = d?.data?.handsets || dectData.handsets || dectData.devices || [];
-            for (const h of (Array.isArray(list) ? list : [])) {
-              handsets.push({
-                name: h.name || h.device_name || h.devicename || 'Handset',
-                model: h.model || h.product || '',
-                id: String(h.id || h.intern_id || h.index || ''),
-                active: h.active === '1' || h.active === true,
-                connected: h.connect === '1' || h.connected === '1' || h.connected === true,
-                battery: String(h.battery || h.akku || ''),
-              });
+      const webSid = await getCachedWebSid(session);
+      if (webSid) {
+        // Verschiedene data.lua-Seiten durchprobieren: 'dect' listet angemeldete Handsets,
+        // 'dectReg' zeigt Registrierungsstatus, 'dectSet' enthält Basiseinstellungen
+        for (const page of ['dect', 'dectReg', 'dectSet']) {
+          try {
+            const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
+            const r = await fetch(`http://${session.host}/data.lua`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: params.toString(),
+            });
+            const text = await r.text();
+            if (!text.trim().startsWith('{')) continue;
+            const d = JSON.parse(text);
+            const dectData = d?.data?.dect || d?.data || {};
+            if (!soapOk) {
+              baseInfo.NewDECTActive = dectData.active === true || dectData.active === '1' ? '1' : '0';
+              baseInfo.NewDECTBaseName = dectData.name || dectData.base_name || dectData.basename || '';
+              baseInfo.NewDECTPowerActive = dectData.ecomode === true || dectData.ecomode === '1' ? '1' : '0';
             }
-          }
+            if (handsets.length === 0) {
+              // Breit suchen: verschiedene Pfade für Handset-Listen
+              const candidates = [
+                d?.data?.handsets, dectData.handsets,
+                dectData.devices,  dectData.mobiles,
+                d?.data?.mobiles,  d?.data?.devices,
+              ];
+              for (const list of candidates) {
+                if (Array.isArray(list) && list.length > 0) {
+                  for (const h of list) {
+                    handsets.push({
+                      name: h.name || h.device_name || h.devicename || h.displayname || 'Handset',
+                      model: h.model || h.product || h.productname || '',
+                      id: String(h.id || h.intern_id || h.index || ''),
+                      active: h.active === '1' || h.active === true,
+                      connected: h.connect === '1' || h.connected === '1' || h.connected === true || h.registered === '1',
+                      battery: String(h.battery || h.akku || h.batterycharge || ''),
+                    });
+                  }
+                  break;
+                }
+              }
+            }
+            if (handsets.length > 0) break;
+          } catch {}
         }
-      } catch {}
+      }
     }
     return res.json({ ...baseInfo, handsets });
   } catch (err) {
