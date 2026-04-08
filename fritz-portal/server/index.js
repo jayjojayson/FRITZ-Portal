@@ -1309,12 +1309,18 @@ async function pushTrafficSensorsToHA() {
   if (!tc?.rows) return;
   const keys  = ['today', 'yesterday', 'week', 'month', 'last_month'];
   const names = ['Heute', 'Gestern', 'Aktuelle Woche', 'Aktueller Monat', 'Vormonat'];
+  function bytesToHaValue(bytes) {
+    if (bytes < 1024 * 1024 * 1024) return { value: +(bytes / (1024 * 1024)).toFixed(2), unit: 'MB' };
+    return { value: +(bytes / (1024 * 1024 * 1024)).toFixed(3), unit: 'GB' };
+  }
   for (let i = 0; i < tc.rows.length; i++) {
     const row = tc.rows[i];
     const k   = keys[i];
     const lbl = names[i];
-    await setState(`sensor.fritzportal_traffic_${k}_received`, row.received, { unit_of_measurement: 'B', friendly_name: `FRITZ!Portal Download ${lbl}`, icon: 'mdi:download-network', device_class: 'data_size' });
-    await setState(`sensor.fritzportal_traffic_${k}_sent`,     row.sent,     { unit_of_measurement: 'B', friendly_name: `FRITZ!Portal Upload ${lbl}`,   icon: 'mdi:upload-network',   device_class: 'data_size' });
+    const rx = bytesToHaValue(row.received);
+    const tx = bytesToHaValue(row.sent);
+    await setState(`sensor.fritzportal_traffic_${k}_received`, rx.value, { unit_of_measurement: rx.unit, friendly_name: `FRITZ!Portal Download ${lbl}`, icon: 'mdi:download-network', device_class: 'data_size' });
+    await setState(`sensor.fritzportal_traffic_${k}_sent`,     tx.value, { unit_of_measurement: tx.unit, friendly_name: `FRITZ!Portal Upload ${lbl}`,   icon: 'mdi:upload-network',   device_class: 'data_size' });
   }
 }
 
