@@ -8,6 +8,13 @@ import { createHash } from 'crypto';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// ── Timestamps für alle Konsolenausgaben (HA-Protokoll) ──
+const _log   = console.log.bind(console);
+const _error = console.error.bind(console);
+const _ts = () => new Date().toLocaleTimeString('de-DE', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+console.log   = (...args) => _log(`[${_ts()}]`, ...args);
+console.error = (...args) => _error(`[${_ts()}]`, ...args);
+
 // ── HA Add-on: Zugangsdaten aus /data/options.json lesen (überschreibt Env-Vars nicht) ──
 try {
   if (existsSync('/data/options.json')) {
