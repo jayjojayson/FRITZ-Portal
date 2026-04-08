@@ -2,7 +2,7 @@
   --bg-primary: #f0f2f5;
   --bg-sidebar: #1a1d23;
   --bg-card: #ffffff;
-  --bg-hover: #252830;
+  --bg-hover: #e8eaed;
   --text-primary: #1a1a1a;
   --text-secondary: #6b7280;
   --text-sidebar: #9ca3af;
@@ -78,6 +78,13 @@ body {
 .header-logo {
   width: 24px;
   height: 24px;
+}
+
+.header-logo-img {
+  height: 80px;
+  width: auto;
+  display: block;
+  object-fit: contain;
 }
 
 .header-title {

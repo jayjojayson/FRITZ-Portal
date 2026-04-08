@@ -2,7 +2,7 @@ import express from 'express';
 import DigestFetch from 'digest-fetch';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { createHash } from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -15,6 +15,9 @@ try {
     if (opts.fritzbox_host     && !process.env.FRITZBOX_HOST)     process.env.FRITZBOX_HOST     = opts.fritzbox_host;
     if (opts.fritzbox_user     && !process.env.FRITZBOX_USER)     process.env.FRITZBOX_USER     = opts.fritzbox_user;
     if (opts.fritzbox_password && !process.env.FRITZBOX_PASSWORD) process.env.FRITZBOX_PASSWORD = opts.fritzbox_password;
+    if (opts.ha_sensors                  !== undefined && !process.env.HA_SENSORS)                  process.env.HA_SENSORS                  = String(opts.ha_sensors);
+    if (opts.ha_sensors_interval          !== undefined && !process.env.HA_SENSORS_INTERVAL)          process.env.HA_SENSORS_INTERVAL          = String(opts.ha_sensors_interval);
+    if (opts.ha_sensors_traffic_interval  !== undefined && !process.env.HA_SENSORS_TRAFFIC_INTERVAL)  process.env.HA_SENSORS_TRAFFIC_INTERVAL  = String(opts.ha_sensors_traffic_interval);
     console.log('HA Add-on: Fritz!Box-Optionen geladen (' + opts.fritzbox_host + ')');
   }
 } catch {}
@@ -104,15 +107,18 @@ async function collectEcoHistory(session) {
       const text = await r.text();
       if (!text.trim().startsWith('{')) continue;
       const d = JSON.parse(text)?.data || {};
-      const cpuSeries = d.cpuutil?.series?.[0] || [];
-      const ramSeries = d.ramusage?.series?.[2] || d.ramusage?.series?.[0] || [];
-      const tempSeries = d.cputemp?.series?.[0] || [];
-      let cpu = cpuSeries.length > 0 ? parseInt(cpuSeries[cpuSeries.length - 1], 10) : 0;
-      let ram = ramSeries.length > 0 ? Math.round(ramSeries[ramSeries.length - 1]) : 0;
-      let temp = tempSeries.length > 0 ? parseInt(tempSeries[tempSeries.length - 1], 10) : 0;
-      if (cpu === 0) cpu = parseInt(d.cpu || d.cpuload || '0', 10) || 0;
-      if (ram === 0) ram = parseInt(d.ram || d.ramutil || '0', 10) || 0;
-      if (temp === 0) temp = parseInt(d.temp || d.cpu_temp || '0', 10) || 0;
+      const cpuSeries  = d.cpuutil?.series?.[0]  || d.cpuUtilization?.series?.[0]  || [];
+      const ramSeries  = d.ramusage?.series?.[2]  || d.ramusage?.series?.[0] || d.ramUsage?.series?.[0] || [];
+      const tempSeries = d.cputemp?.series?.[0]   || d.cpuTemp?.series?.[0]  || [];
+      let cpu      = cpuSeries.length  > 0 ? parseInt(cpuSeries[cpuSeries.length - 1],   10) : 0;
+      let ram      = ramSeries.length  > 0 ? Math.round(ramSeries[ramSeries.length - 1])    : 0;
+      let temp     = tempSeries.length > 0 ? parseInt(tempSeries[tempSeries.length - 1], 10) : 0;
+      if (cpu  === 0) cpu  = parseInt(d.cpu  || d.cpuload || d.cpu_util  || d.cpuUtil  || d.stat?.cpu  || '0', 10) || 0;
+      if (ram  === 0) ram  = parseInt(d.ram  || d.ramutil || d.ram_util  || d.ramUtil  || d.memory || d.stat?.ram || d.memUsage || '0', 10) || 0;
+      if (temp === 0) temp = parseInt(d.temp || d.cpu_temp || d.cputemp  || d.cpuTemp  || d.temperature || d.stat?.temp || '0', 10) || 0;
+      if (cpu  === 0 && typeof d.cpuUtil     === 'number') cpu  = d.cpuUtil;
+      if (ram  === 0 && typeof d.ramUtil     === 'number') ram  = d.ramUtil;
+      if (temp === 0 && typeof d.temperature === 'number') temp = d.temperature;
       if (cpu > 0 || ram > 0 || temp > 0) {
         const now = Date.now();
         const cutoff = now - 3 * 60 * 60 * 1000; // 3 Stunden
@@ -122,6 +128,8 @@ async function collectEcoHistory(session) {
         ecoHistory.cpu  = ecoHistory.cpu.filter(p => p.time > cutoff);
         ecoHistory.ram  = ecoHistory.ram.filter(p => p.time > cutoff);
         ecoHistory.temp = ecoHistory.temp.filter(p => p.time > cutoff);
+        // Auch in API-Cache schreiben – HA-Push liest von dort
+        setCached('eco-stats', { cpu, ram, cpu_temp: temp });
         return;
       }
     } catch {}
@@ -143,6 +151,9 @@ setInterval(async () => {
       const cutoff = now - 30 * 60 * 1000;
       trafficHistory.down = trafficHistory.down.filter(p => p.time > cutoff);
       trafficHistory.up = trafficHistory.up.filter(p => p.time > cutoff);
+      // Auch in API-Cache schreiben – HA-Push liest von dort
+      const existingNet = getCached('network-stats', 120000) || {};
+      setCached('network-stats', { ...existingNet, currentDown: downBps, currentUp: upBps });
     } catch {}
     try { await collectEcoHistory(session); } catch {}
   }
@@ -236,6 +247,7 @@ async function discoverControlUrls(host) {
     'urn:dslforum-org:service:LANHostConfigManagement:1': '/upnp/control/lanhostconfigmgm',
     'urn:dslforum-org:service:Hosts:1': '/upnp/control/hosts',
     'urn:dslforum-org:service:WANIPConnection:1': '/upnp/control/wanipconnection',
+    'urn:dslforum-org:service:WANPPPConnection:1': '/upnp/control/wanpppconn1',
     'urn:dslforum-org:service:WANCommonInterfaceConfig:1': '/upnp/control/WANCommonIFC1',
     'urn:schemas-upnp-org:service:WANCommonInterfaceConfig:1': '/igdupnp/control/WANCommonIFC1',
     'urn:dslforum-org:service:X_AVM-DE_HostFilter:1': '/upnp/control/x_hostfilter',
@@ -447,7 +459,7 @@ app.get('/api/fritz/eco-stats', async (req, res) => {
     const webSid = await getCachedWebSid(session);
     if (!webSid) return res.json({ cpu: 0, ram: 0, cpu_temp: 0 });
 
-    const pages = ['home', 'eco', 'ecoStat', 'overview'];
+    const pages = ['home', 'eco', 'ecoStat', 'overview', 'system', 'sysStat'];
     for (const page of pages) {
       try {
         const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
@@ -460,17 +472,21 @@ app.get('/api/fritz/eco-stats', async (req, res) => {
         if (text.trim().startsWith('{')) {
           const data = JSON.parse(text);
           const d = data?.data || {};
-          // Series-Pfade (Standard-Modelle wie 7590, 6591)
-          const cpuSeries = d.cpuutil?.series?.[0] || [];
-          const ramSeries = d.ramusage?.series?.[2] || d.ramusage?.series?.[0] || [];
-          const tempSeries = d.cputemp?.series?.[0] || [];
-          let cpu = cpuSeries.length > 0 ? parseInt(cpuSeries[cpuSeries.length - 1], 10) : 0;
-          let ram = ramSeries.length > 0 ? Math.round(ramSeries[ramSeries.length - 1]) : 0;
+          // Standard-Pfade (7590, 6591)
+          const cpuSeries  = d.cpuutil?.series?.[0]  || d.cpuUtilization?.series?.[0]  || [];
+          const ramSeries  = d.ramusage?.series?.[2]  || d.ramusage?.series?.[0] || d.ramUsage?.series?.[0] || [];
+          const tempSeries = d.cputemp?.series?.[0]   || d.cpuTemp?.series?.[0]  || [];
+          let cpu      = cpuSeries.length  > 0 ? parseInt(cpuSeries[cpuSeries.length - 1],   10) : 0;
+          let ram      = ramSeries.length  > 0 ? Math.round(ramSeries[ramSeries.length - 1])    : 0;
           let cpu_temp = tempSeries.length > 0 ? parseInt(tempSeries[tempSeries.length - 1], 10) : 0;
-          // Direktwert-Fallback (ältere Modelle / andere Firmware-Struktur)
-          if (cpu === 0) cpu = parseInt(d.cpu || d.cpuload || d.cpu_util || '0', 10) || 0;
-          if (ram === 0) ram = parseInt(d.ram || d.ramutil || d.memory || '0', 10) || 0;
-          if (cpu_temp === 0) cpu_temp = parseInt(d.temp || d.cpu_temp || d.temperature || '0', 10) || 0;
+          // Direktwert-Fallback (7530 und ältere Modelle)
+          if (cpu      === 0) cpu      = parseInt(d.cpu      || d.cpuload  || d.cpu_util  || d.cpuUtil  || d.stat?.cpu  || '0', 10) || 0;
+          if (ram      === 0) ram      = parseInt(d.ram      || d.ramutil  || d.ram_util  || d.ramUtil  || d.memory     || d.stat?.ram || d.memUsage || '0', 10) || 0;
+          if (cpu_temp === 0) cpu_temp = parseInt(d.temp     || d.cpu_temp || d.cputemp   || d.cpuTemp  || d.temperature || d.stat?.temp || '0', 10) || 0;
+          // 7530: Werte können in d.data.stat oder als direkte Zahlen liegen
+          if (cpu === 0 && typeof d.cpuUtil === 'number')      cpu      = d.cpuUtil;
+          if (ram === 0 && typeof d.ramUtil === 'number')      ram      = d.ramUtil;
+          if (cpu_temp === 0 && typeof d.temperature === 'number') cpu_temp = d.temperature;
           if (cpu > 0 || ram > 0 || cpu_temp > 0) {
             const result = { cpu, ram, cpu_temp };
             setCached('eco-stats', result);
@@ -742,8 +758,27 @@ app.get('/api/fritz/network/lan', async (req, res) => {
   try {
     const result = await soapRequest(session.host, 'urn:dslforum-org:service:LANHostConfigManagement:1', 'GetInfo', session.username, session.password, session.controlUrls);
     return res.json(result);
-  } catch (err) {
-    console.error('LAN error:', err.message);
+  } catch {
+    // Fallback für Modelle ohne LANHostConfigManagement (z. B. 7530 ältere Firmware)
+    try {
+      const webSid = await getCachedWebSid(session);
+      if (!webSid) return res.json({});
+      for (const page of ['lanExpert', 'lan', 'home']) {
+        try {
+          const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
+          const r = await fetch(`http://${session.host}/data.lua`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() });
+          const text = await r.text();
+          if (!text.trim().startsWith('{')) continue;
+          const d = JSON.parse(text)?.data || {};
+          const ipAddr = d.ip_address || d.ipAddress || d.NewIPAddress || d.ip || '';
+          const subnet = d.subnet_mask || d.subnetMask || d.NewSubnetMask || '';
+          const minAddr = d.dhcp_start || d.dhcpStart || d.NewMinAddress || '';
+          const maxAddr = d.dhcp_end   || d.dhcpEnd   || d.NewMaxAddress || '';
+          if (ipAddr || minAddr) return res.json({ NewIPAddress: ipAddr, NewSubnetMask: subnet, NewMinAddress: minAddr, NewMaxAddress: maxAddr, _source: 'data.lua' });
+        } catch {}
+      }
+    } catch {}
+    console.error('LAN error: Kein kompatibler LAN-Endpunkt gefunden');
     return res.json({});
   }
 });
@@ -752,14 +787,18 @@ app.get('/api/fritz/network/wan', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
-  try {
-    const ip = await soapRequest(session.host, 'urn:dslforum-org:service:WANIPConnection:1', 'GetExternalIPAddress', session.username, session.password, session.controlUrls);
-    const status = await soapRequest(session.host, 'urn:dslforum-org:service:WANIPConnection:1', 'GetStatusInfo', session.username, session.password, session.controlUrls);
-    return res.json({ ...ip, ...status });
-  } catch (err) {
-    console.error('WAN error:', err.message);
-    return res.json({});
+  // WANIPConnection:1 (DHCP/Kabel-Modelle); Fallback: WANPPPConnection:1 (DSL/PPPoE wie 7530)
+  for (const svc of ['urn:dslforum-org:service:WANIPConnection:1', 'urn:dslforum-org:service:WANPPPConnection:1']) {
+    try {
+      const [ip, status] = await Promise.all([
+        soapRequest(session.host, svc, 'GetExternalIPAddress', session.username, session.password, session.controlUrls),
+        soapRequest(session.host, svc, 'GetStatusInfo',        session.username, session.password, session.controlUrls),
+      ]);
+      return res.json({ ...ip, ...status, _wanService: svc });
+    } catch {}
   }
+  console.error('WAN error: Kein kompatibler WAN-Service gefunden (weder IPConnection noch PPPConnection)');
+  return res.json({});
 });
 
 app.get('/api/fritz/network/wlan', async (req, res) => {
@@ -818,8 +857,26 @@ app.get('/api/fritz/network/dhcp', async (req, res) => {
   try {
     const result = await soapRequest(session.host, 'urn:dslforum-org:service:LANHostConfigManagement:1', 'GetInfo', session.username, session.password, session.controlUrls);
     return res.json(result);
-  } catch (err) {
-    console.error('DHCP error:', err.message);
+  } catch {
+    // Fallback via data.lua (z. B. 7530 ältere Firmware)
+    try {
+      const webSid = await getCachedWebSid(session);
+      if (!webSid) return res.json({});
+      for (const page of ['lanExpert', 'lan', 'home']) {
+        try {
+          const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
+          const r = await fetch(`http://${session.host}/data.lua`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() });
+          const text = await r.text();
+          if (!text.trim().startsWith('{')) continue;
+          const d = JSON.parse(text)?.data || {};
+          const minAddr = d.dhcp_start || d.dhcpStart || d.NewMinAddress || '';
+          const maxAddr = d.dhcp_end   || d.dhcpEnd   || d.NewMaxAddress || '';
+          const subnet  = d.subnet_mask || d.subnetMask || d.NewSubnetMask || '';
+          if (minAddr || maxAddr) return res.json({ NewMinAddress: minAddr, NewMaxAddress: maxAddr, NewSubnetMask: subnet, _source: 'data.lua' });
+        } catch {}
+      }
+    } catch {}
+    console.error('DHCP error: Kein kompatibler DHCP-Endpunkt gefunden');
     return res.json({});
   }
 });
@@ -830,6 +887,8 @@ app.get('/api/fritz/ip-stats', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  const cached = getCached('ip-stats', 30000); // 30 Sekunden cachen
+  if (cached) return res.json(cached);
   try {
     const dhcp = await soapRequest(session.host, 'urn:dslforum-org:service:LANHostConfigManagement:1', 'GetInfo', session.username, session.password, session.controlUrls);
     const hosts = await getHostsViaSoap(session.host, session.username, session.password, session.controlUrls);
@@ -845,7 +904,9 @@ app.get('/api/fritz/ip-stats', async (req, res) => {
     const total = (minInt && maxInt && maxInt >= minInt) ? maxInt - minInt + 1 : 0;
     const used = hosts.filter(h => { if (!h.ip) return false; const ipInt = ipToInt(h.ip); return ipInt >= minInt && ipInt <= maxInt; }).length;
     const free = Math.max(0, total - used);
-    return res.json({ total, used, free, minAddress, maxAddress });
+    const result = { total, used, free, minAddress, maxAddress };
+    setCached('ip-stats', result);
+    return res.json(result);
   } catch (err) {
     console.error('IP-Stats error:', err.message);
     return res.json({ total: 0, used: 0, free: 0, minAddress: '', maxAddress: '' });
@@ -1181,6 +1242,119 @@ app.get('/api/fritz/version', async (req, res) => {
   } catch {
     return res.json({ version: '1.1.2' });
   }
+});
+
+// ============ HA SENSOR PUSH ============
+
+const HA_TOKEN = process.env.SUPERVISOR_TOKEN || '';
+const HA_API   = 'http://supervisor/core/api';
+
+// Laufzeit-Einstellungen (aus /data/fritz-portal.json überschreibbar)
+const SETTINGS_FILE = '/data/fritz-portal.json';
+let haSensorsEnabled     = process.env.HA_SENSORS !== 'false';
+let haFastIntervalSec    = Math.max(10,  parseInt(process.env.HA_SENSORS_INTERVAL          || '60',  10));
+let haTrafficIntervalSec = Math.max(30,  parseInt(process.env.HA_SENSORS_TRAFFIC_INTERVAL  || '300', 10));
+
+try {
+  if (existsSync(SETTINGS_FILE)) {
+    const s = JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8'));
+    if (s.ha_sensors !== undefined)         haSensorsEnabled     = !!s.ha_sensors;
+    if (s.ha_sensors_interval)              haFastIntervalSec    = Math.max(10,  parseInt(s.ha_sensors_interval,        10));
+    if (s.ha_sensors_traffic_interval)      haTrafficIntervalSec = Math.max(30,  parseInt(s.ha_sensors_traffic_interval, 10));
+  }
+} catch {}
+
+async function setState(entityId, state, attributes = {}) {
+  try {
+    await fetch(`${HA_API}/states/${entityId}`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${HA_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state: String(state), attributes }),
+    });
+  } catch (e) {
+    console.error(`HA Sensor Push Fehler (${entityId}):`, e.message);
+  }
+}
+
+async function pushFastSensorsToHA() {
+  if (!HA_TOKEN) return;
+  // TTL 120s: Background-Interval hält Cache alle 10s frisch – großzügige TTL verhindert Nullwerte
+  const eco     = getCached('eco-stats',     120000) || { cpu: 0, ram: 0, cpu_temp: 0 };
+  const hosts   = getCached('hosts',          60000) || [];
+  const ipStats = getCached('ip-stats',       60000) || { free: 0 };
+  const net     = getCached('network-stats', 120000) || { currentDown: 0, currentUp: 0 };
+  const online  = hosts.filter(h => h.active).length;
+  await setState('sensor.fritzportal_cpu',            eco.cpu,         { unit_of_measurement: '%',   friendly_name: 'FRITZ!Portal CPU-Auslastung',    icon: 'mdi:chip' });
+  await setState('sensor.fritzportal_ram',            eco.ram,         { unit_of_measurement: '%',   friendly_name: 'FRITZ!Portal RAM-Auslastung',    icon: 'mdi:memory' });
+  await setState('sensor.fritzportal_temperature',    eco.cpu_temp,    { unit_of_measurement: '°C',  friendly_name: 'FRITZ!Portal CPU-Temperatur',    icon: 'mdi:thermometer', device_class: 'temperature' });
+  await setState('sensor.fritzportal_online_devices', online,          { unit_of_measurement: '',    friendly_name: 'FRITZ!Portal Geräte online',     icon: 'mdi:devices' });
+  await setState('sensor.fritzportal_free_ips',       ipStats.free,    { unit_of_measurement: '',    friendly_name: 'FRITZ!Portal Freie IP-Adressen', icon: 'mdi:ip-network' });
+  await setState('sensor.fritzportal_download_speed', net.currentDown, { unit_of_measurement: 'B/s', friendly_name: 'FRITZ!Portal Download aktuell',  icon: 'mdi:download', device_class: 'data_rate' });
+  await setState('sensor.fritzportal_upload_speed',   net.currentUp,   { unit_of_measurement: 'B/s', friendly_name: 'FRITZ!Portal Upload aktuell',    icon: 'mdi:upload',   device_class: 'data_rate' });
+}
+
+async function pushTrafficSensorsToHA() {
+  if (!HA_TOKEN) return;
+  const tc = getCached('traffic-counters');
+  if (!tc?.rows) return;
+  const keys  = ['today', 'yesterday', 'week', 'month', 'last_month'];
+  const names = ['Heute', 'Gestern', 'Aktuelle Woche', 'Aktueller Monat', 'Vormonat'];
+  for (let i = 0; i < tc.rows.length; i++) {
+    const row = tc.rows[i];
+    const k   = keys[i];
+    const lbl = names[i];
+    await setState(`sensor.fritzportal_traffic_${k}_received`, row.received, { unit_of_measurement: 'B', friendly_name: `FRITZ!Portal Download ${lbl}`, icon: 'mdi:download-network', device_class: 'data_size' });
+    await setState(`sensor.fritzportal_traffic_${k}_sent`,     row.sent,     { unit_of_measurement: 'B', friendly_name: `FRITZ!Portal Upload ${lbl}`,   icon: 'mdi:upload-network',   device_class: 'data_size' });
+  }
+}
+
+let haFastTimer    = null;
+let haTrafficTimer = null;
+
+function startHaTimers() {
+  if (haFastTimer)    clearInterval(haFastTimer);
+  if (haTrafficTimer) clearInterval(haTrafficTimer);
+  haFastTimer    = null;
+  haTrafficTimer = null;
+  if (!haSensorsEnabled || !HA_TOKEN) {
+    if (!HA_TOKEN) console.log('HA Sensor Push deaktiviert – kein SUPERVISOR_TOKEN (kein HA-Betrieb)');
+    else console.log('HA Sensor Push deaktiviert (ha_sensors=false)');
+    return;
+  }
+  haFastTimer    = setInterval(() => { pushFastSensorsToHA().catch(() => {}); },    haFastIntervalSec    * 1000);
+  haTrafficTimer = setInterval(() => { pushTrafficSensorsToHA().catch(() => {}); }, haTrafficIntervalSec * 1000);
+  console.log(`HA Sensor Push aktiviert (Systemsensoren: ${haFastIntervalSec}s, Traffic: ${haTrafficIntervalSec}s)`);
+}
+
+startHaTimers();
+
+app.get('/api/fritz/ha-settings', (req, res) => {
+  const sid = req.headers['x-fritz-sid'];
+  if (!sessions.get(sid)) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  return res.json({
+    ha_sensors:                  haSensorsEnabled,
+    ha_sensors_interval:         haFastIntervalSec,
+    ha_sensors_traffic_interval: haTrafficIntervalSec,
+    ha_available:                !!HA_TOKEN,
+  });
+});
+
+app.post('/api/fritz/ha-settings', (req, res) => {
+  const sid = req.headers['x-fritz-sid'];
+  if (!sessions.get(sid)) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  const { ha_sensors, ha_sensors_interval, ha_sensors_traffic_interval } = req.body;
+  if (ha_sensors !== undefined)                  haSensorsEnabled     = !!ha_sensors;
+  if (ha_sensors_interval !== undefined)         haFastIntervalSec    = Math.max(10,  parseInt(ha_sensors_interval,         10) || 60);
+  if (ha_sensors_traffic_interval !== undefined) haTrafficIntervalSec = Math.max(30,  parseInt(ha_sensors_traffic_interval, 10) || 300);
+  try {
+    writeFileSync(SETTINGS_FILE, JSON.stringify({
+      ha_sensors:                  haSensorsEnabled,
+      ha_sensors_interval:         haFastIntervalSec,
+      ha_sensors_traffic_interval: haTrafficIntervalSec,
+    }));
+  } catch (e) { console.error('Settings speichern fehlgeschlagen:', e.message); }
+  startHaTimers();
+  return res.json({ success: true, ha_sensors: haSensorsEnabled, ha_sensors_interval: haFastIntervalSec, ha_sensors_traffic_interval: haTrafficIntervalSec });
 });
 
 const PORT = 3003;

@@ -1,5 +1,5 @@
 name: "FRITZ!Portal"
-version: "1.1.24"
+version: "1.1.30"
 slug: "fritz-portal"
 description: "FRITZ!Box Dashboard für Home Assistant"
 url: "https://github.com/jayjojayson/FRITZ-Portal"
@@ -17,7 +17,7 @@ panel_icon: "mdi:router-wireless"
 panel_title: "FRITZ!Portal"
 panel_admin: true
 hassio_api: false
-homeassistant_api: false
+homeassistant_api: true
 host_network: true
 ports:
   3003/tcp: null
@@ -27,7 +27,13 @@ options:
   fritzbox_host: "fritz.box"
   fritzbox_user: ""
   fritzbox_password: ""
+  ha_sensors: true
+  ha_sensors_interval: 60
+  ha_sensors_traffic_interval: 300
 schema:
   fritzbox_host: "str"
   fritzbox_user: "str"
   fritzbox_password: "str"
+  ha_sensors: bool
+  ha_sensors_interval: int
+  ha_sensors_traffic_interval: int

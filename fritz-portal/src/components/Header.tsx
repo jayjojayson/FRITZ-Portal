@@ -1,3 +1,6 @@
+import { useTheme } from '../hooks/useTheme';
+import logo from '../logo.png';
+
 type Page = 'dashboard' | 'devices' | 'device-detail' | 'network' | 'traffic' | 'telefonie' | 'system';
 
 interface HeaderProps {
@@ -15,20 +18,13 @@ const navItems: { page: Page; label: string; icon: string }[] = [
 ];
 
 export default function Header({ currentPage, onNavigate }: HeaderProps) {
-  const isDark = typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'dark';
-
-  const toggleTheme = () => {
-    const next = isDark ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', next);
-    localStorage.setItem('theme', next);
-    window.location.reload();
-  };
+  const { theme, toggleTheme } = useTheme();
+  const isDark = theme === 'dark';
 
   return (
     <header className="header">
       <div className="header-brand">
-        <span className="header-logo"></span>
-        <span className="header-title">FRITZ!Portal</span>
+        <img src={logo} alt="FRITZ!Portal" className="header-logo-img" />
       </div>
       <nav className="header-nav">
         {navItems.map(item => (
