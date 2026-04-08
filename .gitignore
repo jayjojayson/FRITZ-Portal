@@ -1,6 +1,7 @@
 node_modules
 server
 src
+!fritz-portal/src/logo.png
 dist
 electron-dist
 release
