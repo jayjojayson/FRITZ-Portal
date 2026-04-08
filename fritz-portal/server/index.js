@@ -913,6 +913,141 @@ app.get('/api/fritz/ip-stats', async (req, res) => {
   }
 });
 
+// ============ MESH ============
+
+app.get('/api/fritz/mesh', async (req, res) => {
+  const sid = req.headers['x-fritz-sid'];
+  const session = sessions.get(sid);
+  if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
+
+  const cached = getCached('mesh-topology', 30000);
+  if (cached) return res.json(cached);
+
+  const webSid = await getCachedWebSid(session);
+  if (!webSid) { console.log('Mesh: kein webSid verfügbar'); return res.json({ nodes: [], links: [] }); }
+
+  // Versuche verschiedene data.lua-Seiten für Mesh-Topologie
+  for (const page of ['meshTopo', 'netTopo', 'hostTopo', 'mesh']) {
+    try {
+      console.log(`Mesh: versuche data.lua page=${page}`);
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 4000);
+      const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
+      let r, text;
+      try {
+        r = await fetch(`http://${session.host}/data.lua`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params.toString(),
+          signal: ctrl.signal,
+        });
+        text = await r.text();
+      } finally { clearTimeout(timer); }
+      if (!text.trim().startsWith('{')) continue;
+      const raw = JSON.parse(text);
+      const d = raw?.data || raw || {};
+
+      // Mesh-Knoten aus verschiedenen Pfaden extrahieren
+      const nodeList = d.nodes || d.meshNodes || d.mesh_nodes ||
+                       d.topology?.nodes || d.topo?.nodes || null;
+      const linkList = d.links || d.meshLinks || d.mesh_links ||
+                       d.topology?.links || d.topo?.links || null;
+
+      if (nodeList && Array.isArray(nodeList) && nodeList.length > 0) {
+        const result = normalizeMeshData(nodeList, linkList || []);
+        setCached('mesh-topology', result, 30000);
+        return res.json(result);
+      }
+
+      // Alternativformat: Geräteliste mit mesh_role / is_mesh_master
+      const devices = d.devices || d.data || [];
+      if (Array.isArray(devices) && devices.length > 0) {
+        const meshDevices = devices.filter(dev =>
+          dev.mesh_role || dev.is_mesh_master !== undefined || dev.meshRole ||
+          dev.node_interfaces || dev.type === 'mesh_master' || dev.type === 'mesh_satellite'
+        );
+        if (meshDevices.length > 0) {
+          const result = normalizeMeshDevices(meshDevices);
+          setCached('mesh-topology', result, 30000);
+          return res.json(result);
+        }
+      }
+    } catch (err) { console.log(`Mesh: page=${page} Fehler: ${err.message}`); }
+  }
+
+  // Letzter Fallback: AVM Mesh-API /meshlist
+  console.log('Mesh: versuche /meshlist.lua');
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 4000);
+    let r, text;
+    try {
+      r = await fetch(`http://${session.host}/meshlist.lua?sid=${webSid}`, { signal: ctrl.signal });
+      text = await r.text();
+    } finally { clearTimeout(timer); }
+    if (text.trim().startsWith('{')) {
+      const raw = JSON.parse(text);
+      const nodeList = raw?.meshlist?.nodes || raw?.nodes || [];
+      if (nodeList.length > 0) {
+        const result = normalizeMeshData(nodeList, raw?.meshlist?.links || raw?.links || []);
+        setCached('mesh-topology', result, 30000);
+        return res.json(result);
+      }
+    }
+  } catch (err) { console.log(`Mesh: meshlist.lua Fehler: ${err.message}`); }
+
+  console.log('Mesh: keine Topologie-Daten gefunden');
+  return res.json({ nodes: [], links: [] });
+});
+
+function normalizeMeshData(nodes, links) {
+  const normalized = nodes.map((n, i) => ({
+    uid:       n.uid || n.id || n.mac || String(i),
+    name:      n.friendly_name || n.name || n.hostname || n.FriendlyName || `Gerät ${i + 1}`,
+    mac:       n.mac_address || n.mac || n.MACAddress || '',
+    ip:        n.ipv4_address || n.ip || n.IPAddress || '',
+    role:      (n.mesh_role || n.role || '').toLowerCase().includes('master') ? 'master'
+             : (n.mesh_role || n.role || '').toLowerCase().includes('satellite') ? 'satellite'
+             : 'client',
+    is_meshed: n.is_meshed !== undefined ? n.is_meshed : (n.isMeshed || false),
+    model:     n.device_model || n.model || '',
+    interfaces: (n.node_interfaces || []).map(iface => ({
+      type: iface.type || iface.medium || '',
+      name: iface.name || '',
+    })),
+  }));
+  const normalizedLinks = links.map(l => ({
+    from: l.node1_uid || l.from || l.source || '',
+    to:   l.node2_uid || l.to   || l.target || '',
+    type: l.type || l.medium || 'LAN',
+    speed: l.cur_data_rate_rx || l.speed || 0,
+  }));
+  return { nodes: normalized, links: normalizedLinks };
+}
+
+function normalizeMeshDevices(devices) {
+  const nodes = devices.map((d, i) => ({
+    uid:       d.mac || d.uid || String(i),
+    name:      d.name || d.hostname || d.FriendlyName || `Gerät ${i + 1}`,
+    mac:       d.mac || d.MACAddress || '',
+    ip:        d.ip || d.IPAddress || '',
+    role:      d.is_mesh_master || d.meshRole === 'master' || d.mesh_role === 'master' ? 'master'
+             : d.mesh_role === 'satellite' || d.meshRole === 'satellite' ? 'satellite'
+             : 'client',
+    is_meshed: true,
+    model:     d.model || d.device_model || '',
+    interfaces: [],
+  }));
+  // Links aus Parent-Referenzen ableiten
+  const links = [];
+  devices.forEach(d => {
+    if (d.parent_uid || d.master_uid) {
+      links.push({ from: d.parent_uid || d.master_uid, to: d.mac || d.uid, type: d.medium || 'WiFi', speed: 0 });
+    }
+  });
+  return { nodes, links };
+}
+
 // ============ TELEFONIE ============
 
 app.get('/api/fritz/smartHome', async (req, res) => {

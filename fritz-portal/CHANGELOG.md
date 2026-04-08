@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.2
+
+- Neu: Mesh-Topologie-Visualisierung im Tab "Übersicht" der Netzwerk-Seite
+- Neu: SVG-Diagramm zeigt Fritz!Box-Geräte (Master, Satellite, Clients) mit Verbindungslinien (LAN/WLAN)
+- Neu: Hover-Tooltip mit IP, MAC und Modell des jeweiligen Knotens
+- Neu: Backend-Endpunkt `/api/fritz/mesh` mit Fallback durch mehrere `data.lua`-Seiten und `/meshlist.lua`
+- Fix: Mesh-Topologie-Spinner drehte sich endlos – alle fetch-Aufrufe im `/api/fritz/mesh`-Endpunkt haben jetzt 4s Timeout (AbortController)
+- Fix: Seite `overview` aus der Mesh-Suchliste entfernt (zu große Antwort, zu langsam)
+- Fix: Frontend-Sicherheitsnetz: Spinner bricht nach 25s automatisch ab
+- Neu: Server-Logging für Mesh-Endpunkt (zeigt welche Seite versucht wird und Fehlermeldungen)
+
 ## 1.2.1
 
 - Änderung: HA Traffic-Sensoren (Heute/Gestern/Woche/Monat/Vormonat) werden jetzt in MB oder GB übertragen – unter 1 GiB als MB (2 Nachkommastellen), ab 1 GiB als GB (3 Nachkommastellen)
