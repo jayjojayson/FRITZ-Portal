@@ -926,78 +926,83 @@ app.get('/api/fritz/mesh', async (req, res) => {
   const webSid = await getCachedWebSid(session);
   if (!webSid) { console.log('Mesh: kein webSid verfügbar'); return res.json({ nodes: [], links: [] }); }
 
-  // Versuche verschiedene data.lua-Seiten für Mesh-Topologie
-  for (const page of ['meshTopo', 'netTopo', 'hostTopo', 'mesh']) {
+  // Alle Seiten + meshlist.lua parallel abfragen (statt seriell) → max. 4s Wartezeit statt ~20s
+  async function tryDataLuaPage(page) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 4000);
     try {
-      console.log(`Mesh: versuche data.lua page=${page}`);
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 4000);
       const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
-      let r, text;
-      try {
-        r = await fetch(`http://${session.host}/data.lua`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: params.toString(),
-          signal: ctrl.signal,
-        });
-        text = await r.text();
-      } finally { clearTimeout(timer); }
-      if (!text.trim().startsWith('{')) continue;
+      const r = await fetch(`http://${session.host}/data.lua`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+        signal: ctrl.signal,
+      });
+      const text = await r.text();
+      if (!text.trim().startsWith('{')) return null;
       const raw = JSON.parse(text);
       const d = raw?.data || raw || {};
 
-      // Mesh-Knoten aus verschiedenen Pfaden extrahieren
       const nodeList = d.nodes || d.meshNodes || d.mesh_nodes ||
                        d.topology?.nodes || d.topo?.nodes || null;
       const linkList = d.links || d.meshLinks || d.mesh_links ||
                        d.topology?.links || d.topo?.links || null;
-
       if (nodeList && Array.isArray(nodeList) && nodeList.length > 0) {
-        const result = normalizeMeshData(nodeList, linkList || []);
-        setCached('mesh-topology', result, 30000);
-        return res.json(result);
+        return normalizeMeshData(nodeList, linkList || []);
       }
 
-      // Alternativformat: Geräteliste mit mesh_role / is_mesh_master
       const devices = d.devices || d.data || [];
       if (Array.isArray(devices) && devices.length > 0) {
         const meshDevices = devices.filter(dev =>
           dev.mesh_role || dev.is_mesh_master !== undefined || dev.meshRole ||
           dev.node_interfaces || dev.type === 'mesh_master' || dev.type === 'mesh_satellite'
         );
-        if (meshDevices.length > 0) {
-          const result = normalizeMeshDevices(meshDevices);
-          setCached('mesh-topology', result, 30000);
-          return res.json(result);
-        }
+        if (meshDevices.length > 0) return normalizeMeshDevices(meshDevices);
       }
-    } catch (err) { console.log(`Mesh: page=${page} Fehler: ${err.message}`); }
+      return null;
+    } catch (err) {
+      console.log(`Mesh: page=${page} Fehler: ${err.message}`);
+      return null;
+    } finally { clearTimeout(timer); }
   }
 
-  // Letzter Fallback: AVM Mesh-API /meshlist
-  console.log('Mesh: versuche /meshlist.lua');
-  try {
+  async function tryMeshlist() {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 4000);
-    let r, text;
     try {
-      r = await fetch(`http://${session.host}/meshlist.lua?sid=${webSid}`, { signal: ctrl.signal });
-      text = await r.text();
-    } finally { clearTimeout(timer); }
-    if (text.trim().startsWith('{')) {
+      const r = await fetch(`http://${session.host}/meshlist.lua?sid=${webSid}`, { signal: ctrl.signal });
+      const text = await r.text();
+      if (!text.trim().startsWith('{')) return null;
       const raw = JSON.parse(text);
       const nodeList = raw?.meshlist?.nodes || raw?.nodes || [];
-      if (nodeList.length > 0) {
-        const result = normalizeMeshData(nodeList, raw?.meshlist?.links || raw?.links || []);
-        setCached('mesh-topology', result, 30000);
-        return res.json(result);
-      }
-    }
-  } catch (err) { console.log(`Mesh: meshlist.lua Fehler: ${err.message}`); }
+      if (nodeList.length > 0) return normalizeMeshData(nodeList, raw?.meshlist?.links || raw?.links || []);
+      return null;
+    } catch (err) {
+      console.log(`Mesh: meshlist.lua Fehler: ${err.message}`);
+      return null;
+    } finally { clearTimeout(timer); }
+  }
 
+  console.log('Mesh: starte parallele Abfragen (meshTopo, netTopo, hostTopo, mesh, meshlist.lua)');
+  const results = await Promise.all([
+    tryDataLuaPage('meshTopo'),
+    tryDataLuaPage('netTopo'),
+    tryDataLuaPage('hostTopo'),
+    tryDataLuaPage('mesh'),
+    tryMeshlist(),
+  ]);
+
+  const found = results.find(r => r !== null);
+  if (found) {
+    setCached('mesh-topology', found, 30000);
+    return res.json(found);
+  }
+
+  // Negativ-Ergebnis ebenfalls cachen (60s) – verhindert wiederholte Timeouts bei jedem Seitenaufruf
   console.log('Mesh: keine Topologie-Daten gefunden');
-  return res.json({ nodes: [], links: [] });
+  const empty = { nodes: [], links: [] };
+  setCached('mesh-topology', empty, 60000);
+  return res.json(empty);
 });
 
 function normalizeMeshData(nodes, links) {

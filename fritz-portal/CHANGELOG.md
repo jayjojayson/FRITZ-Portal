@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.3
+
+- Fix: Mesh-Abfragen laufen jetzt parallel statt seriell – Wartezeit beim ersten Aufruf von ~20s auf ~4s reduziert
+- Fix: Negatives Ergebnis (kein Mesh) wird 60s gecacht – verhindert wiederholte Timeouts bei jedem Seitenaufruf
+
 ## 1.2.2
 
 - Neu: Mesh-Topologie-Visualisierung im Tab "Übersicht" der Netzwerk-Seite
