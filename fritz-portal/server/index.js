@@ -1084,14 +1084,7 @@ app.get('/api/fritz/calls', async (req, res) => {
 
 // ============ TRAFFIC ============
 
-app.get('/api/fritz/traffic-counters', async (req, res) => {
-  const sid = req.headers['x-fritz-sid'];
-  const session = sessions.get(sid);
-  if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
-
-  const cached = getCached('traffic-counters');
-  if (cached) return res.json(cached);
-
+async function collectTrafficCounters(session) {
   // 1. Versuche data.lua mit Web-SID (klassische FritzBox)
   const webSid = await getCachedWebSid(session);
   if (webSid) {
@@ -1123,18 +1116,18 @@ app.get('/api/fritz/traffic-counters', async (req, res) => {
           if (d.today !== undefined) {
             const result = { rows: ['today','yesterday','week','month','last_month'].map((k,i) => mkRow(d[k]||{},i)) };
             setCached('traffic-counters', result);
-            return res.json(result);
+            return result;
           }
           if (d.heute !== undefined) {
             const result = { rows: ['heute','gestern','woche','monat','vormonat'].map((k,i) => mkRow(d[k]||{},i)) };
             setCached('traffic-counters', result);
-            return res.json(result);
+            return result;
           }
           const arr = Array.isArray(d) ? d : (d.tablelist || d.netCnt || d.count || d.stat || d.rows || d.list);
           if (Array.isArray(arr) && arr.length > 0) {
             const result = { rows: arr.slice(0,5).map((e,i) => mkRow(e,i)) };
             setCached('traffic-counters', result);
-            return res.json(result);
+            return result;
           }
         } catch {}
       }
@@ -1200,7 +1193,7 @@ app.get('/api/fritz/traffic-counters', async (req, res) => {
       if (parsed && parsed.length > 0) {
         const result = { rows: parsed };
         setCached('traffic-counters', result);
-        return res.json(result);
+        return result;
       }
     } catch (err) {
       console.error('Traffic counters data.lua error:', err.message);
@@ -1217,7 +1210,6 @@ app.get('/api/fritz/traffic-counters', async (req, res) => {
     const totalUp = parseInt(addonInfo['NewX_AVM_DE_TotalBytesSent64'] || addonInfo['NewTotalBytesSent'] || '0', 10) || 0;
     const currentDown = parseInt(addonInfo['NewByteReceiveRate'] || '0', 10) || 0;
     const currentUp = parseInt(addonInfo['NewByteSendRate'] || '0', 10) || 0;
-
     const result = {
       rows: [
         { name: 'Gesamt', received: totalDown, sent: totalUp, onlineTime: '', connections: 0 },
@@ -1226,11 +1218,22 @@ app.get('/api/fritz/traffic-counters', async (req, res) => {
       currentUp,
     };
     setCached('traffic-counters', result);
-    return res.json(result);
+    return result;
   } catch (err) {
     console.error('Traffic counters SOAP fallback error:', err.message);
-    return res.json({ rows: [], currentDown: 0, currentUp: 0 });
+    return { rows: [], currentDown: 0, currentUp: 0 };
   }
+}
+
+app.get('/api/fritz/traffic-counters', async (req, res) => {
+  const sid = req.headers['x-fritz-sid'];
+  const session = sessions.get(sid);
+  if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
+
+  const cached = getCached('traffic-counters');
+  if (cached) return res.json(cached);
+
+  return res.json(await collectTrafficCounters(session));
 });
 
 // Version endpoint
@@ -1289,13 +1292,20 @@ async function pushFastSensorsToHA() {
   await setState('sensor.fritzportal_temperature',    eco.cpu_temp,    { unit_of_measurement: '°C',  friendly_name: 'FRITZ!Portal CPU-Temperatur',    icon: 'mdi:thermometer', device_class: 'temperature' });
   await setState('sensor.fritzportal_online_devices', online,          { unit_of_measurement: '',    friendly_name: 'FRITZ!Portal Geräte online',     icon: 'mdi:devices' });
   await setState('sensor.fritzportal_free_ips',       ipStats.free,    { unit_of_measurement: '',    friendly_name: 'FRITZ!Portal Freie IP-Adressen', icon: 'mdi:ip-network' });
-  await setState('sensor.fritzportal_download_speed', net.currentDown, { unit_of_measurement: 'B/s', friendly_name: 'FRITZ!Portal Download aktuell',  icon: 'mdi:download', device_class: 'data_rate' });
-  await setState('sensor.fritzportal_upload_speed',   net.currentUp,   { unit_of_measurement: 'B/s', friendly_name: 'FRITZ!Portal Upload aktuell',    icon: 'mdi:upload',   device_class: 'data_rate' });
+  await setState('sensor.fritzportal_download_speed', +(net.currentDown / 1048576).toFixed(3), { unit_of_measurement: 'MB/s', friendly_name: 'FRITZ!Portal Download aktuell',  icon: 'mdi:download', device_class: 'data_rate' });
+  await setState('sensor.fritzportal_upload_speed',   +(net.currentUp   / 1048576).toFixed(3), { unit_of_measurement: 'MB/s', friendly_name: 'FRITZ!Portal Upload aktuell',    icon: 'mdi:upload',   device_class: 'data_rate' });
 }
 
 async function pushTrafficSensorsToHA() {
   if (!HA_TOKEN) return;
-  const tc = getCached('traffic-counters');
+  // Cache mit großzügigem TTL lesen (doppeltes Intervall als Puffer)
+  let tc = getCached('traffic-counters', haTrafficIntervalSec * 2 * 1000);
+  if (!tc) {
+    // Kein Cache-Eintrag → aktiv von der FritzBox holen
+    const session = [...sessions.values()][0];
+    if (!session) return;
+    try { tc = await collectTrafficCounters(session); } catch { return; }
+  }
   if (!tc?.rows) return;
   const keys  = ['today', 'yesterday', 'week', 'month', 'last_month'];
   const names = ['Heute', 'Gestern', 'Aktuelle Woche', 'Aktueller Monat', 'Vormonat'];

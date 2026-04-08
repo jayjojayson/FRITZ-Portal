@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0
+
+- Fix: Traffic-Sensoren für Home Assistant (Heute/Gestern/Woche/Monat/Vormonat) wurden nie an HA gesendet, da kein Background-Collector existierte. `pushTrafficSensorsToHA()` holt jetzt aktiv Daten von der FritzBox wenn der Cache abgelaufen ist.
+- Änderung: HA-Sensoren `download_speed` und `upload_speed` werden jetzt in MB/s statt B/s übertragen (auf 3 Nachkommastellen gerundet)
+
 ## 1.1.30
 
 - Neu: FRITZ!Portal Logo im Header anstelle der bisherigen Text-Schriftzug

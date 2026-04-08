@@ -11,7 +11,7 @@ export default function System({ sid }: SystemProps) {
   const [rebooting, setRebooting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [version] = useState('1.1.30');
+  const [version] = useState('1.2.0');
   const [fritzHost, setFritzHost] = useState('fritz.box');
 
   // HA-Sensor-Einstellungen
