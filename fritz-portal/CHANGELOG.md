@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.8
+
+- Neu: „Namen“-Button zum Ein-/Ausblenden der Gerätenamen unter den Bubbles (max. 12 Zeichen)
+- Neu: Fritz!Box-Name und IP werden im Master-Kreis angezeigt (kleiner, gut lesbar) statt außerhalb bis max 80 Geräte
+- Fix: Fritz!Box erscheint nicht mehr doppelt als Client-Gerät im Netzwerk-Diagramm
+
 ## 1.2.7
 
 - Neu: Toggle-Schalter „Mesh / Netzwerk" neben der Topologie-Überschrift – erlaubt Wechsel zwischen Mesh-Ansicht und Netzwerk-Ansicht (Host-Fallback)
@@ -9,6 +15,9 @@
 - Neu: WLAN-Geräte bekommen ein WLAN-Icon (Funkwellen), LAN-Geräte ein Monitor-Icon im Knoten
 - Neu: Zusammenfassung über dem Diagramm zeigt Anzahl Geräte online, LAN und WLAN
 - Neu: Tooltip zeigt jetzt auch den Verbindungstyp (LAN/WLAN) an
+- Neu: „Namen"-Button zum Ein-/Ausblenden der Gerätenamen unter den Bubbles (max. 12 Zeichen)
+- Neu: Fritz!Box-Name und IP werden im Master-Kreis angezeigt (kleiner, gut lesbar)
+- Fix: Fritz!Box erscheint nicht mehr doppelt als Client-Gerät im Netzwerk-Diagramm
 - Fix: WLAN-Erkennung im Host-Fallback erkennt jetzt auch `802.11` und `Ethernet` (SOAP-Werte) korrekt
 - Fix: Geräte-Limit im Host-Fallback von 50 auf unbegrenzt erhöht
 

@@ -1063,7 +1063,8 @@ app.get('/api/fritz/mesh', async (req, res) => {
       const di = getCached('device-info');
       if (di?.NewModelName) masterName = di.NewModelName;
       const masterNode = { uid: 'master', name: masterName, mac: '', ip: session.host, role: 'master', is_meshed: true, model: masterName, interfaces: [] };
-      const clientNodes = hosts.filter(h => h.active).map((h, i) => ({
+      const masterIp = session.host.replace(/^https?:\/\//, '');
+      const clientNodes = hosts.filter(h => h.active && h.ip !== masterIp && (h.name || '').toLowerCase() !== 'fritz.box').map((h, i) => ({
         uid: h.mac || String(i),
         name: h.name || h.ip || `Gerät ${i + 1}`,
         mac: h.mac || '',

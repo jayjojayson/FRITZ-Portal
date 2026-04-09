@@ -177,6 +177,7 @@ const isWlanType = (type: string) => {
 function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: boolean; sid: string }) {
   const [tooltip, setTooltip] = useState<{ node: MeshNode; x: number; y: number } | null>(null);
   const [hoveredUid, setHoveredUid] = useState<string | null>(null);
+  const [showNames, setShowNames] = useState(false);
   const isOriginallyHosts = meshData?._source === 'hosts-fallback';
   const [viewMode, setViewMode] = useState<'mesh' | 'hosts'>(isOriginallyHosts ? 'hosts' : 'mesh');
   const [hostsData, setHostsData] = useState<any>(null);
@@ -322,8 +323,8 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
 
     // Knotengröße je nach Anzahl
     const nodeR = totalClients <= 15 ? 18 : totalClients <= 40 ? 14 : totalClients <= 80 ? 10 : 7;
-    const showLabels = totalClients <= 35;
-    const spacing = Math.max(nodeR * 4, showLabels ? 55 : 28);
+    const labelsVisible = showNames && nodeR >= 10;
+    const spacing = Math.max(nodeR * 4, labelsVisible ? 55 : 28);
 
     // LAN/WLAN Zuordnung für jeden Client
     const clientMeta = clientNodes.map(n => {
@@ -352,7 +353,7 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
     }
 
     const maxR = rings.length > 0 ? rings[rings.length - 1].radius : baseRadius;
-    const pad = showLabels ? 70 : 45;
+    const pad = labelsVisible ? 70 : 45;
     const W = 2 * (maxR + pad + nodeR);
     const H = W;
     const cx = W / 2;
@@ -373,6 +374,13 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
           <span>{totalClients} Geräte online</span>
           <span style={{ color: '#3b82f6' }}>● {lanCount} LAN</span>
           <span style={{ color: '#10b981' }}>● {wlanCount} WLAN</span>
+          <button onClick={() => setShowNames(v => !v)} style={{
+            marginLeft: 8, padding: '2px 10px', fontSize: 12, borderRadius: 6,
+            border: '1px solid var(--border)', cursor: 'pointer',
+            background: showNames ? 'var(--accent)' : 'var(--bg-card)',
+            color: showNames ? '#fff' : 'var(--text-secondary)',
+            transition: 'all 0.2s',
+          }}>{showNames ? 'Namen ✓' : 'Namen'}</button>
         </div>
         <div className="card-body" style={{ padding: 0, position: 'relative', overflowX: 'auto' }}
              onMouseLeave={() => { setTooltip(null); setHoveredUid(null); }}>
@@ -420,17 +428,10 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
             <g transform={`translate(${cx},${cy})`}>
               <circle cx={0} cy={0} r={masterR + 14} fill="url(#glow-master-r)" />
               <circle cx={0} cy={0} r={masterR} fill="#1d4ed8" stroke="#3b82f6" strokeWidth="2.5" />
-              <g fill="none" stroke="white" strokeWidth="1.5">
-                <rect x="-12" y="-8" width="24" height="16" rx="3" />
-                <circle cx="-6" cy="0" r="1.5" fill="white" stroke="none" />
-                <circle cx="0"  cy="0" r="1.5" fill="white" stroke="none" />
-                <circle cx="6"  cy="0" r="1.5" fill="white" stroke="none" />
-                <line x1="-8" y1="-8" x2="-10" y2="-14" />
-                <line x1="0"  y1="-8" x2="0"   y2="-14" />
-                <line x1="8"  y1="-8" x2="10"  y2="-14" />
-              </g>
-              <text y={masterR + 16} textAnchor="middle" fontSize="13" fill="var(--text-primary)" fontWeight="600">{masterNode.name}</text>
-              {masterNode.ip && <text y={masterR + 30} textAnchor="middle" fontSize="10" fill="var(--text-secondary)">{masterNode.ip}</text>}
+              <text y={-4} textAnchor="middle" fontSize="9" fill="white" fontWeight="600">
+                {masterNode.name.length > 12 ? masterNode.name.slice(0, 10) + '…' : masterNode.name}
+              </text>
+              {masterNode.ip && <text y={10} textAnchor="middle" fontSize="8" fill="rgba(255,255,255,0.7)">{masterNode.ip}</text>}
             </g>
 
             {/* Client-Knoten */}
@@ -482,7 +483,7 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
                       )}
                     </g>
                   )}
-                  {showLabels && (
+                  {labelsVisible && (
                     <text y={nodeR + 14} textAnchor="middle" fontSize="10" fill="var(--text-primary)" fontWeight="400">
                       {c.node.name.length > 12 ? c.node.name.slice(0, 10) + '…' : c.node.name}
                     </text>
