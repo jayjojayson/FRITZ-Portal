@@ -41,9 +41,9 @@ export default function Network({ sid }: NetworkProps) {
     } finally {
       setLoading(false);
     }
-    // Mesh parallel nachladen (max 25s Timeout)
+    // Mesh parallel nachladen (max 15s Timeout)
     setMeshLoading(true);
-    const meshTimeout = setTimeout(() => setMeshLoading(false), 25000);
+    const meshTimeout = setTimeout(() => setMeshLoading(false), 15000);
     try {
       const meshRes = await apiFetch('/api/fritz/mesh', { headers });
       setMeshData(await meshRes.json());

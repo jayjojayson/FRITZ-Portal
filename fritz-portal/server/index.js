@@ -725,6 +725,7 @@ app.post('/api/fritz/device/static-dhcp', async (req, res) => {
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
   const { mac, ip, hostname } = req.body;
+  // Versuch 1: SOAP (TR-064)
   try {
     try {
       const existing = await soapRequest(session.host, 'urn:dslforum-org:service:LANHostConfigManagement:1', 'GetSpecificStaticDHCPEntry', session.username, session.password, session.controlUrls, { NewMACAddress: mac });
@@ -734,8 +735,31 @@ app.post('/api/fritz/device/static-dhcp', async (req, res) => {
     } catch {}
     await soapRequest(session.host, 'urn:dslforum-org:service:LANHostConfigManagement:1', 'AddStaticDHCPEntry', session.username, session.password, session.controlUrls, { NewIPAddress: ip, NewMACAddress: mac, NewHostName: hostname || '' });
     return res.json({ success: true });
+  } catch (soapErr) {
+    console.log('Static DHCP SOAP fehlgeschlagen, versuche data.lua:', soapErr.message);
+  }
+  // Versuch 2: data.lua Fallback
+  try {
+    const webSid = await getCachedWebSid(session);
+    if (!webSid) return res.json({ success: false, error: 'Kein webSid verf\u00fcgbar' });
+    const params = new URLSearchParams({
+      xhr: '1', sid: webSid, lang: 'de', page: 'edit_device',
+      'dev_name': hostname || '', 'dev_ip': ip, 'static_dhcp': '1', 'dev': mac,
+      'btn_save': '', 'back_to_page': 'netDev', 'apply': '', 'oldpage': 'edit_device',
+    });
+    const r = await fetch(`http://${session.host}/data.lua`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    });
+    const text = await r.text();
+    if (r.ok && !text.includes('"error"')) {
+      console.log('Static DHCP: data.lua Fallback erfolgreich');
+      return res.json({ success: true, _source: 'data.lua' });
+    }
+    return res.json({ success: false, error: 'data.lua hat die \u00c4nderung nicht \u00fcbernommen' });
   } catch (err) {
-    console.error('Static DHCP set error:', err.message);
+    console.error('Static DHCP set error (data.lua):', err.message);
     return res.json({ success: false, error: err.message });
   }
 });
@@ -745,12 +769,35 @@ app.delete('/api/fritz/device/static-dhcp', async (req, res) => {
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
   const { mac } = req.body;
+  // Versuch 1: SOAP
   try {
     const existing = await soapRequest(session.host, 'urn:dslforum-org:service:LANHostConfigManagement:1', 'GetSpecificStaticDHCPEntry', session.username, session.password, session.controlUrls, { NewMACAddress: mac });
     await soapRequest(session.host, 'urn:dslforum-org:service:LANHostConfigManagement:1', 'DeleteStaticDHCPEntry', session.username, session.password, session.controlUrls, { NewIPAddress: existing.NewIPAddress, NewMACAddress: mac });
     return res.json({ success: true });
+  } catch (soapErr) {
+    console.log('Static DHCP delete SOAP fehlgeschlagen, versuche data.lua:', soapErr.message);
+  }
+  // Versuch 2: data.lua Fallback
+  try {
+    const webSid = await getCachedWebSid(session);
+    if (!webSid) return res.json({ success: false, error: 'Kein webSid verf\u00fcgbar' });
+    const params = new URLSearchParams({
+      xhr: '1', sid: webSid, lang: 'de', page: 'edit_device',
+      'dev_ip': '', 'static_dhcp': '0', 'dev': mac,
+      'btn_save': '', 'back_to_page': 'netDev', 'apply': '', 'oldpage': 'edit_device',
+    });
+    const r = await fetch(`http://${session.host}/data.lua`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    });
+    if (r.ok) {
+      console.log('Static DHCP delete: data.lua Fallback erfolgreich');
+      return res.json({ success: true, _source: 'data.lua' });
+    }
+    return res.json({ success: false, error: 'data.lua hat die \u00c4nderung nicht \u00fcbernommen' });
   } catch (err) {
-    console.error('Static DHCP delete error:', err.message);
+    console.error('Static DHCP delete error (data.lua):', err.message);
     return res.json({ success: false, error: err.message });
   }
 });
@@ -1012,10 +1059,10 @@ app.get('/api/fritz/mesh', async (req, res) => {
   const webSid = await getCachedWebSid(session);
   if (!webSid) { console.log('Mesh: kein webSid verfügbar'); return res.json({ nodes: [], links: [] }); }
 
-  // Alle Seiten + meshlist.lua parallel abfragen (statt seriell) → max. 4s Wartezeit statt ~20s
+  // Alle Seiten + meshlist.lua parallel abfragen (statt seriell) → max. 10s Wartezeit
   async function tryDataLuaPage(page) {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 4000);
+    const timer = setTimeout(() => ctrl.abort(), 10000);
     try {
       const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
       const r = await fetch(`http://${session.host}/data.lua`, {
@@ -1025,6 +1072,7 @@ app.get('/api/fritz/mesh', async (req, res) => {
         signal: ctrl.signal,
       });
       const text = await r.text();
+      console.log(`Mesh: page=${page} status=${r.status} length=${text.length}`);
       if (!text.trim().startsWith('{')) return null;
       const raw = JSON.parse(text);
       const d = raw?.data || raw || {};
@@ -1054,10 +1102,12 @@ app.get('/api/fritz/mesh', async (req, res) => {
 
   async function tryMeshlist() {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 4000);
+    const timer = setTimeout(() => ctrl.abort(), 10000);
     try {
       const r = await fetch(`http://${session.host}/meshlist.lua?sid=${webSid}`, { signal: ctrl.signal });
       const text = await r.text();
+      console.log(`Mesh: meshlist.lua status=${r.status} length=${text.length}`);
+      if (r.status === 404) return null;
       if (!text.trim().startsWith('{')) return null;
       const raw = JSON.parse(text);
       const nodeList = raw?.meshlist?.nodes || raw?.nodes || [];
@@ -1069,19 +1119,82 @@ app.get('/api/fritz/mesh', async (req, res) => {
     } finally { clearTimeout(timer); }
   }
 
-  console.log('Mesh: starte parallele Abfragen (meshTopo, netTopo, hostTopo, mesh, meshlist.lua)');
+  // Alternativer Endpunkt: /net/mesh_overview.lua (manche FritzOS-Versionen)
+  async function tryMeshOverview() {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10000);
+    try {
+      const r = await fetch(`http://${session.host}/net/mesh_overview.lua?sid=${webSid}`, { signal: ctrl.signal });
+      const text = await r.text();
+      console.log(`Mesh: mesh_overview.lua status=${r.status} length=${text.length}`);
+      if (r.status === 404) return null;
+      if (!text.trim().startsWith('{')) return null;
+      const raw = JSON.parse(text);
+      const nodeList = raw?.nodes || raw?.meshlist?.nodes || [];
+      if (nodeList.length > 0) return normalizeMeshData(nodeList, raw?.links || raw?.meshlist?.links || []);
+      return null;
+    } catch (err) {
+      console.log(`Mesh: mesh_overview.lua Fehler: ${err.message}`);
+      return null;
+    } finally { clearTimeout(timer); }
+  }
+
+  // Fallback: Pseudo-Mesh aus der Host-Liste generieren (Master + online Clients)
+  async function buildMeshFromHosts() {
+    try {
+      const hosts = await getHostsViaSoap(session.host, session.username, session.password, session.controlUrls);
+      if (!hosts || hosts.length === 0) return null;
+      // DeviceInfo für Master-Name holen
+      let masterName = 'FRITZ!Box';
+      const di = getCached('device-info');
+      if (di?.NewModelName) masterName = di.NewModelName;
+      const masterNode = { uid: 'master', name: masterName, mac: '', ip: session.host, role: 'master', is_meshed: true, model: masterName, interfaces: [] };
+      const clientNodes = hosts.filter(h => h.active).slice(0, 50).map((h, i) => ({
+        uid: h.mac || String(i),
+        name: h.name || h.ip || `Gerät ${i + 1}`,
+        mac: h.mac || '',
+        ip: h.ip || '',
+        role: 'client',
+        is_meshed: false,
+        model: '',
+        interfaces: [{ type: h.interface || 'LAN', name: '' }],
+      }));
+      const links = clientNodes.map(c => ({
+        from: 'master', to: c.uid,
+        type: (c.interfaces[0]?.type || '').toLowerCase().includes('wlan') ? 'WLAN' : 'LAN',
+        speed: 0,
+      }));
+      console.log(`Mesh: Fallback aus Host-Liste (${clientNodes.length} aktive Geräte)`);
+      return { nodes: [masterNode, ...clientNodes], links, _source: 'hosts-fallback' };
+    } catch (err) {
+      console.log(`Mesh: Host-Fallback Fehler: ${err.message}`);
+      return null;
+    }
+  }
+
+  console.log('Mesh: starte parallele Abfragen');
   const results = await Promise.all([
     tryDataLuaPage('meshTopo'),
     tryDataLuaPage('netTopo'),
     tryDataLuaPage('hostTopo'),
     tryDataLuaPage('mesh'),
+    tryDataLuaPage('meshSet'),
+    tryDataLuaPage('meshNet'),
     tryMeshlist(),
+    tryMeshOverview(),
   ]);
 
   const found = results.find(r => r !== null);
   if (found) {
     setCached('mesh-topology', found, 30000);
     return res.json(found);
+  }
+
+  // Letzter Fallback: Pseudo-Mesh aus Host-Liste
+  const hostFallback = await buildMeshFromHosts();
+  if (hostFallback) {
+    setCached('mesh-topology', hostFallback, 30000);
+    return res.json(hostFallback);
   }
 
   // Negativ-Ergebnis ebenfalls cachen (60s) – verhindert wiederholte Timeouts bei jedem Seitenaufruf
