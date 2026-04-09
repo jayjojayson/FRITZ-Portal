@@ -346,7 +346,7 @@ export default function Dashboard({ sid }: DashboardProps) {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+      <div className="dashboard-traffic-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
         <div style={{
           background: 'var(--bg-card)',
           border: '1px solid var(--border)',

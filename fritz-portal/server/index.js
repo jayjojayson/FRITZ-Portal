@@ -93,6 +93,10 @@ async function getCachedWebSid(session) {
   return cachedWebSid;
 }
 
+// ── Letzter bekannter Wert für HA-Sensoren (verhindert Null-Sprünge bei abgelaufenem Cache) ──
+const lastKnownFast    = { cpu: 0, ram: 0, cpu_temp: 0, online: 0, free_ips: 0 };
+const lastKnownTraffic = {};
+
 // ── Traffic history für Dashboard-Chart (server-seitig, alle 10 Sekunden) ──
 const trafficHistory = { down: [], up: [] };
 
@@ -436,6 +440,40 @@ app.get('/api/fritz/device-info', async (req, res) => {
     return res.json(info);
   } catch (err) {
     console.error('DeviceInfo error:', err.message);
+    // Fallback 1: tr64desc.xml – öffentlich zugänglich, kein Login nötig
+    try {
+      const descRes = await fetch(`http://${session.host}:49000/tr64desc.xml`);
+      const descXml = await descRes.text();
+      const friendly = descXml.match(/<friendlyName>([^<]*)<\/friendlyName>/)?.[1] || '';
+      const model    = descXml.match(/<modelName>([^<]*)<\/modelName>/)?.[1] || '';
+      const firmware = descXml.match(/<modelNumber>([^<]*)<\/modelNumber>/)?.[1] || '';
+      if (friendly || model) {
+        const result = { NewModelName: friendly || model, NewFirmwareVersion: firmware, _source: 'tr64desc' };
+        setCached('device-info', result);
+        return res.json(result);
+      }
+    } catch {}
+    // Fallback 2: data.lua (benötigt webSid)
+    try {
+      const webSid = await getCachedWebSid(session);
+      if (webSid) {
+        for (const page of ['home', 'system', 'overview']) {
+          try {
+            const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
+            const r = await fetch(`http://${session.host}/data.lua`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() });
+            const text = await r.text();
+            if (!text.trim().startsWith('{')) continue;
+            const d = JSON.parse(text)?.data || {};
+            const modelName = d.productname || d.model || d.devicename || d.boxInfo?.productname || '';
+            if (modelName) {
+              const result = { NewModelName: modelName, NewFirmwareVersion: d.fw_version || d.firmware || '', _source: 'data.lua' };
+              setCached('device-info', result);
+              return res.json(result);
+            }
+          } catch {}
+        }
+      }
+    } catch {}
     return res.json({ NewModelName: 'FRITZ!Box', NewFirmwareVersion: '' });
   }
 });
@@ -804,6 +842,24 @@ app.get('/api/fritz/network/wan', async (req, res) => {
       return res.json({ ...ip, ...status, _wanService: svc });
     } catch {}
   }
+  // Fallback via data.lua (z.B. Fritz!Box 6490 ohne vollständigen TR-064-Zugriff)
+  try {
+    const webSid = await getCachedWebSid(session);
+    if (webSid) {
+      for (const page of ['internet', 'wan', 'netMoni', 'home']) {
+        try {
+          const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
+          const r = await fetch(`http://${session.host}/data.lua`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() });
+          const text = await r.text();
+          if (!text.trim().startsWith('{')) continue;
+          const d = JSON.parse(text)?.data || {};
+          const externalIp = d.ip || d.ipv4 || d.external_ip || d.wan_ip || d.internetIp || '';
+          const connStatus = d.connection || d.wanStatus || d.status || '';
+          if (externalIp) return res.json({ NewExternalIPAddress: externalIp, NewConnectionStatus: connStatus, _source: 'data.lua' });
+        } catch {}
+      }
+    }
+  } catch {}
   console.error('WAN error: Kein kompatibler WAN-Service gefunden (weder IPConnection noch PPPConnection)');
   return res.json({});
 });
@@ -896,26 +952,49 @@ app.get('/api/fritz/ip-stats', async (req, res) => {
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
   const cached = getCached('ip-stats', 30000); // 30 Sekunden cachen
   if (cached) return res.json(cached);
-  try {
-    const dhcp = await soapRequest(session.host, 'urn:dslforum-org:service:LANHostConfigManagement:1', 'GetInfo', session.username, session.password, session.controlUrls);
+  function ipToInt(ip) {
+    const parts = (ip || '').split('.');
+    if (parts.length !== 4) return 0;
+    return ((parseInt(parts[0], 10) << 24) | (parseInt(parts[1], 10) << 16) | (parseInt(parts[2], 10) << 8) | parseInt(parts[3], 10)) >>> 0;
+  }
+  async function calcStats(minAddress, maxAddress) {
     const hosts = await getHostsViaSoap(session.host, session.username, session.password, session.controlUrls);
-    const minAddress = dhcp.NewMinAddress || '';
-    const maxAddress = dhcp.NewMaxAddress || '';
-    function ipToInt(ip) {
-      const parts = ip.split('.');
-      if (parts.length !== 4) return 0;
-      return ((parseInt(parts[0], 10) << 24) | (parseInt(parts[1], 10) << 16) | (parseInt(parts[2], 10) << 8) | parseInt(parts[3], 10)) >>> 0;
-    }
     const minInt = ipToInt(minAddress);
     const maxInt = ipToInt(maxAddress);
     const total = (minInt && maxInt && maxInt >= minInt) ? maxInt - minInt + 1 : 0;
     const used = hosts.filter(h => { if (!h.ip) return false; const ipInt = ipToInt(h.ip); return ipInt >= minInt && ipInt <= maxInt; }).length;
     const free = Math.max(0, total - used);
-    const result = { total, used, free, minAddress, maxAddress };
+    return { total, used, free, minAddress, maxAddress };
+  }
+  try {
+    const dhcp = await soapRequest(session.host, 'urn:dslforum-org:service:LANHostConfigManagement:1', 'GetInfo', session.username, session.password, session.controlUrls);
+    const result = await calcStats(dhcp.NewMinAddress || '', dhcp.NewMaxAddress || '');
     setCached('ip-stats', result);
     return res.json(result);
   } catch (err) {
     console.error('IP-Stats error:', err.message);
+    // Fallback via data.lua für ältere Modelle (z.B. 6490) ohne TR-064-Zugriff
+    try {
+      const webSid = await getCachedWebSid(session);
+      if (webSid) {
+        for (const page of ['lanExpert', 'lan', 'home']) {
+          try {
+            const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
+            const r = await fetch(`http://${session.host}/data.lua`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() });
+            const text = await r.text();
+            if (!text.trim().startsWith('{')) continue;
+            const d = JSON.parse(text)?.data || {};
+            const minAddr = d.dhcp_start || d.dhcpStart || d.NewMinAddress || '';
+            const maxAddr = d.dhcp_end   || d.dhcpEnd   || d.NewMaxAddress || '';
+            if (minAddr && maxAddr) {
+              const result = await calcStats(minAddr, maxAddr).catch(() => ({ total: 0, used: 0, free: 0, minAddress: minAddr, maxAddress: maxAddr }));
+              setCached('ip-stats', result);
+              return res.json(result);
+            }
+          } catch {}
+        }
+      }
+    } catch {}
     return res.json({ total: 0, used: 0, free: 0, minAddress: '', maxAddress: '' });
   }
 });
@@ -1428,19 +1507,30 @@ async function setState(entityId, state, attributes = {}) {
 
 async function pushFastSensorsToHA() {
   if (!HA_TOKEN) return;
-  // TTL 120s: Background-Interval hält Cache alle 10s frisch – großzügige TTL verhindert Nullwerte
-  const eco     = getCached('eco-stats',     120000) || { cpu: 0, ram: 0, cpu_temp: 0 };
+  const eco     = getCached('eco-stats',     120000) || {};
   const hosts   = getCached('hosts',          60000) || [];
-  const ipStats = getCached('ip-stats',       60000) || { free: 0 };
-  const net     = getCached('network-stats', 120000) || { currentDown: 0, currentUp: 0 };
-  const online  = hosts.filter(h => h.active).length;
-  await setState('sensor.fritzportal_cpu',            eco.cpu,         { unit_of_measurement: '%',   friendly_name: 'FRITZ!Portal CPU-Auslastung',    icon: 'mdi:chip' });
-  await setState('sensor.fritzportal_ram',            eco.ram,         { unit_of_measurement: '%',   friendly_name: 'FRITZ!Portal RAM-Auslastung',    icon: 'mdi:memory' });
-  await setState('sensor.fritzportal_temperature',    eco.cpu_temp,    { unit_of_measurement: '°C',  friendly_name: 'FRITZ!Portal CPU-Temperatur',    icon: 'mdi:thermometer', device_class: 'temperature' });
-  await setState('sensor.fritzportal_online_devices', online,          { unit_of_measurement: '',    friendly_name: 'FRITZ!Portal Geräte online',     icon: 'mdi:devices' });
-  await setState('sensor.fritzportal_free_ips',       ipStats.free,    { unit_of_measurement: '',    friendly_name: 'FRITZ!Portal Freie IP-Adressen', icon: 'mdi:ip-network' });
-  await setState('sensor.fritzportal_download_speed', +(net.currentDown / 1048576).toFixed(3), { unit_of_measurement: 'MB/s', friendly_name: 'FRITZ!Portal Download aktuell',  icon: 'mdi:download', device_class: 'data_rate' });
-  await setState('sensor.fritzportal_upload_speed',   +(net.currentUp   / 1048576).toFixed(3), { unit_of_measurement: 'MB/s', friendly_name: 'FRITZ!Portal Upload aktuell',    icon: 'mdi:upload',   device_class: 'data_rate' });
+  const ipStats = getCached('ip-stats',       60000) || {};
+  const net     = getCached('network-stats', 120000) || {};
+
+  // Nur aktualisieren wenn Wert > 0 – verhindert dass abgelaufener Cache als "0" gesendet wird
+  if ((eco.cpu      || 0) > 0) lastKnownFast.cpu      = eco.cpu;
+  if ((eco.ram      || 0) > 0) lastKnownFast.ram      = eco.ram;
+  if ((eco.cpu_temp || 0) > 0) lastKnownFast.cpu_temp = eco.cpu_temp;
+  const online = hosts.filter(h => h.active).length;
+  if (online      > 0) lastKnownFast.online   = online;
+  if ((ipStats.free || 0) > 0) lastKnownFast.free_ips = ipStats.free;
+
+  // Download/Upload: 0 ist gültiger Wert (kein Traffic), immer aktuell senden
+  const dl = +(( net.currentDown || 0) / 1048576).toFixed(3);
+  const ul = +((net.currentUp   || 0) / 1048576).toFixed(3);
+
+  await setState('sensor.fritzportal_cpu',            lastKnownFast.cpu,      { unit_of_measurement: '%',   friendly_name: 'FRITZ!Portal CPU-Auslastung',    icon: 'mdi:chip' });
+  await setState('sensor.fritzportal_ram',            lastKnownFast.ram,      { unit_of_measurement: '%',   friendly_name: 'FRITZ!Portal RAM-Auslastung',    icon: 'mdi:memory' });
+  await setState('sensor.fritzportal_temperature',    lastKnownFast.cpu_temp, { unit_of_measurement: '°C',  friendly_name: 'FRITZ!Portal CPU-Temperatur',    icon: 'mdi:thermometer', device_class: 'temperature' });
+  await setState('sensor.fritzportal_online_devices', lastKnownFast.online,   { unit_of_measurement: '',    friendly_name: 'FRITZ!Portal Geräte online',     icon: 'mdi:devices' });
+  await setState('sensor.fritzportal_free_ips',       lastKnownFast.free_ips, { unit_of_measurement: '',    friendly_name: 'FRITZ!Portal Freie IP-Adressen', icon: 'mdi:ip-network' });
+  await setState('sensor.fritzportal_download_speed', dl, { unit_of_measurement: 'MB/s', friendly_name: 'FRITZ!Portal Download aktuell',  icon: 'mdi:download', device_class: 'data_rate' });
+  await setState('sensor.fritzportal_upload_speed',   ul, { unit_of_measurement: 'MB/s', friendly_name: 'FRITZ!Portal Upload aktuell',    icon: 'mdi:upload',   device_class: 'data_rate' });
 }
 
 async function pushTrafficSensorsToHA() {
@@ -1456,6 +1546,11 @@ async function pushTrafficSensorsToHA() {
   if (!tc?.rows) return;
   const keys  = ['today', 'yesterday', 'week', 'month', 'last_month'];
   const names = ['Heute', 'Gestern', 'Aktuelle Woche', 'Aktueller Monat', 'Vormonat'];
+  // Letzten Wert für Traffic-Sensoren beibehalten – kein Null-Sprung bei abgelaufenem Cache
+  tc.rows.forEach(row => {
+    if (row.received > 0) lastKnownTraffic[row.name + '_dl'] = row.received;
+    if (row.sent     > 0) lastKnownTraffic[row.name + '_ul'] = row.sent;
+  });
   function bytesToHaValue(bytes) {
     if (bytes < 1024 * 1024 * 1024) return { value: +(bytes / (1024 * 1024)).toFixed(2), unit: 'MB' };
     return { value: +(bytes / (1024 * 1024 * 1024)).toFixed(3), unit: 'GB' };

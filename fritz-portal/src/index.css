@@ -183,6 +183,20 @@ body {
   margin-bottom: 24px;
 }
 
+/* Tablet: alle 6 Boxen in einer Zeile – kleinere Mindestbreite */
+@media (max-width: 1200px) and (min-width: 601px) {
+  .stats-grid {
+    grid-template-columns: repeat(6, 1fr);
+  }
+}
+
+/* Mobil: 2 Spalten */
+@media (max-width: 600px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 .stat-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -538,5 +552,12 @@ tbody tr:last-child td {
   }
   .main-content {
     padding: 16px;
+  }
+}
+
+/* Mobil: Traffic-Zeile (Monatsverbrauch / Geschwindigkeit) untereinander */
+@media (max-width: 600px) {
+  .dashboard-traffic-row {
+    grid-template-columns: 1fr !important;
   }
 }
