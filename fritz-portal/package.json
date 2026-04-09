@@ -1,7 +1,7 @@
 {
   "name": "fritz-portal-addon",
   "private": true,
-  "version": "1.2.6",
+  "version": "1.2.7",
   "type": "module",
   "scripts": {
     "build": "tsc -b && vite build"

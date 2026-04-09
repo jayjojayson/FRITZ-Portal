@@ -1,11 +1,24 @@
 # Changelog
 
+## 1.2.7
+
+- Neu: Toggle-Schalter „Mesh / Netzwerk" neben der Topologie-Überschrift – erlaubt Wechsel zwischen Mesh-Ansicht und Netzwerk-Ansicht (Host-Fallback)
+- Neu: Radiales Star-Layout für die Netzwerk-Ansicht – Fritz!Box in der Mitte, Geräte in konzentrischen Ringen angeordnet, skaliert automatisch für 10–150+ Geräte
+- Neu: LAN/WLAN-Leitungen korrekt aus Interface-Daten zugeordnet – LAN blau durchgezogen, WLAN grün gestrichelt (statt alle blau)
+- Neu: Hover-Highlight – beim Überfahren eines Geräts wird nur dessen Verbindungslinie hervorgehoben, alle anderen werden abgeblendet
+- Neu: WLAN-Geräte bekommen ein WLAN-Icon (Funkwellen), LAN-Geräte ein Monitor-Icon im Knoten
+- Neu: Zusammenfassung über dem Diagramm zeigt Anzahl Geräte online, LAN und WLAN
+- Neu: Tooltip zeigt jetzt auch den Verbindungstyp (LAN/WLAN) an
+- Fix: WLAN-Erkennung im Host-Fallback erkennt jetzt auch `802.11` und `Ethernet` (SOAP-Werte) korrekt
+- Fix: Geräte-Limit im Host-Fallback von 50 auf unbegrenzt erhöht
+
 ## 1.2.6
 
-- Fix: Statische DHCP-Vergabe – data.lua Fallback wenn SOAP `401 Invalid Action` liefert (betrifft 6591, 6490 u. a.)
+- Fix: Statische DHCP-Vergabe – data.lua Fallback wenn SOAP `401 Invalid Action` liefert (betrifft 6591, 6490 u. a.)
 - Fix: Statische DHCP-Löschung – ebenfalls data.lua Fallback
 - Fix: Mesh-Timeout von 4s auf 10s erhöht – manche Fritz!Box-Modelle antworten langsamer
-- Neu: Mesh-Logging zeigt jetzt HTTP-Status und Antwort-Länge für bessere Diagnose- Neu: Mesh zusätzliche Seiten (`meshSet`, `meshNet`) und `/net/mesh_overview.lua` als Alternativen
+- Neu: Mesh-Logging zeigt jetzt HTTP-Status und Antwort-Länge für bessere Diagnose
+- Neu: Mesh zusätzliche Seiten (`meshSet`, `meshNet`) und `/net/mesh_overview.lua` als Alternativen
 - Neu: Mesh Fallback aus Host-Liste – zeigt Fritz!Box als Master mit allen online Clients als Netzwerkdiagramm wenn keine echte Mesh-API verfügbar ist
 
 ## 1.2.5

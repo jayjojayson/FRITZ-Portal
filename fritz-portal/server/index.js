@@ -1053,6 +1053,51 @@ app.get('/api/fritz/mesh', async (req, res) => {
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
 
+  const isWlanIface = (t) => { const s = (t || '').toLowerCase(); return s.includes('wlan') || s.includes('802.11') || s.includes('wireless') || s.includes('wifi'); };
+
+  async function buildMeshFromHosts() {
+    try {
+      const hosts = await getHostsViaSoap(session.host, session.username, session.password, session.controlUrls);
+      if (!hosts || hosts.length === 0) return null;
+      let masterName = 'FRITZ!Box';
+      const di = getCached('device-info');
+      if (di?.NewModelName) masterName = di.NewModelName;
+      const masterNode = { uid: 'master', name: masterName, mac: '', ip: session.host, role: 'master', is_meshed: true, model: masterName, interfaces: [] };
+      const clientNodes = hosts.filter(h => h.active).map((h, i) => ({
+        uid: h.mac || String(i),
+        name: h.name || h.ip || `Gerät ${i + 1}`,
+        mac: h.mac || '',
+        ip: h.ip || '',
+        role: 'client',
+        is_meshed: false,
+        model: '',
+        interfaces: [{ type: h.interface || 'LAN', name: '' }],
+      }));
+      const links = clientNodes.map(c => ({
+        from: 'master', to: c.uid,
+        type: isWlanIface(c.interfaces[0]?.type) ? 'WLAN' : 'LAN',
+        speed: 0,
+      }));
+      console.log(`Mesh: Fallback aus Host-Liste (${clientNodes.length} aktive Geräte)`);
+      return { nodes: [masterNode, ...clientNodes], links, _source: 'hosts-fallback' };
+    } catch (err) {
+      console.log(`Mesh: Host-Fallback Fehler: ${err.message}`);
+      return null;
+    }
+  }
+
+  // Force-Hosts-Ansicht wenn source=hosts angefordert
+  if (req.query.source === 'hosts') {
+    const cached = getCached('mesh-hosts-fallback', 30000);
+    if (cached) return res.json(cached);
+    const result = await buildMeshFromHosts();
+    if (result) {
+      setCached('mesh-hosts-fallback', result, 30000);
+      return res.json(result);
+    }
+    return res.json({ nodes: [], links: [] });
+  }
+
   const cached = getCached('mesh-topology', 30000);
   if (cached) return res.json(cached);
 
@@ -1137,39 +1182,6 @@ app.get('/api/fritz/mesh', async (req, res) => {
       console.log(`Mesh: mesh_overview.lua Fehler: ${err.message}`);
       return null;
     } finally { clearTimeout(timer); }
-  }
-
-  // Fallback: Pseudo-Mesh aus der Host-Liste generieren (Master + online Clients)
-  async function buildMeshFromHosts() {
-    try {
-      const hosts = await getHostsViaSoap(session.host, session.username, session.password, session.controlUrls);
-      if (!hosts || hosts.length === 0) return null;
-      // DeviceInfo für Master-Name holen
-      let masterName = 'FRITZ!Box';
-      const di = getCached('device-info');
-      if (di?.NewModelName) masterName = di.NewModelName;
-      const masterNode = { uid: 'master', name: masterName, mac: '', ip: session.host, role: 'master', is_meshed: true, model: masterName, interfaces: [] };
-      const clientNodes = hosts.filter(h => h.active).slice(0, 50).map((h, i) => ({
-        uid: h.mac || String(i),
-        name: h.name || h.ip || `Gerät ${i + 1}`,
-        mac: h.mac || '',
-        ip: h.ip || '',
-        role: 'client',
-        is_meshed: false,
-        model: '',
-        interfaces: [{ type: h.interface || 'LAN', name: '' }],
-      }));
-      const links = clientNodes.map(c => ({
-        from: 'master', to: c.uid,
-        type: (c.interfaces[0]?.type || '').toLowerCase().includes('wlan') ? 'WLAN' : 'LAN',
-        speed: 0,
-      }));
-      console.log(`Mesh: Fallback aus Host-Liste (${clientNodes.length} aktive Geräte)`);
-      return { nodes: [masterNode, ...clientNodes], links, _source: 'hosts-fallback' };
-    } catch (err) {
-      console.log(`Mesh: Host-Fallback Fehler: ${err.message}`);
-      return null;
-    }
   }
 
   console.log('Mesh: starte parallele Abfragen');

@@ -92,7 +92,7 @@ export default function Network({ sid }: NetworkProps) {
         ))}
       </div>
 
-      {tab === 'overview' && <NetworkOverview lanInfo={lanInfo} wanInfo={wanInfo} wlanInfo={wlanInfo} meshData={meshData} meshLoading={meshLoading} />}
+      {tab === 'overview' && <NetworkOverview lanInfo={lanInfo} wanInfo={wanInfo} wlanInfo={wlanInfo} meshData={meshData} meshLoading={meshLoading} sid={sid} />}
       {tab === 'lan' && <LANSettings lanInfo={lanInfo} />}
       {tab === 'wan' && <WANSettings wanInfo={wanInfo} />}
       {tab === 'wlan' && <WLANSettings wlanInfo={wlanInfo} sid={sid} />}
@@ -101,9 +101,9 @@ export default function Network({ sid }: NetworkProps) {
   );
 }
 
-function NetworkOverview({ lanInfo, wanInfo, wlanInfo, meshData, meshLoading }: {
+function NetworkOverview({ lanInfo, wanInfo, wlanInfo, meshData, meshLoading, sid }: {
   lanInfo: any; wanInfo: any; wlanInfo: any[];
-  meshData: any; meshLoading: boolean;
+  meshData: any; meshLoading: boolean; sid: string;
 }) {
   return (
     <div>
@@ -144,12 +144,12 @@ function NetworkOverview({ lanInfo, wanInfo, wlanInfo, meshData, meshLoading }: 
         </div>
       </div>
 
-      <MeshTopology meshData={meshData} loading={meshLoading} />
+      <MeshTopology meshData={meshData} loading={meshLoading} sid={sid} />
     </div>
   );
 }
 
-// ── Mesh-Topologie Visualisierung ────────────────────────────────────────────
+// ── Mesh-Topologie / Netzwerk-Visualisierung ────────────────────────────────
 
 interface MeshNode {
   uid: string;
@@ -169,13 +169,40 @@ interface MeshLink {
   speed: number;
 }
 
-function MeshTopology({ meshData, loading }: { meshData: any; loading: boolean }) {
+const isWlanType = (type: string) => {
+  const t = type.toLowerCase();
+  return t.includes('wlan') || t.includes('802') || t.includes('wifi') || t.includes('wireless');
+};
+
+function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: boolean; sid: string }) {
   const [tooltip, setTooltip] = useState<{ node: MeshNode; x: number; y: number } | null>(null);
+  const [hoveredUid, setHoveredUid] = useState<string | null>(null);
+  const isOriginallyHosts = meshData?._source === 'hosts-fallback';
+  const [viewMode, setViewMode] = useState<'mesh' | 'hosts'>(isOriginallyHosts ? 'hosts' : 'mesh');
+  const [hostsData, setHostsData] = useState<any>(null);
+  const [hostsLoading, setHostsLoading] = useState(false);
+
+  useEffect(() => {
+    if (meshData) setViewMode(meshData._source === 'hosts-fallback' ? 'hosts' : 'mesh');
+  }, [meshData?._source]);
+
+  const fetchHosts = async () => {
+    if (hostsData) return;
+    setHostsLoading(true);
+    try {
+      const res = await apiFetch('/api/fritz/mesh?source=hosts', { headers: { 'X-Fritz-SID': sid } });
+      setHostsData(await res.json());
+    } catch {} finally { setHostsLoading(false); }
+  };
+
+  useEffect(() => {
+    if (viewMode === 'hosts' && !hostsData && !isOriginallyHosts) fetchHosts();
+  }, [viewMode]);
 
   if (loading) {
     return (
       <div className="card">
-        <div className="card-header"><h3>Mesh-Topologie</h3></div>
+        <div className="card-header"><h3>Netzwerk-Topologie</h3></div>
         <div className="card-body" style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
           <div className="spinner" />
         </div>
@@ -183,33 +210,300 @@ function MeshTopology({ meshData, loading }: { meshData: any; loading: boolean }
     );
   }
 
-  const nodes: MeshNode[] = meshData?.nodes || [];
-  const links: MeshLink[] = meshData?.links || [];
+  const currentData = viewMode === 'hosts'
+    ? (hostsData || (isOriginallyHosts ? meshData : null))
+    : (!isOriginallyHosts ? meshData : null);
+
+  const nodes: MeshNode[] = currentData?.nodes || [];
+  const links: MeshLink[] = currentData?.links || [];
+  const showHostsView = viewMode === 'hosts';
+
+  const toggleBtn = (
+    <div style={{ display: 'flex', background: 'var(--bg-secondary)', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border)' }}>
+      <button onClick={() => setViewMode('mesh')} style={{
+        padding: '4px 14px', fontSize: 12, fontWeight: 500, border: 'none', cursor: 'pointer',
+        background: viewMode === 'mesh' ? 'var(--accent)' : 'transparent',
+        color: viewMode === 'mesh' ? '#fff' : 'var(--text-secondary)',
+        transition: 'all 0.2s',
+      }}>Mesh</button>
+      <button onClick={() => { setViewMode('hosts'); if (!hostsData && !isOriginallyHosts) fetchHosts(); }} style={{
+        padding: '4px 14px', fontSize: 12, fontWeight: 500, border: 'none', cursor: 'pointer',
+        background: viewMode === 'hosts' ? 'var(--accent)' : 'transparent',
+        color: viewMode === 'hosts' ? '#fff' : 'var(--text-secondary)',
+        transition: 'all 0.2s',
+      }}>Netzwerk</button>
+    </div>
+  );
+
+  const legend = (
+    <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--text-secondary)', alignItems: 'center', flexWrap: 'wrap' }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#3b82f6', display: 'inline-block' }} /> {showHostsView ? 'Fritz!Box' : 'Master'}
+      </span>
+      {!showHostsView && <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#10b981', display: 'inline-block' }} /> Satellite
+      </span>}
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#6b7280', display: 'inline-block' }} /> Client
+      </span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <svg width="20" height="6"><line x1="0" y1="3" x2="20" y2="3" stroke="#3b82f6" strokeWidth="2" /></svg> LAN
+      </span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <svg width="20" height="6"><line x1="0" y1="3" x2="20" y2="3" stroke="#10b981" strokeWidth="2" strokeDasharray="6 3" /></svg> WLAN
+      </span>
+    </div>
+  );
+
+  if (hostsLoading) {
+    return (
+      <div className="card">
+        <div className="card-header" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}><h3>Netzwerk-Topologie</h3>{toggleBtn}</div>
+          {legend}
+        </div>
+        <div className="card-body" style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><div className="spinner" /></div>
+      </div>
+    );
+  }
 
   if (nodes.length === 0) {
     return (
       <div className="card">
-        <div className="card-header"><h3>Mesh-Topologie</h3></div>
+        <div className="card-header" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}><h3>Netzwerk-Topologie</h3>{toggleBtn}</div>
+          {legend}
+        </div>
         <div className="card-body" style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ marginBottom: 12, opacity: 0.4 }}>
             <circle cx="12" cy="5" r="2" /><circle cx="5" cy="19" r="2" /><circle cx="19" cy="19" r="2" />
             <line x1="12" y1="7" x2="5" y2="17" /><line x1="12" y1="7" x2="19" y2="17" />
           </svg>
-          <div style={{ fontWeight: 500, marginBottom: 4 }}>Keine Mesh-Daten verfügbar</div>
-          <div style={{ fontSize: 13 }}>Dieses Fritz!Box-Modell unterstützt möglicherweise kein Mesh oder die Daten sind nicht abrufbar.</div>
+          <div style={{ fontWeight: 500, marginBottom: 4 }}>
+            {viewMode === 'mesh' ? 'Keine Mesh-Daten verfügbar' : 'Keine Netzwerk-Daten verfügbar'}
+          </div>
+          <div style={{ fontSize: 13 }}>
+            {viewMode === 'mesh'
+              ? 'Dieses Modell unterstützt möglicherweise kein Mesh. Wechsle zur Netzwerk-Ansicht.'
+              : 'Die Geräteliste konnte nicht abgerufen werden.'}
+          </div>
         </div>
       </div>
     );
   }
 
-  // Layout berechnen: Master oben mittig, Satellites darunter, Clients darunter
-  const W = 760;
-  const masterNodes    = nodes.filter(n => n.role === 'master');
+  const tooltipEl = tooltip && (
+    <div style={{
+      position: 'fixed', left: tooltip.x + 20, top: tooltip.y - 10,
+      background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10,
+      padding: '12px 16px', boxShadow: 'var(--shadow-lg)', zIndex: 9999, fontSize: 13,
+      minWidth: 200, pointerEvents: 'none',
+    }}>
+      <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 14 }}>{tooltip.node.name}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px' }}>
+        <span style={{ color: 'var(--text-secondary)' }}>Rolle</span>
+        <span style={{ textTransform: 'capitalize', color:
+          tooltip.node.role === 'master' ? '#3b82f6' :
+          tooltip.node.role === 'satellite' ? '#10b981' : 'var(--text-primary)'
+        }}>{tooltip.node.role === 'master' ? 'Fritz!Box' : tooltip.node.role}</span>
+        {tooltip.node.mac && <><span style={{ color: 'var(--text-secondary)' }}>MAC</span><span style={{ fontFamily: 'monospace', fontSize: 12 }}>{tooltip.node.mac}</span></>}
+        {tooltip.node.ip && <><span style={{ color: 'var(--text-secondary)' }}>IP</span><span style={{ fontFamily: 'monospace', fontSize: 12 }}>{tooltip.node.ip}</span></>}
+        {tooltip.node.model && <><span style={{ color: 'var(--text-secondary)' }}>Modell</span><span>{tooltip.node.model}</span></>}
+        {tooltip.node.interfaces?.[0]?.type && <><span style={{ color: 'var(--text-secondary)' }}>Verbindung</span><span>{isWlanType(tooltip.node.interfaces[0].type) ? 'WLAN' : 'LAN'}</span></>}
+      </div>
+    </div>
+  );
+
+  // ── Radiales Star-Layout (Netzwerk-Ansicht) ──
+  if (showHostsView) {
+    const masterNode = nodes.find(n => n.role === 'master') || nodes[0];
+    const clientNodes = nodes.filter(n => n.uid !== masterNode.uid);
+    const totalClients = clientNodes.length;
+
+    // Knotengröße je nach Anzahl
+    const nodeR = totalClients <= 15 ? 18 : totalClients <= 40 ? 14 : totalClients <= 80 ? 10 : 7;
+    const showLabels = totalClients <= 35;
+    const spacing = Math.max(nodeR * 4, showLabels ? 55 : 28);
+
+    // LAN/WLAN Zuordnung für jeden Client
+    const clientMeta = clientNodes.map(n => {
+      const link = links.find(l => l.to === n.uid || l.from === n.uid);
+      const wlan = link ? isWlanType(link.type) : isWlanType(n.interfaces?.[0]?.type || '');
+      return { node: n, isWlan: wlan };
+    });
+
+    // LAN zuerst, dann WLAN
+    const lanClients = clientMeta.filter(c => !c.isWlan);
+    const wlanClients = clientMeta.filter(c => c.isWlan);
+    const ordered = [...lanClients, ...wlanClients];
+
+    // Ringe berechnen
+    const baseRadius = Math.max(nodeR * 7, 70);
+    const ringGap = Math.max(spacing, nodeR * 5);
+    const rings: { radius: number; startIdx: number; count: number }[] = [];
+    let placed = 0;
+    let ringR = baseRadius;
+    while (placed < totalClients) {
+      const cap = Math.max(6, Math.floor(2 * Math.PI * ringR / spacing));
+      const cnt = Math.min(cap, totalClients - placed);
+      rings.push({ radius: ringR, startIdx: placed, count: cnt });
+      placed += cnt;
+      ringR += ringGap;
+    }
+
+    const maxR = rings.length > 0 ? rings[rings.length - 1].radius : baseRadius;
+    const pad = showLabels ? 70 : 45;
+    const W = 2 * (maxR + pad + nodeR);
+    const H = W;
+    const cx = W / 2;
+    const cy = H / 2;
+    const masterR = 34;
+
+    // Summary
+    const lanCount = lanClients.length;
+    const wlanCount = wlanClients.length;
+
+    return (
+      <div className="card">
+        <div className="card-header" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}><h3>Netzwerk-Topologie</h3>{toggleBtn}</div>
+          {legend}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 24, padding: '12px 16px 0', fontSize: 13, color: 'var(--text-secondary)' }}>
+          <span>{totalClients} Geräte online</span>
+          <span style={{ color: '#3b82f6' }}>● {lanCount} LAN</span>
+          <span style={{ color: '#10b981' }}>● {wlanCount} WLAN</span>
+        </div>
+        <div className="card-body" style={{ padding: 0, position: 'relative', overflowX: 'auto' }}
+             onMouseLeave={() => { setTooltip(null); setHoveredUid(null); }}>
+          <svg
+            width="100%"
+            viewBox={`0 0 ${W} ${H}`}
+            style={{ display: 'block', maxHeight: 700, cursor: 'default' }}
+          >
+            <defs>
+              <radialGradient id="glow-master-r" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.4" />
+                <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+              </radialGradient>
+            </defs>
+
+            {/* Verbindungslinien */}
+            {ordered.map((c, i) => {
+              let ring: { radius: number; startIdx: number; count: number } | undefined;
+              let idxInRing = 0;
+              for (const r of rings) {
+                if (i >= r.startIdx && i < r.startIdx + r.count) {
+                  ring = r;
+                  idxInRing = i - r.startIdx;
+                  break;
+                }
+              }
+              if (!ring) return null;
+              const angle = (2 * Math.PI * idxInRing / ring.count) - Math.PI / 2;
+              const nx = cx + ring.radius * Math.cos(angle);
+              const ny = cy + ring.radius * Math.sin(angle);
+              const isHovered = hoveredUid === c.node.uid;
+              const color = c.isWlan ? '#10b981' : '#3b82f6';
+              const dash = c.isWlan ? '6 3' : '0';
+              return (
+                <line key={`l-${i}`} x1={cx} y1={cy} x2={nx} y2={ny}
+                  stroke={color} strokeWidth={isHovered ? 2.5 : 1.5}
+                  strokeDasharray={dash}
+                  strokeOpacity={hoveredUid ? (isHovered ? 0.9 : 0.06) : 0.18}
+                  style={{ transition: 'stroke-opacity 0.2s' }}
+                />
+              );
+            })}
+
+            {/* Master-Knoten */}
+            <g transform={`translate(${cx},${cy})`}>
+              <circle cx={0} cy={0} r={masterR + 14} fill="url(#glow-master-r)" />
+              <circle cx={0} cy={0} r={masterR} fill="#1d4ed8" stroke="#3b82f6" strokeWidth="2.5" />
+              <g fill="none" stroke="white" strokeWidth="1.5">
+                <rect x="-12" y="-8" width="24" height="16" rx="3" />
+                <circle cx="-6" cy="0" r="1.5" fill="white" stroke="none" />
+                <circle cx="0"  cy="0" r="1.5" fill="white" stroke="none" />
+                <circle cx="6"  cy="0" r="1.5" fill="white" stroke="none" />
+                <line x1="-8" y1="-8" x2="-10" y2="-14" />
+                <line x1="0"  y1="-8" x2="0"   y2="-14" />
+                <line x1="8"  y1="-8" x2="10"  y2="-14" />
+              </g>
+              <text y={masterR + 16} textAnchor="middle" fontSize="13" fill="var(--text-primary)" fontWeight="600">{masterNode.name}</text>
+              {masterNode.ip && <text y={masterR + 30} textAnchor="middle" fontSize="10" fill="var(--text-secondary)">{masterNode.ip}</text>}
+            </g>
+
+            {/* Client-Knoten */}
+            {ordered.map((c, i) => {
+              let ring: { radius: number; startIdx: number; count: number } | undefined;
+              let idxInRing = 0;
+              for (const r of rings) {
+                if (i >= r.startIdx && i < r.startIdx + r.count) {
+                  ring = r;
+                  idxInRing = i - r.startIdx;
+                  break;
+                }
+              }
+              if (!ring) return null;
+              const angle = (2 * Math.PI * idxInRing / ring.count) - Math.PI / 2;
+              const nx = cx + ring.radius * Math.cos(angle);
+              const ny = cy + ring.radius * Math.sin(angle);
+              const isHovered = hoveredUid === c.node.uid;
+              const color = c.isWlan ? '#10b981' : '#3b82f6';
+              const fillColor = c.isWlan ? '#065f46' : '#1e3a5f';
+              return (
+                <g key={c.node.uid}
+                  transform={`translate(${nx},${ny})`}
+                  style={{ cursor: 'pointer' }}
+                  onMouseEnter={e => {
+                    setHoveredUid(c.node.uid);
+                    const svgEl = (e.currentTarget.closest('svg') as SVGSVGElement);
+                    const rect = svgEl.getBoundingClientRect();
+                    setTooltip({ node: c.node, x: nx * (rect.width / W) + rect.left, y: ny * (rect.height / H) + rect.top });
+                  }}
+                  onMouseLeave={() => { setHoveredUid(null); setTooltip(null); }}
+                >
+                  <circle cx={0} cy={0} r={nodeR + 4} fill={color} fillOpacity={isHovered ? 0.25 : 0} style={{ transition: 'fill-opacity 0.2s' }} />
+                  <circle cx={0} cy={0} r={nodeR} fill={fillColor} stroke={color} strokeWidth={isHovered ? 2.5 : 1.5}
+                    style={{ transition: 'stroke-width 0.2s' }} />
+                  {nodeR >= 10 && (
+                    <g fill="none" stroke="white" strokeWidth="1" opacity={0.8}>
+                      {c.isWlan ? (
+                        <>
+                          <path d={`M${-nodeR*0.45} ${nodeR*0.1} Q0 ${-nodeR*0.5} ${nodeR*0.45} ${nodeR*0.1}`} strokeLinecap="round" />
+                          <circle cx="0" cy={nodeR*0.3} r={nodeR*0.12} fill="white" stroke="none" />
+                        </>
+                      ) : (
+                        <>
+                          <rect x={-nodeR*0.45} y={-nodeR*0.45} width={nodeR*0.9} height={nodeR*0.65} rx={nodeR*0.1} />
+                          <line x1={-nodeR*0.2} y1={nodeR*0.2} x2={nodeR*0.2} y2={nodeR*0.2} />
+                          <line x1={0} y1={nodeR*0.2} x2={0} y2={nodeR*0.45} />
+                        </>
+                      )}
+                    </g>
+                  )}
+                  {showLabels && (
+                    <text y={nodeR + 14} textAnchor="middle" fontSize="10" fill="var(--text-primary)" fontWeight="400">
+                      {c.node.name.length > 12 ? c.node.name.slice(0, 10) + '…' : c.node.name}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+          </svg>
+          {tooltipEl}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Hierarchisches Layout (Mesh-Ansicht) ──
+  const masterNodes = nodes.filter(n => n.role === 'master');
   const satelliteNodes = nodes.filter(n => n.role === 'satellite');
-  const clientNodes    = nodes.filter(n => n.role !== 'master' && n.role !== 'satellite');
+  const meshClientNodes = nodes.filter(n => n.role !== 'master' && n.role !== 'satellite');
 
+  const W = 760;
   const displayNodes: (MeshNode & { x: number; y: number })[] = [];
-
   const placeRow = (arr: MeshNode[], y: number) => {
     if (arr.length === 0) return;
     const spacing = Math.min(180, (W - 80) / arr.length);
@@ -222,8 +516,8 @@ function MeshTopology({ meshData, loading }: { meshData: any; loading: boolean }
   placeRow(masterNodes, currentY);
   if (masterNodes.length > 0 && satelliteNodes.length > 0) currentY += rowHeight;
   placeRow(satelliteNodes, currentY);
-  if ((masterNodes.length > 0 || satelliteNodes.length > 0) && clientNodes.length > 0) currentY += rowHeight;
-  placeRow(clientNodes.slice(0, 20), currentY);
+  if ((masterNodes.length > 0 || satelliteNodes.length > 0) && meshClientNodes.length > 0) currentY += rowHeight;
+  placeRow(meshClientNodes.slice(0, 20), currentY);
 
   const svgH = currentY + 110;
   const nodeMap = new Map(displayNodes.map(n => [n.uid, n]));
@@ -234,47 +528,15 @@ function MeshTopology({ meshData, loading }: { meshData: any; loading: boolean }
     client:    { fill: '#374151', stroke: '#6b7280', r: 22 },
   };
 
-  const linkColor = (type: string) => {
-    const t = type.toLowerCase();
-    if (t.includes('lan') || t.includes('eth')) return '#3b82f6';
-    if (t.includes('wifi') || t.includes('wlan') || t.includes('wireless')) return '#10b981';
-    return '#6b7280';
-  };
-
-  const linkDash = (type: string) => {
-    const t = type.toLowerCase();
-    return (t.includes('wifi') || t.includes('wlan') || t.includes('wireless')) ? '6 3' : '0';
-  };
-
   return (
     <div className="card">
       <div className="card-header" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-        <h3>Mesh-Topologie</h3>
-        <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--text-secondary)', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#3b82f6', display: 'inline-block' }} /> Master
-          </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#10b981', display: 'inline-block' }} /> Satellite
-          </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#6b7280', display: 'inline-block' }} /> Client
-          </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <svg width="20" height="6"><line x1="0" y1="3" x2="20" y2="3" stroke="#3b82f6" strokeWidth="2" /></svg> LAN
-          </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <svg width="20" height="6"><line x1="0" y1="3" x2="20" y2="3" stroke="#10b981" strokeWidth="2" strokeDasharray="6 3" /></svg> WLAN
-          </span>
-        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}><h3>Mesh-Topologie</h3>{toggleBtn}</div>
+        {legend}
       </div>
       <div className="card-body" style={{ padding: 0, position: 'relative', overflowX: 'auto' }}
            onMouseLeave={() => setTooltip(null)}>
-        <svg
-          width="100%"
-          viewBox={`0 0 ${W} ${svgH}`}
-          style={{ display: 'block', minHeight: svgH, cursor: 'default' }}
-        >
+        <svg width="100%" viewBox={`0 0 ${W} ${svgH}`} style={{ display: 'block', minHeight: svgH, cursor: 'default' }}>
           <defs>
             {Object.entries(roleStyle).map(([role, s]) => (
               <radialGradient key={role} id={`glow-${role}`} cx="50%" cy="50%" r="50%">
@@ -284,50 +546,39 @@ function MeshTopology({ meshData, loading }: { meshData: any; loading: boolean }
             ))}
           </defs>
 
-          {/* Verbindungslinien */}
           {links.map((link, i) => {
             const a = nodeMap.get(link.from);
             const b = nodeMap.get(link.to);
             if (!a || !b) return null;
-            const color = linkColor(link.type);
-            const dash  = linkDash(link.type);
-            const mx = (a.x + b.x) / 2;
-            const my = (a.y + b.y) / 2;
+            const isWlan = isWlanType(link.type);
+            const color = isWlan ? '#10b981' : '#3b82f6';
+            const dash = isWlan ? '6 3' : '0';
             return (
               <g key={i}>
                 <line x1={a.x} y1={a.y} x2={b.x} y2={b.y}
                   stroke={color} strokeWidth="2" strokeDasharray={dash} strokeOpacity="0.6" />
                 {link.speed > 0 && (
-                  <text x={mx} y={my - 6} textAnchor="middle" fontSize="10" fill={color} opacity="0.8">
-                    {link.speed >= 1000 ? `${(link.speed / 1000).toFixed(0)} Gbit/s` : `${link.speed} Mbit/s`}
+                  <text x={(a.x+b.x)/2} y={(a.y+b.y)/2 - 6} textAnchor="middle" fontSize="10" fill={color} opacity="0.8">
+                    {link.speed >= 1000 ? `${(link.speed/1000).toFixed(0)} Gbit/s` : `${link.speed} Mbit/s`}
                   </text>
                 )}
               </g>
             );
           })}
 
-          {/* Knoten */}
           {displayNodes.map(node => {
             const s = roleStyle[node.role as keyof typeof roleStyle] || roleStyle.client;
             return (
-              <g
-                key={node.uid}
-                transform={`translate(${node.x},${node.y})`}
-                style={{ cursor: 'pointer' }}
+              <g key={node.uid} transform={`translate(${node.x},${node.y})`} style={{ cursor: 'pointer' }}
                 onMouseEnter={e => {
                   const svgEl = (e.currentTarget.closest('svg') as SVGSVGElement);
                   const rect = svgEl.getBoundingClientRect();
-                  setTooltip({
-                    node,
-                    x: node.x * (rect.width / W) + rect.left,
-                    y: node.y * (rect.height / svgH) + rect.top,
-                  });
+                  setTooltip({ node, x: node.x * (rect.width / W) + rect.left, y: node.y * (rect.height / svgH) + rect.top });
                 }}
                 onMouseLeave={() => setTooltip(null)}
               >
                 <circle cx={0} cy={0} r={s.r + 14} fill={`url(#glow-${node.role})`} />
                 <circle cx={0} cy={0} r={s.r} fill={s.fill} stroke={s.stroke} strokeWidth="2.5" />
-                {/* Icon */}
                 {node.role === 'master' && (
                   <g fill="none" stroke="white" strokeWidth="1.5">
                     <rect x="-12" y="-8" width="24" height="16" rx="3" />
@@ -341,62 +592,25 @@ function MeshTopology({ meshData, loading }: { meshData: any; loading: boolean }
                 )}
                 {node.role === 'satellite' && (
                   <g fill="none" stroke="white" strokeWidth="1.5" strokeLinecap="round">
-                    <path d="M-9 2 Q0 -10 9 2" />
-                    <path d="M-5 5 Q0 -1 5 5" />
+                    <path d="M-9 2 Q0 -10 9 2" /><path d="M-5 5 Q0 -1 5 5" />
                     <circle cx="0" cy="8" r="1.5" fill="white" stroke="none" />
                   </g>
                 )}
                 {node.role === 'client' && (
                   <g fill="none" stroke="white" strokeWidth="1.5">
                     <rect x="-8" y="-9" width="16" height="12" rx="2" />
-                    <line x1="-4" y1="3" x2="4" y2="3" />
-                    <line x1="0"  y1="3" x2="0"  y2="7" />
-                    <line x1="-4" y1="7" x2="4"  y2="7" />
+                    <line x1="-4" y1="3" x2="4" y2="3" /><line x1="0" y1="3" x2="0" y2="7" /><line x1="-4" y1="7" x2="4" y2="7" />
                   </g>
                 )}
-                {/* Label */}
                 <text y={s.r + 16} textAnchor="middle" fontSize="12" fill="var(--text-primary)" fontWeight="500">
                   {node.name.length > 16 ? node.name.slice(0, 14) + '…' : node.name}
                 </text>
-                {node.ip && (
-                  <text y={s.r + 30} textAnchor="middle" fontSize="10" fill="var(--text-secondary)">
-                    {node.ip}
-                  </text>
-                )}
+                {node.ip && <text y={s.r + 30} textAnchor="middle" fontSize="10" fill="var(--text-secondary)">{node.ip}</text>}
               </g>
             );
           })}
         </svg>
-
-        {/* Tooltip */}
-        {tooltip && (
-          <div style={{
-            position: 'fixed',
-            left: tooltip.x + 20,
-            top: tooltip.y - 10,
-            background: 'var(--bg-card)',
-            border: '1px solid var(--border)',
-            borderRadius: 10,
-            padding: '12px 16px',
-            boxShadow: 'var(--shadow-lg)',
-            zIndex: 9999,
-            fontSize: 13,
-            minWidth: 200,
-            pointerEvents: 'none',
-          }}>
-            <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 14 }}>{tooltip.node.name}</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px' }}>
-              <span style={{ color: 'var(--text-secondary)' }}>Rolle</span>
-              <span style={{ textTransform: 'capitalize', color:
-                tooltip.node.role === 'master' ? '#3b82f6' :
-                tooltip.node.role === 'satellite' ? '#10b981' : 'var(--text-primary)'
-              }}>{tooltip.node.role}</span>
-              {tooltip.node.mac && <><span style={{ color: 'var(--text-secondary)' }}>MAC</span><span style={{ fontFamily: 'monospace', fontSize: 12 }}>{tooltip.node.mac}</span></>}
-              {tooltip.node.ip  && <><span style={{ color: 'var(--text-secondary)' }}>IP</span><span style={{ fontFamily: 'monospace', fontSize: 12 }}>{tooltip.node.ip}</span></>}
-              {tooltip.node.model && <><span style={{ color: 'var(--text-secondary)' }}>Modell</span><span>{tooltip.node.model}</span></>}
-            </div>
-          </div>
-        )}
+        {tooltipEl}
       </div>
     </div>
   );
