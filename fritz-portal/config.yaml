@@ -1,5 +1,5 @@
 name: "FRITZ!Portal"
-version: "1.3.2"
+version: "1.3.3"
 slug: "fritz-portal"
 description: "FRITZ!Box Dashboard für Home Assistant"
 url: "https://github.com/jayjojayson/FRITZ-Portal"
@@ -16,7 +16,7 @@ ingress_stream: false
 panel_icon: "mdi:router-wireless"
 panel_title: "FRITZ!Portal"
 panel_admin: true
-hassio_api: false
+hassio_api: true
 homeassistant_api: true
 host_network: true
 ports:

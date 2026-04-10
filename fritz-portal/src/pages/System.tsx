@@ -11,7 +11,7 @@ export default function System({ sid }: SystemProps) {
   const [rebooting, setRebooting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [version] = useState('1.3.2');
+  const [version] = useState('1.3.3');
   const [fritzHost, setFritzHost] = useState('fritz.box');
 
   // HA-Sensor-Einstellungen
@@ -207,12 +207,14 @@ export default function System({ sid }: SystemProps) {
               display: 'flex', alignItems: 'center', gap: 10,
               marginBottom: 20, padding: '10px 14px',
               borderRadius: 8, border: '1px solid var(--border)',
-              background: !haSettings.ha_available ? 'rgba(107,114,128,0.06)' : haSettings.mqtt_available ? 'rgba(34,197,94,0.06)' : 'rgba(245,158,11,0.06)',
+              background: !haSettings.ha_available ? 'rgba(107,114,128,0.06)' : (haSettings.ha_sensors || haSettings.mqtt_available) ? 'rgba(34,197,94,0.06)' : 'rgba(245,158,11,0.06)',
             }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: !haSettings.ha_available ? '#6b7280' : haSettings.mqtt_available ? '#22c55e' : '#f59e0b', flexShrink: 0 }} />
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: !haSettings.ha_available ? '#6b7280' : (haSettings.ha_sensors || haSettings.mqtt_available) ? '#22c55e' : '#f59e0b', flexShrink: 0 }} />
               <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                 {!haSettings.ha_available
                   ? 'Kein SUPERVISOR_TOKEN – Sensor-Push nur im HA Add-on verfügbar'
+                  : haSettings.ha_sensors
+                  ? 'REST-API aktiv – Sensoren werden via HA REST-API an Home Assistant gesendet'
                   : haSettings.mqtt_available
                   ? 'MQTT Discovery aktiv – Sensoren werden via MQTT an Home Assistant gesendet'
                   : 'MQTT nicht erreichbar – REST-API Fallback aktivieren um Sensoren zu übertragen'}
@@ -285,6 +287,9 @@ export default function System({ sid }: SystemProps) {
               {haMessage && (
                 <span style={{ fontSize: 13, color: haMessageOk ? '#22c55e' : '#ef4444' }}>{haMessage}</span>
               )}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 10, opacity: 0.7 }}>
+              Änderungen werden sofort angewendet und in die Add-on-Konfiguration übernommen – kein Neustart nötig.
             </div>
           </div>
         </div>

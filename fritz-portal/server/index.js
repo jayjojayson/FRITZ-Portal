@@ -1630,7 +1630,10 @@ async function publishMqtt(topic, payload, retain = false) {
       headers: { 'Authorization': `Bearer ${HA_TOKEN}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ topic, payload: payloadStr, retain }),
     });
-    if (!res.ok) console.error(`MQTT publish Fehler (${topic}): HTTP ${res.status}`);
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      console.error(`MQTT publish Fehler (${topic}): HTTP ${res.status} ${txt}`);
+    }
     return res.ok;
   } catch (e) { console.error(`MQTT publish Fehler (${topic}):`, e.message); return false; }
 }
@@ -1669,10 +1672,11 @@ async function publishMqttDiscovery() {
   if (!HA_TOKEN) return;
   console.log('MQTT Discovery: Teste Broker-Verbindung...');
   const ok = await publishMqtt('fritzportal/status', 'online', true);
-  if (!ok) { mqttAvailable = false; console.log('MQTT Discovery: Broker nicht erreichbar – REST-API Fallback wird genutzt wenn aktiviert'); return; }
+  if (!ok) { mqttAvailable = false; console.log('MQTT Discovery: Broker nicht erreichbar – REST-API Fallback aktivieren falls Sensoren gewünscht'); return; }
   mqttAvailable = true;
   console.log('MQTT Discovery: Broker erreichbar – registriere Sensoren...');
   const device = fritzboxDevice();
+  let registered = 0;
   for (const s of MQTT_SENSORS) {
     const config = {
       name: s.name, unique_id: `fritzportal_${s.id}`, object_id: `fritzportal_${s.id}`,
@@ -1681,7 +1685,7 @@ async function publishMqttDiscovery() {
       device_class: s.device_class || undefined, state_class: s.state_class || undefined,
       device,
     };
-    await publishMqtt(`homeassistant/sensor/fritzportal_${s.id}/config`, config, true);
+    if (await publishMqtt(`homeassistant/sensor/fritzportal_${s.id}/config`, config, true)) registered++;
   }
   for (const t of MQTT_TRAFFIC_SENSORS) {
     for (const dir of ['received', 'sent']) {
@@ -1695,10 +1699,24 @@ async function publishMqttDiscovery() {
         device_class: 'data_size', state_class: 'total',
         device,
       };
-      await publishMqtt(`homeassistant/sensor/fritzportal_${id}/config`, config, true);
+      if (await publishMqtt(`homeassistant/sensor/fritzportal_${id}/config`, config, true)) registered++;
     }
   }
-  console.log('MQTT Discovery: alle Sensoren registriert');
+  const total = MQTT_SENSORS.length + MQTT_TRAFFIC_SENSORS.length * 2;
+  console.log(`MQTT Discovery: ${registered}/${total} Sensoren registriert`);
+}
+
+async function removeMqttDiscovery() {
+  for (const s of MQTT_SENSORS) {
+    await publishMqtt(`homeassistant/sensor/fritzportal_${s.id}/config`, '', true);
+  }
+  for (const t of MQTT_TRAFFIC_SENSORS) {
+    for (const dir of ['received', 'sent']) {
+      await publishMqtt(`homeassistant/sensor/fritzportal_traffic_${t.suffix}_${dir}/config`, '', true);
+    }
+  }
+  mqttAvailable = false;
+  console.log('MQTT Discovery: Konfigurationen entfernt');
 }
 
 async function setState(entityId, state, attributes = {}) {
@@ -1732,15 +1750,7 @@ async function pushFastSensorsToHA() {
   const dl = +(( net.currentDown || 0) / 1048576).toFixed(3);
   const ul = +((net.currentUp   || 0) / 1048576).toFixed(3);
 
-  if (mqttAvailable) {
-    await publishMqtt('fritzportal/cpu/state', lastKnownFast.cpu);
-    await publishMqtt('fritzportal/ram/state', lastKnownFast.ram);
-    await publishMqtt('fritzportal/temperature/state', lastKnownFast.cpu_temp);
-    await publishMqtt('fritzportal/online_devices/state', lastKnownFast.online);
-    await publishMqtt('fritzportal/free_ips/state', lastKnownFast.free_ips);
-    await publishMqtt('fritzportal/download_speed/state', dl);
-    await publishMqtt('fritzportal/upload_speed/state', ul);
-  } else if (haSensorsEnabled) {
+  if (haSensorsEnabled) {
     await setState('sensor.fritzportal_cpu',            lastKnownFast.cpu,      { unit_of_measurement: '%',   friendly_name: 'FRITZ!Portal CPU-Auslastung',    icon: 'mdi:chip',            unique_id: 'fritzportal_rest_cpu' });
     await setState('sensor.fritzportal_ram',            lastKnownFast.ram,      { unit_of_measurement: '%',   friendly_name: 'FRITZ!Portal RAM-Auslastung',    icon: 'mdi:memory',          unique_id: 'fritzportal_rest_ram' });
     await setState('sensor.fritzportal_temperature',    lastKnownFast.cpu_temp, { unit_of_measurement: '°C',  friendly_name: 'FRITZ!Portal CPU-Temperatur',    icon: 'mdi:thermometer',     unique_id: 'fritzportal_rest_temperature',    device_class: 'temperature' });
@@ -1748,6 +1758,14 @@ async function pushFastSensorsToHA() {
     await setState('sensor.fritzportal_free_ips',       lastKnownFast.free_ips, { unit_of_measurement: '',    friendly_name: 'FRITZ!Portal Freie IP-Adressen', icon: 'mdi:ip-network',      unique_id: 'fritzportal_rest_free_ips' });
     await setState('sensor.fritzportal_download_speed', dl, { unit_of_measurement: 'MB/s', friendly_name: 'FRITZ!Portal Download aktuell',  icon: 'mdi:download', device_class: 'data_rate', unique_id: 'fritzportal_rest_download_speed' });
     await setState('sensor.fritzportal_upload_speed',   ul, { unit_of_measurement: 'MB/s', friendly_name: 'FRITZ!Portal Upload aktuell',    icon: 'mdi:upload',   device_class: 'data_rate', unique_id: 'fritzportal_rest_upload_speed' });
+  } else if (mqttAvailable) {
+    await publishMqtt('fritzportal/cpu/state', lastKnownFast.cpu);
+    await publishMqtt('fritzportal/ram/state', lastKnownFast.ram);
+    await publishMqtt('fritzportal/temperature/state', lastKnownFast.cpu_temp);
+    await publishMqtt('fritzportal/online_devices/state', lastKnownFast.online);
+    await publishMqtt('fritzportal/free_ips/state', lastKnownFast.free_ips);
+    await publishMqtt('fritzportal/download_speed/state', dl);
+    await publishMqtt('fritzportal/upload_speed/state', ul);
   }
 }
 
@@ -1773,16 +1791,7 @@ async function pushTrafficSensorsToHA() {
     if (bytes < 1024 * 1024 * 1024) return { value: +(bytes / (1024 * 1024)).toFixed(2), unit: 'MB' };
     return { value: +(bytes / (1024 * 1024 * 1024)).toFixed(3), unit: 'GB' };
   }
-  if (mqttAvailable) {
-    for (let i = 0; i < tc.rows.length; i++) {
-      const row = tc.rows[i];
-      const k   = keys[i];
-      const mbDl = +((lastKnownTraffic[row.name + '_dl'] || row.received) / (1024 * 1024)).toFixed(2);
-      const mbUl = +((lastKnownTraffic[row.name + '_ul'] || row.sent)     / (1024 * 1024)).toFixed(2);
-      await publishMqtt(`fritzportal/traffic_${k}_received/state`, mbDl);
-      await publishMqtt(`fritzportal/traffic_${k}_sent/state`, mbUl);
-    }
-  } else if (haSensorsEnabled) {
+  if (haSensorsEnabled) {
     for (let i = 0; i < tc.rows.length; i++) {
       const row = tc.rows[i];
       const k   = keys[i];
@@ -1791,6 +1800,15 @@ async function pushTrafficSensorsToHA() {
       const tx = bytesToHaValue(row.sent);
       await setState(`sensor.fritzportal_traffic_${k}_received`, rx.value, { unit_of_measurement: rx.unit, friendly_name: `FRITZ!Portal Download ${lbl}`, icon: 'mdi:download-network', device_class: 'data_size', unique_id: `fritzportal_rest_traffic_${k}_received` });
       await setState(`sensor.fritzportal_traffic_${k}_sent`,     tx.value, { unit_of_measurement: tx.unit, friendly_name: `FRITZ!Portal Upload ${lbl}`,   icon: 'mdi:upload-network',   device_class: 'data_size', unique_id: `fritzportal_rest_traffic_${k}_sent` });
+    }
+  } else if (mqttAvailable) {
+    for (let i = 0; i < tc.rows.length; i++) {
+      const row = tc.rows[i];
+      const k   = keys[i];
+      const mbDl = +((lastKnownTraffic[row.name + '_dl'] || row.received) / (1024 * 1024)).toFixed(2);
+      const mbUl = +((lastKnownTraffic[row.name + '_ul'] || row.sent)     / (1024 * 1024)).toFixed(2);
+      await publishMqtt(`fritzportal/traffic_${k}_received/state`, mbDl);
+      await publishMqtt(`fritzportal/traffic_${k}_sent/state`, mbUl);
     }
   }
 }
@@ -1807,12 +1825,17 @@ function startHaTimers() {
     console.log('HA Sensor Push deaktiviert – kein SUPERVISOR_TOKEN (kein HA-Betrieb)');
     return;
   }
-  // MQTT Discovery immer versuchen
-  publishMqttDiscovery().catch(() => {});
+  if (haSensorsEnabled) {
+    // REST-API Modus: MQTT Discovery entfernen falls vorhanden
+    removeMqttDiscovery().catch(() => {});
+    console.log(`HA Sensor Push: REST-API Modus (Systemsensoren: ${haFastIntervalSec}s, Traffic: ${haTrafficIntervalSec}s)`);
+  } else {
+    // MQTT Modus (Standard): Discovery versuchen
+    publishMqttDiscovery().catch(() => {});
+    console.log(`HA Sensor Push: MQTT Modus (Systemsensoren: ${haFastIntervalSec}s, Traffic: ${haTrafficIntervalSec}s)`);
+  }
   haFastTimer    = setInterval(() => { pushFastSensorsToHA().catch(() => {}); },    haFastIntervalSec    * 1000);
   haTrafficTimer = setInterval(() => { pushTrafficSensorsToHA().catch(() => {}); }, haTrafficIntervalSec * 1000);
-  const restInfo = haSensorsEnabled ? ' + REST-API Fallback aktiv' : ' (REST-API Fallback deaktiviert)';
-  console.log(`HA Sensor Push gestartet: MQTT Discovery${restInfo} (Systemsensoren: ${haFastIntervalSec}s, Traffic: ${haTrafficIntervalSec}s)`);
 }
 
 startHaTimers();
@@ -1829,7 +1852,7 @@ app.get('/api/fritz/ha-settings', (req, res) => {
   });
 });
 
-app.post('/api/fritz/ha-settings', (req, res) => {
+app.post('/api/fritz/ha-settings', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   if (!sessions.get(sid)) return res.status(401).json({ error: 'Nicht eingeloggt' });
   const { ha_sensors, ha_sensors_interval, ha_sensors_traffic_interval } = req.body;
@@ -1843,6 +1866,21 @@ app.post('/api/fritz/ha-settings', (req, res) => {
       ha_sensors_traffic_interval: haTrafficIntervalSec,
     }));
   } catch (e) { console.error('Settings speichern fehlgeschlagen:', e.message); }
+  // Sync to HA Add-on config (requires hassio_api: true)
+  try {
+    const infoRes = await fetch('http://supervisor/addons/self/info', {
+      headers: { 'Authorization': `Bearer ${HA_TOKEN}` },
+    });
+    if (infoRes.ok) {
+      const info = await infoRes.json();
+      const opts = info.data?.options || {};
+      await fetch('http://supervisor/addons/self/options', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${HA_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ options: { ...opts, ha_sensors: haSensorsEnabled, ha_sensors_interval: haFastIntervalSec, ha_sensors_traffic_interval: haTrafficIntervalSec } }),
+      });
+    }
+  } catch {}
   startHaTimers();
   return res.json({ success: true, ha_sensors: haSensorsEnabled, ha_sensors_interval: haFastIntervalSec, ha_sensors_traffic_interval: haTrafficIntervalSec });
 });
