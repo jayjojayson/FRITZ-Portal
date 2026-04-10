@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.5
+
+- Fix: MQTT Discovery wird jetzt IMMER ausgeführt – das FRITZ!Portal-Gerät erscheint zuverlässig unter MQTT in Home Assistant, auch wenn REST-API Fallback aktiv ist
+- Fix: Sensordaten werden immer via MQTT gesendet wenn Broker erreichbar – REST-API sendet zusätzlich wenn aktiviert (statt entweder/oder)
+- Fix: `removeMqttDiscovery()` wird nicht mehr beim Start aufgerufen – MQTT-Gerät bleibt dauerhaft erhalten
+
 ## 1.3.4
 
 - Fix: SUPERVISOR_TOKEN wurde nicht erkannt – `run.sh` nutzt jetzt `with-contenv` für HA Base Images (S6 Overlay), damit der Token an Node.js weitergereicht wird

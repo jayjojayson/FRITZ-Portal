@@ -1750,6 +1750,17 @@ async function pushFastSensorsToHA() {
   const dl = +(( net.currentDown || 0) / 1048576).toFixed(3);
   const ul = +((net.currentUp   || 0) / 1048576).toFixed(3);
 
+  // MQTT: Daten immer senden wenn Broker erreichbar
+  if (mqttAvailable) {
+    await publishMqtt('fritzportal/cpu/state', lastKnownFast.cpu);
+    await publishMqtt('fritzportal/ram/state', lastKnownFast.ram);
+    await publishMqtt('fritzportal/temperature/state', lastKnownFast.cpu_temp);
+    await publishMqtt('fritzportal/online_devices/state', lastKnownFast.online);
+    await publishMqtt('fritzportal/free_ips/state', lastKnownFast.free_ips);
+    await publishMqtt('fritzportal/download_speed/state', dl);
+    await publishMqtt('fritzportal/upload_speed/state', ul);
+  }
+  // REST-API Fallback: zusätzlich wenn aktiviert
   if (haSensorsEnabled) {
     await setState('sensor.fritzportal_cpu',            lastKnownFast.cpu,      { unit_of_measurement: '%',   friendly_name: 'FRITZ!Portal CPU-Auslastung',    icon: 'mdi:chip',            unique_id: 'fritzportal_rest_cpu' });
     await setState('sensor.fritzportal_ram',            lastKnownFast.ram,      { unit_of_measurement: '%',   friendly_name: 'FRITZ!Portal RAM-Auslastung',    icon: 'mdi:memory',          unique_id: 'fritzportal_rest_ram' });
@@ -1758,14 +1769,6 @@ async function pushFastSensorsToHA() {
     await setState('sensor.fritzportal_free_ips',       lastKnownFast.free_ips, { unit_of_measurement: '',    friendly_name: 'FRITZ!Portal Freie IP-Adressen', icon: 'mdi:ip-network',      unique_id: 'fritzportal_rest_free_ips' });
     await setState('sensor.fritzportal_download_speed', dl, { unit_of_measurement: 'MB/s', friendly_name: 'FRITZ!Portal Download aktuell',  icon: 'mdi:download', device_class: 'data_rate', unique_id: 'fritzportal_rest_download_speed' });
     await setState('sensor.fritzportal_upload_speed',   ul, { unit_of_measurement: 'MB/s', friendly_name: 'FRITZ!Portal Upload aktuell',    icon: 'mdi:upload',   device_class: 'data_rate', unique_id: 'fritzportal_rest_upload_speed' });
-  } else if (mqttAvailable) {
-    await publishMqtt('fritzportal/cpu/state', lastKnownFast.cpu);
-    await publishMqtt('fritzportal/ram/state', lastKnownFast.ram);
-    await publishMqtt('fritzportal/temperature/state', lastKnownFast.cpu_temp);
-    await publishMqtt('fritzportal/online_devices/state', lastKnownFast.online);
-    await publishMqtt('fritzportal/free_ips/state', lastKnownFast.free_ips);
-    await publishMqtt('fritzportal/download_speed/state', dl);
-    await publishMqtt('fritzportal/upload_speed/state', ul);
   }
 }
 
@@ -1791,6 +1794,18 @@ async function pushTrafficSensorsToHA() {
     if (bytes < 1024 * 1024 * 1024) return { value: +(bytes / (1024 * 1024)).toFixed(2), unit: 'MB' };
     return { value: +(bytes / (1024 * 1024 * 1024)).toFixed(3), unit: 'GB' };
   }
+  // MQTT: Traffic-Daten immer senden wenn Broker erreichbar
+  if (mqttAvailable) {
+    for (let i = 0; i < tc.rows.length; i++) {
+      const row = tc.rows[i];
+      const k   = keys[i];
+      const mbDl = +((lastKnownTraffic[row.name + '_dl'] || row.received) / (1024 * 1024)).toFixed(2);
+      const mbUl = +((lastKnownTraffic[row.name + '_ul'] || row.sent)     / (1024 * 1024)).toFixed(2);
+      await publishMqtt(`fritzportal/traffic_${k}_received/state`, mbDl);
+      await publishMqtt(`fritzportal/traffic_${k}_sent/state`, mbUl);
+    }
+  }
+  // REST-API Fallback: zusätzlich wenn aktiviert
   if (haSensorsEnabled) {
     for (let i = 0; i < tc.rows.length; i++) {
       const row = tc.rows[i];
@@ -1800,15 +1815,6 @@ async function pushTrafficSensorsToHA() {
       const tx = bytesToHaValue(row.sent);
       await setState(`sensor.fritzportal_traffic_${k}_received`, rx.value, { unit_of_measurement: rx.unit, friendly_name: `FRITZ!Portal Download ${lbl}`, icon: 'mdi:download-network', device_class: 'data_size', unique_id: `fritzportal_rest_traffic_${k}_received` });
       await setState(`sensor.fritzportal_traffic_${k}_sent`,     tx.value, { unit_of_measurement: tx.unit, friendly_name: `FRITZ!Portal Upload ${lbl}`,   icon: 'mdi:upload-network',   device_class: 'data_size', unique_id: `fritzportal_rest_traffic_${k}_sent` });
-    }
-  } else if (mqttAvailable) {
-    for (let i = 0; i < tc.rows.length; i++) {
-      const row = tc.rows[i];
-      const k   = keys[i];
-      const mbDl = +((lastKnownTraffic[row.name + '_dl'] || row.received) / (1024 * 1024)).toFixed(2);
-      const mbUl = +((lastKnownTraffic[row.name + '_ul'] || row.sent)     / (1024 * 1024)).toFixed(2);
-      await publishMqtt(`fritzportal/traffic_${k}_received/state`, mbDl);
-      await publishMqtt(`fritzportal/traffic_${k}_sent/state`, mbUl);
     }
   }
 }
@@ -1825,15 +1831,10 @@ function startHaTimers() {
     console.log('HA Sensor Push deaktiviert – kein SUPERVISOR_TOKEN (kein HA-Betrieb)');
     return;
   }
-  if (haSensorsEnabled) {
-    // REST-API Modus: MQTT Discovery entfernen falls vorhanden
-    removeMqttDiscovery().catch(() => {});
-    console.log(`HA Sensor Push: REST-API Modus (Systemsensoren: ${haFastIntervalSec}s, Traffic: ${haTrafficIntervalSec}s)`);
-  } else {
-    // MQTT Modus (Standard): Discovery versuchen
-    publishMqttDiscovery().catch(() => {});
-    console.log(`HA Sensor Push: MQTT Modus (Systemsensoren: ${haFastIntervalSec}s, Traffic: ${haTrafficIntervalSec}s)`);
-  }
+  // MQTT Discovery immer versuchen – erstellt das Gerät in HA
+  publishMqttDiscovery().catch(() => {});
+  const restInfo = haSensorsEnabled ? ' + REST-API Fallback aktiv' : '';
+  console.log(`HA Sensor Push gestartet: MQTT Discovery${restInfo} (Systemsensoren: ${haFastIntervalSec}s, Traffic: ${haTrafficIntervalSec}s)`);
   haFastTimer    = setInterval(() => { pushFastSensorsToHA().catch(() => {}); },    haFastIntervalSec    * 1000);
   haTrafficTimer = setInterval(() => { pushTrafficSensorsToHA().catch(() => {}); }, haTrafficIntervalSec * 1000);
 }
