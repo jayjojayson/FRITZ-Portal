@@ -11,7 +11,7 @@ export default function System({ sid }: SystemProps) {
   const [rebooting, setRebooting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [version] = useState('1.2.9');
+  const [version] = useState('1.3.0');
   const [fritzHost, setFritzHost] = useState('fritz.box');
 
   // HA-Sensor-Einstellungen
@@ -20,6 +20,8 @@ export default function System({ sid }: SystemProps) {
     ha_sensors_interval: number;
     ha_sensors_traffic_interval: number;
     ha_available: boolean;
+    ha_mqtt: boolean;
+    mqtt_available: boolean;
   } | null>(null);
   const [haSaving, setHaSaving] = useState(false);
   const [haMessage, setHaMessage] = useState('');
@@ -60,6 +62,7 @@ export default function System({ sid }: SystemProps) {
           ha_sensors:                  haSettings.ha_sensors,
           ha_sensors_interval:         haSettings.ha_sensors_interval,
           ha_sensors_traffic_interval: haSettings.ha_sensors_traffic_interval,
+          ha_mqtt:                     haSettings.ha_mqtt,
         }),
       });
       const data = await res.json();
@@ -218,8 +221,8 @@ export default function System({ sid }: SystemProps) {
             {/* Sensor Push ein/aus */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderBottom: '1px solid var(--border)' }}>
               <div>
-                <div style={{ fontWeight: 500, fontSize: 14 }}>Sensor Push aktivieren</div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>Werte regelmäßig an Home Assistant übermitteln</div>
+                <div style={{ fontWeight: 500, fontSize: 14 }}>REST-API Sensor Push</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>Sensoren via REST-API an Home Assistant übermitteln (unter Entitäten sichtbar)</div>
               </div>
               <button
                 onClick={() => setHaSettings(s => s ? { ...s, ha_sensors: !s.ha_sensors } : s)}
@@ -238,6 +241,48 @@ export default function System({ sid }: SystemProps) {
                 }} />
               </button>
             </div>
+
+            {/* MQTT Discovery */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderBottom: '1px solid var(--border)' }}>
+              <div>
+                <div style={{ fontWeight: 500, fontSize: 14 }}>MQTT Discovery</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3, maxWidth: 480, lineHeight: 1.5 }}>
+                  Erstellt ein FRITZ!Portal-Gerät in der HA-Geräteübersicht. Sensoren sind dort bearbeitbar. Erfordert MQTT-Broker (z.B. Mosquitto).
+                </div>
+              </div>
+              <button
+                onClick={() => setHaSettings(s => s ? { ...s, ha_mqtt: !s.ha_mqtt } : s)}
+                style={{
+                  width: 46, height: 26, borderRadius: 13, border: 'none', cursor: 'pointer',
+                  background: haSettings.ha_mqtt ? '#22c55e' : '#6b7280',
+                  position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+                }}
+                title={haSettings.ha_mqtt ? 'Deaktivieren' : 'Aktivieren'}
+              >
+                <span style={{
+                  position: 'absolute', top: 3,
+                  left: haSettings.ha_mqtt ? 23 : 3,
+                  width: 20, height: 20, borderRadius: '50%', background: 'white',
+                  transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+                }} />
+              </button>
+            </div>
+
+            {haSettings.ha_mqtt && (
+              <div style={{
+                margin: '10px 0', padding: '10px 14px', borderRadius: 8,
+                border: '1px solid rgba(59,130,246,0.3)', background: 'rgba(59,130,246,0.06)',
+                fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6,
+              }}>
+                💡 Bei aktiviertem MQTT werden alle Sensoren als <strong>FRITZ!Portal</strong>-Gerät in der HA-Geräteübersicht angezeigt und sind dort bearbeitbar.
+                Die REST-API kann dann deaktiviert werden, um Duplikate zu vermeiden.
+                {haSettings.ha_mqtt && haSettings.ha_sensors && (
+                  <span style={{ display: 'block', marginTop: 6, color: '#f59e0b' }}>
+                    ⚠️ REST-API und MQTT sind gleichzeitig aktiv – Sensoren könnten doppelt erscheinen.
+                  </span>
+                )}
+              </div>
+            )}
 
             {/* Systemsensoren-Intervall */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '14px 0', borderBottom: '1px solid var(--border)' }}>

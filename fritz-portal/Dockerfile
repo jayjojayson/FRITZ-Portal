@@ -14,11 +14,14 @@ WORKDIR /app/server
 COPY server/package.json ./
 RUN npm install --omit=dev
 
-# ── Stage 3: Runtime ──
-FROM node:20-alpine
-LABEL maintainer="FRITZ!Portal"
+# ── Stage 3: Runtime (HA Base Image) ──
+ARG BUILD_FROM
+FROM ${BUILD_FROM}
 
 WORKDIR /app
+
+# Node.js installieren
+RUN apk add --no-cache nodejs npm
 
 # Frontend (built)
 COPY --from=frontend /app/dist ./dist

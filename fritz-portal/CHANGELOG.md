@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.0
+
+- Neu: MQTT Discovery als optionaler Toggle auf der Systemseite – erstellt ein FRITZ!Portal-Gerät in der HA-Geräteübersicht mit bearbeitbaren Sensoren
+- Neu: REST-API und MQTT unabhängig schaltbar – Hinweis bei gleichzeitiger Aktivierung warnt vor Duplikaten
+- Neu: Beim Deaktivieren von MQTT werden die Discovery-Konfigurationen automatisch aus HA entfernt
+- Fix: MQTT Discovery – Gerätename und Hersteller auf „FRITZ!Portal" geändert (statt doppelt „FRITZ!Box" / „AVM")
+- Fix: MQTT Entity-IDs verwenden `fritzportal_*` Präfix (via `object_id`)
+- Fix: HA Update-Fortschrittsanzeige blieb bei 0 % – Dockerfile verwendet jetzt `BUILD_FROM` (HA Base Image) für korrektes Build-Tracking
+
 ## 1.2.9
 
 - Neu: Farbschema für Netzwerk-Ansicht – Master türkis, LAN blau, WLAN grün, Infrastruktur (Router/Repeater/Fritz) orange

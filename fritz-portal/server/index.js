@@ -1609,6 +1609,7 @@ const SETTINGS_FILE = '/data/fritz-portal.json';
 let haSensorsEnabled     = process.env.HA_SENSORS !== 'false';
 let haFastIntervalSec    = Math.max(10,  parseInt(process.env.HA_SENSORS_INTERVAL          || '60',  10));
 let haTrafficIntervalSec = Math.max(30,  parseInt(process.env.HA_SENSORS_TRAFFIC_INTERVAL  || '300', 10));
+let haMqttEnabled        = false;
 
 try {
   if (existsSync(SETTINGS_FILE)) {
@@ -1616,6 +1617,7 @@ try {
     if (s.ha_sensors !== undefined)         haSensorsEnabled     = !!s.ha_sensors;
     if (s.ha_sensors_interval)              haFastIntervalSec    = Math.max(10,  parseInt(s.ha_sensors_interval,        10));
     if (s.ha_sensors_traffic_interval)      haTrafficIntervalSec = Math.max(30,  parseInt(s.ha_sensors_traffic_interval, 10));
+    if (s.ha_mqtt !== undefined)            haMqttEnabled        = !!s.ha_mqtt;
   }
 } catch {}
 
@@ -1637,8 +1639,8 @@ function fritzboxDevice() {
   const di = getCached('device-info');
   return {
     identifiers: ['fritzportal_fritzbox'],
-    name: di?.NewModelName || 'FRITZ!Box',
-    manufacturer: 'AVM',
+    name: 'FRITZ!Portal',
+    manufacturer: 'FRITZ!Portal',
     model: di?.NewModelName || 'FRITZ!Box',
     sw_version: di?.NewFirmwareVersion || '',
     configuration_url: `http://${process.env.FRITZBOX_HOST || 'fritz.box'}`,
@@ -1699,6 +1701,22 @@ async function publishMqttDiscovery() {
   console.log('MQTT Discovery: alle Sensoren registriert');
 }
 
+async function removeMqttDiscovery() {
+  if (!HA_TOKEN) return;
+  for (const s of MQTT_SENSORS) {
+    await publishMqtt(`homeassistant/sensor/fritzportal_${s.id}/config`, '', true);
+  }
+  for (const t of MQTT_TRAFFIC_SENSORS) {
+    for (const dir of ['received', 'sent']) {
+      const id = `traffic_${t.suffix}_${dir}`;
+      await publishMqtt(`homeassistant/sensor/fritzportal_${id}/config`, '', true);
+    }
+  }
+  await publishMqtt('fritzportal/status', '', true);
+  mqttAvailable = false;
+  console.log('MQTT Discovery: Sensoren aus Home Assistant entfernt');
+}
+
 async function setState(entityId, state, attributes = {}) {
   try {
     await fetch(`${HA_API}/states/${entityId}`, {
@@ -1730,7 +1748,7 @@ async function pushFastSensorsToHA() {
   const dl = +(( net.currentDown || 0) / 1048576).toFixed(3);
   const ul = +((net.currentUp   || 0) / 1048576).toFixed(3);
 
-  if (mqttAvailable) {
+  if (haMqttEnabled && mqttAvailable) {
     await publishMqtt('fritzportal/cpu/state', lastKnownFast.cpu);
     await publishMqtt('fritzportal/ram/state', lastKnownFast.ram);
     await publishMqtt('fritzportal/temperature/state', lastKnownFast.cpu_temp);
@@ -1738,7 +1756,8 @@ async function pushFastSensorsToHA() {
     await publishMqtt('fritzportal/free_ips/state', lastKnownFast.free_ips);
     await publishMqtt('fritzportal/download_speed/state', dl);
     await publishMqtt('fritzportal/upload_speed/state', ul);
-  } else {
+  }
+  if (haSensorsEnabled) {
     await setState('sensor.fritzportal_cpu',            lastKnownFast.cpu,      { unit_of_measurement: '%',   friendly_name: 'FRITZ!Portal CPU-Auslastung',    icon: 'mdi:chip' });
     await setState('sensor.fritzportal_ram',            lastKnownFast.ram,      { unit_of_measurement: '%',   friendly_name: 'FRITZ!Portal RAM-Auslastung',    icon: 'mdi:memory' });
     await setState('sensor.fritzportal_temperature',    lastKnownFast.cpu_temp, { unit_of_measurement: '°C',  friendly_name: 'FRITZ!Portal CPU-Temperatur',    icon: 'mdi:thermometer', device_class: 'temperature' });
@@ -1771,7 +1790,7 @@ async function pushTrafficSensorsToHA() {
     if (bytes < 1024 * 1024 * 1024) return { value: +(bytes / (1024 * 1024)).toFixed(2), unit: 'MB' };
     return { value: +(bytes / (1024 * 1024 * 1024)).toFixed(3), unit: 'GB' };
   }
-  if (mqttAvailable) {
+  if (haMqttEnabled && mqttAvailable) {
     for (let i = 0; i < tc.rows.length; i++) {
       const row = tc.rows[i];
       const k   = keys[i];
@@ -1780,7 +1799,8 @@ async function pushTrafficSensorsToHA() {
       await publishMqtt(`fritzportal/traffic_${k}_received/state`, mbDl);
       await publishMqtt(`fritzportal/traffic_${k}_sent/state`, mbUl);
     }
-  } else {
+  }
+  if (haSensorsEnabled) {
     for (let i = 0; i < tc.rows.length; i++) {
       const row = tc.rows[i];
       const k   = keys[i];
@@ -1801,16 +1821,18 @@ function startHaTimers() {
   if (haTrafficTimer) clearInterval(haTrafficTimer);
   haFastTimer    = null;
   haTrafficTimer = null;
-  if (!haSensorsEnabled || !HA_TOKEN) {
+  if ((!haSensorsEnabled && !haMqttEnabled) || !HA_TOKEN) {
     if (!HA_TOKEN) console.log('HA Sensor Push deaktiviert – kein SUPERVISOR_TOKEN (kein HA-Betrieb)');
-    else console.log('HA Sensor Push deaktiviert (ha_sensors=false)');
+    else console.log('HA Sensor Push deaktiviert (REST-API und MQTT beide aus)');
     return;
   }
-  // MQTT Discovery versuchen – erstellt Fritz!Box-Gerät in HA
-  publishMqttDiscovery().catch(() => {});
+  if (haMqttEnabled) {
+    publishMqttDiscovery().catch(() => {});
+  }
   haFastTimer    = setInterval(() => { pushFastSensorsToHA().catch(() => {}); },    haFastIntervalSec    * 1000);
   haTrafficTimer = setInterval(() => { pushTrafficSensorsToHA().catch(() => {}); }, haTrafficIntervalSec * 1000);
-  console.log(`HA Sensor Push aktiviert (Systemsensoren: ${haFastIntervalSec}s, Traffic: ${haTrafficIntervalSec}s)`);
+  const methods = [haSensorsEnabled && 'REST-API', haMqttEnabled && 'MQTT'].filter(Boolean).join(' + ');
+  console.log(`HA Sensor Push aktiviert via ${methods} (Systemsensoren: ${haFastIntervalSec}s, Traffic: ${haTrafficIntervalSec}s)`);
 }
 
 startHaTimers();
@@ -1823,25 +1845,33 @@ app.get('/api/fritz/ha-settings', (req, res) => {
     ha_sensors_interval:         haFastIntervalSec,
     ha_sensors_traffic_interval: haTrafficIntervalSec,
     ha_available:                !!HA_TOKEN,
+    ha_mqtt:                     haMqttEnabled,
+    mqtt_available:              mqttAvailable,
   });
 });
 
 app.post('/api/fritz/ha-settings', (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   if (!sessions.get(sid)) return res.status(401).json({ error: 'Nicht eingeloggt' });
-  const { ha_sensors, ha_sensors_interval, ha_sensors_traffic_interval } = req.body;
+  const { ha_sensors, ha_sensors_interval, ha_sensors_traffic_interval, ha_mqtt } = req.body;
   if (ha_sensors !== undefined)                  haSensorsEnabled     = !!ha_sensors;
   if (ha_sensors_interval !== undefined)         haFastIntervalSec    = Math.max(10,  parseInt(ha_sensors_interval,         10) || 60);
   if (ha_sensors_traffic_interval !== undefined) haTrafficIntervalSec = Math.max(30,  parseInt(ha_sensors_traffic_interval, 10) || 300);
+  if (ha_mqtt !== undefined) {
+    const wasEnabled = haMqttEnabled;
+    haMqttEnabled = !!ha_mqtt;
+    if (wasEnabled && !haMqttEnabled) removeMqttDiscovery().catch(() => {});
+  }
   try {
     writeFileSync(SETTINGS_FILE, JSON.stringify({
       ha_sensors:                  haSensorsEnabled,
       ha_sensors_interval:         haFastIntervalSec,
       ha_sensors_traffic_interval: haTrafficIntervalSec,
+      ha_mqtt:                     haMqttEnabled,
     }));
   } catch (e) { console.error('Settings speichern fehlgeschlagen:', e.message); }
   startHaTimers();
-  return res.json({ success: true, ha_sensors: haSensorsEnabled, ha_sensors_interval: haFastIntervalSec, ha_sensors_traffic_interval: haTrafficIntervalSec });
+  return res.json({ success: true, ha_sensors: haSensorsEnabled, ha_sensors_interval: haFastIntervalSec, ha_sensors_traffic_interval: haTrafficIntervalSec, ha_mqtt: haMqttEnabled, mqtt_available: mqttAvailable });
 });
 
 const PORT = 3003;
