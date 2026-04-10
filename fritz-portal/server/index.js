@@ -1601,7 +1601,7 @@ app.get('/api/fritz/version', async (req, res) => {
 
 // ============ HA SENSOR PUSH ============
 
-const HA_TOKEN = process.env.SUPERVISOR_TOKEN || '';
+const HA_TOKEN = process.env.SUPERVISOR_TOKEN || process.env.HASSIO_TOKEN || '';
 const HA_API   = 'http://supervisor/core/api';
 
 // Laufzeit-Einstellungen (aus /data/fritz-portal.json überschreibbar)

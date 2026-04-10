@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.4
+
+- Fix: SUPERVISOR_TOKEN wurde nicht erkannt – `run.sh` nutzt jetzt `with-contenv` für HA Base Images (S6 Overlay), damit der Token an Node.js weitergereicht wird
+- Fix: Fallback auf `HASSIO_TOKEN` für ältere HA-Versionen
+- Fix: `run.sh` erkennt automatisch ob S6 (`with-contenv`) vorhanden ist – lokal ohne HA funktioniert weiterhin
+
 ## 1.3.3
 
 - Fix: REST-API Fallback Toggle in der GUI funktioniert jetzt sofort – auch wenn MQTT-Broker erreichbar ist
