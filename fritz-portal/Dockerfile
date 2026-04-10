@@ -14,14 +14,14 @@ WORKDIR /app/server
 COPY server/package.json ./
 RUN npm install --omit=dev
 
-# ── Stage 3: Runtime (HA Base Image) ──
-ARG BUILD_FROM
+# ── Stage 3: Runtime (HA Base Image oder node:20-alpine als Fallback) ──
+ARG BUILD_FROM=node:20-alpine
 FROM ${BUILD_FROM}
 
 WORKDIR /app
 
-# Node.js installieren
-RUN apk add --no-cache nodejs npm
+# Node.js installieren (nur nötig wenn HA Base Image ohne Node kommt)
+RUN apk add --no-cache nodejs npm 2>/dev/null || true
 
 # Frontend (built)
 COPY --from=frontend /app/dist ./dist
