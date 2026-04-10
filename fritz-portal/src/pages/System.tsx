@@ -11,7 +11,7 @@ export default function System({ sid }: SystemProps) {
   const [rebooting, setRebooting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [version] = useState('1.3.1');
+  const [version] = useState('1.3.2');
   const [fritzHost, setFritzHost] = useState('fritz.box');
 
   // HA-Sensor-Einstellungen
@@ -20,7 +20,6 @@ export default function System({ sid }: SystemProps) {
     ha_sensors_interval: number;
     ha_sensors_traffic_interval: number;
     ha_available: boolean;
-    ha_mqtt: boolean;
     mqtt_available: boolean;
   } | null>(null);
   const [haSaving, setHaSaving] = useState(false);
@@ -62,7 +61,6 @@ export default function System({ sid }: SystemProps) {
           ha_sensors:                  haSettings.ha_sensors,
           ha_sensors_interval:         haSettings.ha_sensors_interval,
           ha_sensors_traffic_interval: haSettings.ha_sensors_traffic_interval,
-          ha_mqtt:                     haSettings.ha_mqtt,
         }),
       });
       const data = await res.json();
@@ -199,8 +197,9 @@ export default function System({ sid }: SystemProps) {
           </div>
           <div className="card-body">
             <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 20, lineHeight: 1.6 }}>
-              FRITZ!Portal überträgt Gerätewerte automatisch als Sensoren an Home Assistant.
-              Die Entitäten erscheinen nach Aktivierung automatisch unter <code style={{ background: 'var(--bg-primary)', padding: '1px 6px', borderRadius: 4, fontSize: 12 }}>sensor.fritzportal_*</code> und können direkt auf dem HA-Dashboard verwendet werden.
+              FRITZ!Portal sendet Gerätewerte automatisch via MQTT Discovery an Home Assistant.
+              Die Entitäten erscheinen unter <code style={{ background: 'var(--bg-primary)', padding: '1px 6px', borderRadius: 4, fontSize: 12 }}>sensor.fritzportal_*</code> und können direkt auf dem HA-Dashboard verwendet werden.
+              Falls kein MQTT-Broker vorhanden ist, kann der REST-API Fallback aktiviert werden.
             </p>
 
             {/* Status-Anzeige */}
@@ -208,21 +207,23 @@ export default function System({ sid }: SystemProps) {
               display: 'flex', alignItems: 'center', gap: 10,
               marginBottom: 20, padding: '10px 14px',
               borderRadius: 8, border: '1px solid var(--border)',
-              background: haSettings.ha_available ? 'rgba(34,197,94,0.06)' : 'rgba(107,114,128,0.06)',
+              background: !haSettings.ha_available ? 'rgba(107,114,128,0.06)' : haSettings.mqtt_available ? 'rgba(34,197,94,0.06)' : 'rgba(245,158,11,0.06)',
             }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: haSettings.ha_available ? '#22c55e' : '#6b7280', flexShrink: 0 }} />
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: !haSettings.ha_available ? '#6b7280' : haSettings.mqtt_available ? '#22c55e' : '#f59e0b', flexShrink: 0 }} />
               <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                {haSettings.ha_available
-                  ? 'Home Assistant Supervisor erreichbar – Sensor-Push aktiv'
-                  : 'Kein SUPERVISOR_TOKEN – Sensor-Push nur im HA Add-on verfügbar'}
+                {!haSettings.ha_available
+                  ? 'Kein SUPERVISOR_TOKEN – Sensor-Push nur im HA Add-on verfügbar'
+                  : haSettings.mqtt_available
+                  ? 'MQTT Discovery aktiv – Sensoren werden via MQTT an Home Assistant gesendet'
+                  : 'MQTT nicht erreichbar – REST-API Fallback aktivieren um Sensoren zu übertragen'}
               </span>
             </div>
 
-            {/* Sensor Push ein/aus */}
+            {/* REST-API Fallback ein/aus */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderBottom: '1px solid var(--border)' }}>
               <div>
-                <div style={{ fontWeight: 500, fontSize: 14 }}>REST-API Sensor Push</div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>Sensoren via REST-API an Home Assistant übermitteln (unter Entitäten sichtbar)</div>
+                <div style={{ fontWeight: 500, fontSize: 14 }}>REST-API Fallback</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>Sensoren über HA REST-API senden wenn kein MQTT-Broker verfügbar ist</div>
               </div>
               <button
                 onClick={() => setHaSettings(s => s ? { ...s, ha_sensors: !s.ha_sensors } : s)}
@@ -260,7 +261,7 @@ export default function System({ sid }: SystemProps) {
             </div>
 
             {/* Traffic-Intervall */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '14px 0', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '14px 0' }}>
               <div>
                 <div style={{ fontWeight: 500, fontSize: 14 }}>Intervall: Traffic-Sensoren</div>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>Heute, Gestern, Aktuelle Woche, Aktueller Monat, Vormonat (Download & Upload)</div>
@@ -275,48 +276,6 @@ export default function System({ sid }: SystemProps) {
                 <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Sek.</span>
               </div>
             </div>
-
-            {/* MQTT Discovery */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderBottom: '1px solid var(--border)' }}>
-              <div>
-                <div style={{ fontWeight: 500, fontSize: 14 }}>MQTT Discovery</div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3, maxWidth: 480, lineHeight: 1.5 }}>
-                  Erstellt ein FRITZ!Portal-Gerät in der HA-Geräteübersicht. Sensoren sind dort bearbeitbar. Erfordert MQTT-Broker (z.B. Mosquitto).
-                </div>
-              </div>
-              <button
-                onClick={() => setHaSettings(s => s ? { ...s, ha_mqtt: !s.ha_mqtt } : s)}
-                style={{
-                  width: 46, height: 26, borderRadius: 13, border: 'none', cursor: 'pointer',
-                  background: haSettings.ha_mqtt ? '#22c55e' : '#6b7280',
-                  position: 'relative', transition: 'background 0.2s', flexShrink: 0,
-                }}
-                title={haSettings.ha_mqtt ? 'Deaktivieren' : 'Aktivieren'}
-              >
-                <span style={{
-                  position: 'absolute', top: 3,
-                  left: haSettings.ha_mqtt ? 23 : 3,
-                  width: 20, height: 20, borderRadius: '50%', background: 'white',
-                  transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
-                }} />
-              </button>
-            </div>
-
-            {haSettings.ha_mqtt && (
-              <div style={{
-                margin: '10px 0', padding: '10px 14px', borderRadius: 8,
-                border: '1px solid rgba(59,130,246,0.3)', background: 'rgba(59,130,246,0.06)',
-                fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6,
-              }}>
-                💡 Bei aktiviertem MQTT werden alle Sensoren als <strong>FRITZ!Portal</strong>-Gerät in der HA-Geräteübersicht angezeigt und sind dort bearbeitbar.
-                Die REST-API kann dann deaktiviert werden, um Duplikate zu vermeiden.
-                {haSettings.ha_mqtt && haSettings.ha_sensors && (
-                  <span style={{ display: 'block', marginTop: 6, color: '#f59e0b' }}>
-                    ⚠️ REST-API und MQTT sind gleichzeitig aktiv – Sensoren könnten doppelt erscheinen.
-                  </span>
-                )}
-              </div>
-            )}
 
             {/* Speichern */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingTop: 16, borderTop: '1px solid var(--border)' }}>

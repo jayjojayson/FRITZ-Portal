@@ -1,5 +1,4 @@
 # syntax=docker/dockerfile:1
-
 ARG BUILD_FROM=node:20-alpine
 
 # ── Stage 1: Frontend bauen ──
@@ -18,10 +17,10 @@ RUN npm install --omit=dev
 
 # ── Stage 3: Runtime ──
 FROM ${BUILD_FROM}
+LABEL maintainer="FRITZ!Portal"
 
 WORKDIR /app
 
-# Node.js installieren (nur nötig wenn HA Base Image ohne Node kommt)
 RUN apk add --no-cache nodejs npm 2>/dev/null || true
 
 # Frontend (built)
