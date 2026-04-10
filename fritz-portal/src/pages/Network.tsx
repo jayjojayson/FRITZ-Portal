@@ -174,6 +174,11 @@ const isWlanType = (type: string) => {
   return t.includes('wlan') || t.includes('802') || t.includes('wifi') || t.includes('wireless');
 };
 
+const isInfraDevice = (name: string) => {
+  const n = name.toLowerCase();
+  return n.includes('router') || n.includes('repeater') || n.includes('fritz');
+};
+
 function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: boolean; sid: string }) {
   const [tooltip, setTooltip] = useState<{ node: MeshNode; x: number; y: number } | null>(null);
   const [hoveredUid, setHoveredUid] = useState<string | null>(null);
@@ -236,14 +241,29 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
     </div>
   );
 
-  const legend = (
+  const legend = showHostsView ? (
     <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--text-secondary)', alignItems: 'center', flexWrap: 'wrap' }}>
       <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-        <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#3b82f6', display: 'inline-block' }} /> {showHostsView ? 'Fritz!Box' : 'Master'}
+        <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#06b6d4', display: 'inline-block' }} /> Fritz!Box
       </span>
-      {!showHostsView && <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#3b82f6', display: 'inline-block' }} /> LAN
+      </span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#10b981', display: 'inline-block' }} /> WLAN
+      </span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#f59e0b', display: 'inline-block' }} /> Infrastruktur
+      </span>
+    </div>
+  ) : (
+    <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--text-secondary)', alignItems: 'center', flexWrap: 'wrap' }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#3b82f6', display: 'inline-block' }} /> Master
+      </span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
         <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#10b981', display: 'inline-block' }} /> Satellite
-      </span>}
+      </span>
       <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
         <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#6b7280', display: 'inline-block' }} /> Client
       </span>
@@ -304,9 +324,10 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
       <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px' }}>
         <span style={{ color: 'var(--text-secondary)' }}>Rolle</span>
         <span style={{ textTransform: 'capitalize', color:
-          tooltip.node.role === 'master' ? '#3b82f6' :
-          tooltip.node.role === 'satellite' ? '#10b981' : 'var(--text-primary)'
-        }}>{tooltip.node.role === 'master' ? 'Fritz!Box' : tooltip.node.role}</span>
+          tooltip.node.role === 'master' ? '#06b6d4' :
+          tooltip.node.role === 'satellite' ? '#10b981' :
+          isInfraDevice(tooltip.node.name) ? '#f59e0b' : 'var(--text-primary)'
+        }}>{tooltip.node.role === 'master' ? 'Fritz!Box' : isInfraDevice(tooltip.node.name) ? 'Infrastruktur' : tooltip.node.role}</span>
         {tooltip.node.mac && <><span style={{ color: 'var(--text-secondary)' }}>MAC</span><span style={{ fontFamily: 'monospace', fontSize: 12 }}>{tooltip.node.mac}</span></>}
         {tooltip.node.ip && <><span style={{ color: 'var(--text-secondary)' }}>IP</span><span style={{ fontFamily: 'monospace', fontSize: 12 }}>{tooltip.node.ip}</span></>}
         {tooltip.node.model && <><span style={{ color: 'var(--text-secondary)' }}>Modell</span><span>{tooltip.node.model}</span></>}
@@ -326,17 +347,19 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
     const labelsVisible = showNames && nodeR >= 10;
     const spacing = Math.max(nodeR * 4, labelsVisible ? 55 : 28);
 
-    // LAN/WLAN Zuordnung für jeden Client
+    // LAN/WLAN/Infra Zuordnung für jeden Client
     const clientMeta = clientNodes.map(n => {
       const link = links.find(l => l.to === n.uid || l.from === n.uid);
       const wlan = link ? isWlanType(link.type) : isWlanType(n.interfaces?.[0]?.type || '');
-      return { node: n, isWlan: wlan };
+      const infra = isInfraDevice(n.name);
+      return { node: n, isWlan: wlan, isInfra: infra };
     });
 
-    // LAN zuerst, dann WLAN
-    const lanClients = clientMeta.filter(c => !c.isWlan);
-    const wlanClients = clientMeta.filter(c => c.isWlan);
-    const ordered = [...lanClients, ...wlanClients];
+    // LAN zuerst, dann WLAN, dann Infra
+    const lanClients = clientMeta.filter(c => !c.isWlan && !c.isInfra);
+    const wlanClients = clientMeta.filter(c => c.isWlan && !c.isInfra);
+    const infraClients = clientMeta.filter(c => c.isInfra);
+    const ordered = [...lanClients, ...wlanClients, ...infraClients];
 
     // Ringe berechnen
     const baseRadius = Math.max(nodeR * 7, 70);
@@ -363,6 +386,7 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
     // Summary
     const lanCount = lanClients.length;
     const wlanCount = wlanClients.length;
+    const infraCount = infraClients.length;
 
     return (
       <div className="card">
@@ -374,6 +398,7 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
           <span>{totalClients} Geräte online</span>
           <span style={{ color: '#3b82f6' }}>● {lanCount} LAN</span>
           <span style={{ color: '#10b981' }}>● {wlanCount} WLAN</span>
+          {infraCount > 0 && <span style={{ color: '#f59e0b' }}>● {infraCount} Infrastruktur</span>}
           <button onClick={() => setShowNames(v => !v)} style={{
             marginLeft: 8, padding: '2px 10px', fontSize: 12, borderRadius: 6,
             border: '1px solid var(--border)', cursor: 'pointer',
@@ -391,8 +416,8 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
           >
             <defs>
               <radialGradient id="glow-master-r" cx="50%" cy="50%" r="50%">
-                <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.4" />
-                <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+                <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.4" />
+                <stop offset="100%" stopColor="#06b6d4" stopOpacity="0" />
               </radialGradient>
             </defs>
 
@@ -412,7 +437,7 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
               const nx = cx + ring.radius * Math.cos(angle);
               const ny = cy + ring.radius * Math.sin(angle);
               const isHovered = hoveredUid === c.node.uid;
-              const color = c.isWlan ? '#10b981' : '#3b82f6';
+              const color = c.isInfra ? '#f59e0b' : c.isWlan ? '#10b981' : '#3b82f6';
               const dash = c.isWlan ? '6 3' : '0';
               return (
                 <line key={`l-${i}`} x1={cx} y1={cy} x2={nx} y2={ny}
@@ -427,7 +452,7 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
             {/* Master-Knoten */}
             <g transform={`translate(${cx},${cy})`}>
               <circle cx={0} cy={0} r={masterR + 14} fill="url(#glow-master-r)" />
-              <circle cx={0} cy={0} r={masterR} fill="#1d4ed8" stroke="#3b82f6" strokeWidth="2.5" />
+              <circle cx={0} cy={0} r={masterR} fill="#0e7490" stroke="#06b6d4" strokeWidth="2.5" />
               <text y={-4} textAnchor="middle" fontSize="9" fill="white" fontWeight="600">
                 {masterNode.name.length > 12 ? masterNode.name.slice(0, 10) + '…' : masterNode.name}
               </text>
@@ -450,8 +475,8 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
               const nx = cx + ring.radius * Math.cos(angle);
               const ny = cy + ring.radius * Math.sin(angle);
               const isHovered = hoveredUid === c.node.uid;
-              const color = c.isWlan ? '#10b981' : '#3b82f6';
-              const fillColor = c.isWlan ? '#065f46' : '#1e3a5f';
+              const color = c.isInfra ? '#f59e0b' : c.isWlan ? '#10b981' : '#3b82f6';
+              const fillColor = c.isInfra ? '#78350f' : c.isWlan ? '#065f46' : '#1e3a5f';
               return (
                 <g key={c.node.uid}
                   transform={`translate(${nx},${ny})`}

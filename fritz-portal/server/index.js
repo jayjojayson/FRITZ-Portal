@@ -80,7 +80,7 @@ async function getCachedWebSid(session) {
   if (cachedWebSid === '' && now - cachedWebSidTime < WEB_SID_FAIL_TTL) return cachedWebSid;
   try {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 3000);
+    const timer = setTimeout(() => ctrl.abort(), 8000);
     cachedWebSid = await Promise.race([
       getWebSid(session.host, session.username, session.password),
       new Promise((_, reject) => ctrl.signal.addEventListener('abort', () => reject(new Error('Timeout'))))
@@ -1619,6 +1619,86 @@ try {
   }
 } catch {}
 
+// ── MQTT Discovery: Fritz!Box als eigenes Gerät in HA registrieren ──
+let mqttAvailable = false;
+
+async function publishMqtt(topic, payload, retain = false) {
+  try {
+    const res = await fetch(`${HA_API}/services/mqtt/publish`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${HA_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topic, payload: typeof payload === 'object' ? JSON.stringify(payload) : String(payload), retain }),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
+function fritzboxDevice() {
+  const di = getCached('device-info');
+  return {
+    identifiers: ['fritzportal_fritzbox'],
+    name: di?.NewModelName || 'FRITZ!Box',
+    manufacturer: 'AVM',
+    model: di?.NewModelName || 'FRITZ!Box',
+    sw_version: di?.NewFirmwareVersion || '',
+    configuration_url: `http://${process.env.FRITZBOX_HOST || 'fritz.box'}`,
+  };
+}
+
+const MQTT_SENSORS = [
+  { id: 'cpu',            name: 'CPU-Auslastung',     unit: '%',   icon: 'mdi:chip',           device_class: null,          state_class: 'measurement' },
+  { id: 'ram',            name: 'RAM-Auslastung',     unit: '%',   icon: 'mdi:memory',         device_class: null,          state_class: 'measurement' },
+  { id: 'temperature',    name: 'CPU-Temperatur',     unit: '°C',  icon: 'mdi:thermometer',    device_class: 'temperature', state_class: 'measurement' },
+  { id: 'online_devices', name: 'Geräte online',      unit: '',    icon: 'mdi:devices',        device_class: null,          state_class: 'measurement' },
+  { id: 'free_ips',       name: 'Freie IP-Adressen',  unit: '',    icon: 'mdi:ip-network',     device_class: null,          state_class: 'measurement' },
+  { id: 'download_speed', name: 'Download aktuell',   unit: 'MB/s',icon: 'mdi:download',       device_class: 'data_rate',   state_class: 'measurement' },
+  { id: 'upload_speed',   name: 'Upload aktuell',     unit: 'MB/s',icon: 'mdi:upload',         device_class: 'data_rate',   state_class: 'measurement' },
+];
+
+const MQTT_TRAFFIC_SENSORS = [
+  { suffix: 'today',      name: 'Heute' },
+  { suffix: 'yesterday',  name: 'Gestern' },
+  { suffix: 'week',       name: 'Aktuelle Woche' },
+  { suffix: 'month',      name: 'Aktueller Monat' },
+  { suffix: 'last_month', name: 'Vormonat' },
+];
+
+async function publishMqttDiscovery() {
+  if (!HA_TOKEN) return;
+  // Test ob MQTT verfügbar ist
+  const ok = await publishMqtt('fritzportal/status', 'online', true);
+  if (!ok) { mqttAvailable = false; return; }
+  mqttAvailable = true;
+  console.log('MQTT Discovery: Fritz!Box-Gerät wird in Home Assistant registriert');
+  const device = fritzboxDevice();
+  for (const s of MQTT_SENSORS) {
+    const config = {
+      name: s.name, unique_id: `fritzportal_${s.id}`, object_id: `fritzportal_${s.id}`,
+      state_topic: `fritzportal/${s.id}/state`,
+      unit_of_measurement: s.unit || undefined, icon: s.icon,
+      device_class: s.device_class || undefined, state_class: s.state_class || undefined,
+      device,
+    };
+    await publishMqtt(`homeassistant/sensor/fritzportal_${s.id}/config`, config, true);
+  }
+  for (const t of MQTT_TRAFFIC_SENSORS) {
+    for (const dir of ['received', 'sent']) {
+      const id = `traffic_${t.suffix}_${dir}`;
+      const config = {
+        name: `${dir === 'received' ? 'Download' : 'Upload'} ${t.name}`,
+        unique_id: `fritzportal_${id}`, object_id: `fritzportal_${id}`,
+        state_topic: `fritzportal/${id}/state`,
+        unit_of_measurement: 'MB',
+        icon: dir === 'received' ? 'mdi:download-network' : 'mdi:upload-network',
+        device_class: 'data_size', state_class: 'total',
+        device,
+      };
+      await publishMqtt(`homeassistant/sensor/fritzportal_${id}/config`, config, true);
+    }
+  }
+  console.log('MQTT Discovery: alle Sensoren registriert');
+}
+
 async function setState(entityId, state, attributes = {}) {
   try {
     await fetch(`${HA_API}/states/${entityId}`, {
@@ -1650,13 +1730,23 @@ async function pushFastSensorsToHA() {
   const dl = +(( net.currentDown || 0) / 1048576).toFixed(3);
   const ul = +((net.currentUp   || 0) / 1048576).toFixed(3);
 
-  await setState('sensor.fritzportal_cpu',            lastKnownFast.cpu,      { unit_of_measurement: '%',   friendly_name: 'FRITZ!Portal CPU-Auslastung',    icon: 'mdi:chip' });
-  await setState('sensor.fritzportal_ram',            lastKnownFast.ram,      { unit_of_measurement: '%',   friendly_name: 'FRITZ!Portal RAM-Auslastung',    icon: 'mdi:memory' });
-  await setState('sensor.fritzportal_temperature',    lastKnownFast.cpu_temp, { unit_of_measurement: '°C',  friendly_name: 'FRITZ!Portal CPU-Temperatur',    icon: 'mdi:thermometer', device_class: 'temperature' });
-  await setState('sensor.fritzportal_online_devices', lastKnownFast.online,   { unit_of_measurement: '',    friendly_name: 'FRITZ!Portal Geräte online',     icon: 'mdi:devices' });
-  await setState('sensor.fritzportal_free_ips',       lastKnownFast.free_ips, { unit_of_measurement: '',    friendly_name: 'FRITZ!Portal Freie IP-Adressen', icon: 'mdi:ip-network' });
-  await setState('sensor.fritzportal_download_speed', dl, { unit_of_measurement: 'MB/s', friendly_name: 'FRITZ!Portal Download aktuell',  icon: 'mdi:download', device_class: 'data_rate' });
-  await setState('sensor.fritzportal_upload_speed',   ul, { unit_of_measurement: 'MB/s', friendly_name: 'FRITZ!Portal Upload aktuell',    icon: 'mdi:upload',   device_class: 'data_rate' });
+  if (mqttAvailable) {
+    await publishMqtt('fritzportal/cpu/state', lastKnownFast.cpu);
+    await publishMqtt('fritzportal/ram/state', lastKnownFast.ram);
+    await publishMqtt('fritzportal/temperature/state', lastKnownFast.cpu_temp);
+    await publishMqtt('fritzportal/online_devices/state', lastKnownFast.online);
+    await publishMqtt('fritzportal/free_ips/state', lastKnownFast.free_ips);
+    await publishMqtt('fritzportal/download_speed/state', dl);
+    await publishMqtt('fritzportal/upload_speed/state', ul);
+  } else {
+    await setState('sensor.fritzportal_cpu',            lastKnownFast.cpu,      { unit_of_measurement: '%',   friendly_name: 'FRITZ!Portal CPU-Auslastung',    icon: 'mdi:chip' });
+    await setState('sensor.fritzportal_ram',            lastKnownFast.ram,      { unit_of_measurement: '%',   friendly_name: 'FRITZ!Portal RAM-Auslastung',    icon: 'mdi:memory' });
+    await setState('sensor.fritzportal_temperature',    lastKnownFast.cpu_temp, { unit_of_measurement: '°C',  friendly_name: 'FRITZ!Portal CPU-Temperatur',    icon: 'mdi:thermometer', device_class: 'temperature' });
+    await setState('sensor.fritzportal_online_devices', lastKnownFast.online,   { unit_of_measurement: '',    friendly_name: 'FRITZ!Portal Geräte online',     icon: 'mdi:devices' });
+    await setState('sensor.fritzportal_free_ips',       lastKnownFast.free_ips, { unit_of_measurement: '',    friendly_name: 'FRITZ!Portal Freie IP-Adressen', icon: 'mdi:ip-network' });
+    await setState('sensor.fritzportal_download_speed', dl, { unit_of_measurement: 'MB/s', friendly_name: 'FRITZ!Portal Download aktuell',  icon: 'mdi:download', device_class: 'data_rate' });
+    await setState('sensor.fritzportal_upload_speed',   ul, { unit_of_measurement: 'MB/s', friendly_name: 'FRITZ!Portal Upload aktuell',    icon: 'mdi:upload',   device_class: 'data_rate' });
+  }
 }
 
 async function pushTrafficSensorsToHA() {
@@ -1681,14 +1771,25 @@ async function pushTrafficSensorsToHA() {
     if (bytes < 1024 * 1024 * 1024) return { value: +(bytes / (1024 * 1024)).toFixed(2), unit: 'MB' };
     return { value: +(bytes / (1024 * 1024 * 1024)).toFixed(3), unit: 'GB' };
   }
-  for (let i = 0; i < tc.rows.length; i++) {
-    const row = tc.rows[i];
-    const k   = keys[i];
-    const lbl = names[i];
-    const rx = bytesToHaValue(row.received);
-    const tx = bytesToHaValue(row.sent);
-    await setState(`sensor.fritzportal_traffic_${k}_received`, rx.value, { unit_of_measurement: rx.unit, friendly_name: `FRITZ!Portal Download ${lbl}`, icon: 'mdi:download-network', device_class: 'data_size' });
-    await setState(`sensor.fritzportal_traffic_${k}_sent`,     tx.value, { unit_of_measurement: tx.unit, friendly_name: `FRITZ!Portal Upload ${lbl}`,   icon: 'mdi:upload-network',   device_class: 'data_size' });
+  if (mqttAvailable) {
+    for (let i = 0; i < tc.rows.length; i++) {
+      const row = tc.rows[i];
+      const k   = keys[i];
+      const mbDl = +((lastKnownTraffic[row.name + '_dl'] || row.received) / (1024 * 1024)).toFixed(2);
+      const mbUl = +((lastKnownTraffic[row.name + '_ul'] || row.sent)     / (1024 * 1024)).toFixed(2);
+      await publishMqtt(`fritzportal/traffic_${k}_received/state`, mbDl);
+      await publishMqtt(`fritzportal/traffic_${k}_sent/state`, mbUl);
+    }
+  } else {
+    for (let i = 0; i < tc.rows.length; i++) {
+      const row = tc.rows[i];
+      const k   = keys[i];
+      const lbl = names[i];
+      const rx = bytesToHaValue(row.received);
+      const tx = bytesToHaValue(row.sent);
+      await setState(`sensor.fritzportal_traffic_${k}_received`, rx.value, { unit_of_measurement: rx.unit, friendly_name: `FRITZ!Portal Download ${lbl}`, icon: 'mdi:download-network', device_class: 'data_size' });
+      await setState(`sensor.fritzportal_traffic_${k}_sent`,     tx.value, { unit_of_measurement: tx.unit, friendly_name: `FRITZ!Portal Upload ${lbl}`,   icon: 'mdi:upload-network',   device_class: 'data_size' });
+    }
   }
 }
 
@@ -1705,6 +1806,8 @@ function startHaTimers() {
     else console.log('HA Sensor Push deaktiviert (ha_sensors=false)');
     return;
   }
+  // MQTT Discovery versuchen – erstellt Fritz!Box-Gerät in HA
+  publishMqttDiscovery().catch(() => {});
   haFastTimer    = setInterval(() => { pushFastSensorsToHA().catch(() => {}); },    haFastIntervalSec    * 1000);
   haTrafficTimer = setInterval(() => { pushTrafficSensorsToHA().catch(() => {}); }, haTrafficIntervalSec * 1000);
   console.log(`HA Sensor Push aktiviert (Systemsensoren: ${haFastIntervalSec}s, Traffic: ${haTrafficIntervalSec}s)`);

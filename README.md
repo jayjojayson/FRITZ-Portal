@@ -33,6 +33,7 @@
 | **Telefonie** | Anrufliste und DECT-Handsets |
 | **System** | Fritz!Box Modell, Firmware, Uptime, Neustart-Funktion |
 | **HA-Sensoren** | Automatischer Push von CPU, RAM, Temp, Geräte, IPs, Download, Upload, Traffic in Home Assistant |
+| **MQTT Discovery** | Bei vorhandenem MQTT-Broker werden alle Sensoren als Fritz!Box-Gerät in der HA-Geräteübersicht gruppiert |
 | **Dark / Light Mode** | Reaktives Theme ohne Reload |
 | **Ingress** | Vollständige Integration in die Home Assistant Oberfläche |
 
@@ -69,6 +70,8 @@
 5. Via **Benutzeroberfläche** öffnen oder direkt unter `http://<ha-ip>:3003`
 
 > **Hinweis:** Das Add-on meldet sich beim Start automatisch mit den konfigurierten Zugangsdaten an der Fritz!Box an – kein manuelles Login nötig.
+
+> **MQTT Discovery:** Ist in Home Assistant ein MQTT-Broker installiert (z. B. Mosquitto), werden alle FRITZ!Portal-Sensoren automatisch als **Fritz!Box-Gerät** in der HA-Geräteübersicht registriert. Ohne MQTT-Broker funktionieren die Sensoren trotzdem – sie erscheinen dann als einzelne Entitäten unter *Einstellungen → Entitäten*.
 
 ---
 

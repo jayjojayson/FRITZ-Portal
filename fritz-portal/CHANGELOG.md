@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.9
+
+- Neu: Farbschema für Netzwerk-Ansicht – Master türkis, LAN blau, WLAN grün, Infrastruktur (Router/Repeater/Fritz) orange
+- Neu: Infrastruktur-Erkennung – Geräte mit „router", „repeater" oder „fritz" im Namen werden automatisch als Infrastruktur-Geräte markiert
+- Neu: Legende und Zusammenfassung zeigen Infrastruktur-Geräte separat an
+- Neu: MQTT Discovery – Fritz!Box wird als eigenes Gerät in der HA-Geräteübersicht registriert (erfordert MQTT-Broker) ansonsten wie bisher via REST-API-Fallback über setState()
+- Neu: Alle FRITZ!Portal-Sensoren werden unter einem Fritz!Box-Gerät gruppiert (CPU, RAM, Temperatur, Traffic etc.)
+- Fix: WebSid-Timeout von 3s auf 8s erhöht – verbessert Kompatibilität mit 6490 und anderen Cable-Boxen
+
 ## 1.2.8
 
 - Neu: „Namen“-Button zum Ein-/Ausblenden der Gerätenamen unter den Bubbles (max. 12 Zeichen)
