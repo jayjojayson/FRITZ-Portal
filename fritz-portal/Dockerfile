@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1
 
+ARG BUILD_FROM=node:20-alpine
+
 # ── Stage 1: Frontend bauen ──
 FROM node:20-alpine AS frontend
 WORKDIR /app
@@ -14,8 +16,7 @@ WORKDIR /app/server
 COPY server/package.json ./
 RUN npm install --omit=dev
 
-# ── Stage 3: Runtime (HA Base Image oder node:20-alpine als Fallback) ──
-ARG BUILD_FROM=node:20-alpine
+# ── Stage 3: Runtime ──
 FROM ${BUILD_FROM}
 
 WORKDIR /app
