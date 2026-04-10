@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.1
+
+- Neu: MQTT-Schalter (`ha_mqtt`) in der Add-on-Konfiguration sichtbar (config.yaml Schema)
+- Neu: REST-API-Sensoren erhalten `unique_id` – Sensoren sind jetzt in HA bearbeitbar (Name, Icon, Bereich etc.)
+- Fix: MQTT Discovery Toggle in der GUI steht jetzt unterhalb der Intervall-Einstellungen (statt dazwischen)
+- Fix: MQTT Discovery mit verbessertem Logging – zeigt im Protokoll ob Broker erreichbar ist und ob Sensoren registriert wurden
+- Fix: MQTT publish Fehler werden jetzt mit HTTP-Status geloggt für bessere Diagnose
+
 ## 1.3.0
 
 - Neu: MQTT Discovery als optionaler Toggle auf der Systemseite – erstellt ein FRITZ!Portal-Gerät in der HA-Geräteübersicht mit bearbeitbaren Sensoren

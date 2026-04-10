@@ -11,7 +11,7 @@ export default function System({ sid }: SystemProps) {
   const [rebooting, setRebooting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [version] = useState('1.3.0');
+  const [version] = useState('1.3.1');
   const [fritzHost, setFritzHost] = useState('fritz.box');
 
   // HA-Sensor-Einstellungen
@@ -242,6 +242,40 @@ export default function System({ sid }: SystemProps) {
               </button>
             </div>
 
+            {/* Systemsensoren-Intervall */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '14px 0', borderBottom: '1px solid var(--border)' }}>
+              <div>
+                <div style={{ fontWeight: 500, fontSize: 14 }}>Intervall: Systemsensoren</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>CPU, RAM, Temperatur, Geräte online, freie IPs, Download, Upload</div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                <input
+                  type="number" min={10} max={3600}
+                  value={haSettings.ha_sensors_interval}
+                  onChange={e => setHaSettings(s => s ? { ...s, ha_sensors_interval: parseInt(e.target.value) || 60 } : s)}
+                  style={{ width: 72, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 14, textAlign: 'right' }}
+                />
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Sek.</span>
+              </div>
+            </div>
+
+            {/* Traffic-Intervall */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '14px 0', borderBottom: '1px solid var(--border)' }}>
+              <div>
+                <div style={{ fontWeight: 500, fontSize: 14 }}>Intervall: Traffic-Sensoren</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>Heute, Gestern, Aktuelle Woche, Aktueller Monat, Vormonat (Download & Upload)</div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                <input
+                  type="number" min={30} max={3600}
+                  value={haSettings.ha_sensors_traffic_interval}
+                  onChange={e => setHaSettings(s => s ? { ...s, ha_sensors_traffic_interval: parseInt(e.target.value) || 300 } : s)}
+                  style={{ width: 72, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 14, textAlign: 'right' }}
+                />
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Sek.</span>
+              </div>
+            </div>
+
             {/* MQTT Discovery */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderBottom: '1px solid var(--border)' }}>
               <div>
@@ -283,40 +317,6 @@ export default function System({ sid }: SystemProps) {
                 )}
               </div>
             )}
-
-            {/* Systemsensoren-Intervall */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '14px 0', borderBottom: '1px solid var(--border)' }}>
-              <div>
-                <div style={{ fontWeight: 500, fontSize: 14 }}>Intervall: Systemsensoren</div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>CPU, RAM, Temperatur, Geräte online, freie IPs, Download, Upload</div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                <input
-                  type="number" min={10} max={3600}
-                  value={haSettings.ha_sensors_interval}
-                  onChange={e => setHaSettings(s => s ? { ...s, ha_sensors_interval: parseInt(e.target.value) || 60 } : s)}
-                  style={{ width: 72, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 14, textAlign: 'right' }}
-                />
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Sek.</span>
-              </div>
-            </div>
-
-            {/* Traffic-Intervall */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '14px 0' }}>
-              <div>
-                <div style={{ fontWeight: 500, fontSize: 14 }}>Intervall: Traffic-Sensoren</div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>Heute, Gestern, Aktuelle Woche, Aktueller Monat, Vormonat (Download & Upload)</div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                <input
-                  type="number" min={30} max={3600}
-                  value={haSettings.ha_sensors_traffic_interval}
-                  onChange={e => setHaSettings(s => s ? { ...s, ha_sensors_traffic_interval: parseInt(e.target.value) || 300 } : s)}
-                  style={{ width: 72, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 14, textAlign: 'right' }}
-                />
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Sek.</span>
-              </div>
-            </div>
 
             {/* Speichern */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
