@@ -2,8 +2,6 @@
   <img src="fritz-portal/icon.png" alt="FRITZ!Portal Logo" width="140"/>
 </p>
 
-<h1 align="center">FRITZ!Portal</h1>
-
 <p align="center">
   <strong>The modern Fritz!Box dashboard as a Home Assistant Add-on</strong><br/>
   Real-time overview, network topology, HA sensors and more – all in one elegant interface. Easily rename devices, assign new IP addresses or block unwanted hosts directly from the add-on. Fully integrated into the Home Assistant UI via Ingress.
