@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.6
+
+- Neu: GitHub Actions Workflow – bei jedem Release wird der `fritz-portal`-Ordner automatisch als ZIP-Asset angehängt
+- Neu: Workflow kann auch manuell über GitHub Actions ausgelöst werden (workflow_dispatch)
+- Fix: `plan.md` wird per `.gitignore` aus dem Repository ausgeschlossen
+
 ## 1.3.5
 
 - Fix: MQTT Discovery wird jetzt IMMER ausgeführt – das FRITZ!Portal-Gerät erscheint zuverlässig unter MQTT in Home Assistant, auch wenn REST-API Fallback aktiv ist
