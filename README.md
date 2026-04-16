@@ -17,7 +17,8 @@
 </p>
 
 <p align="center">
-  <img src="fritz-portal/docs/images/screenshot.png" alt="FRITZ!Portal Screenshot" width="800"/>
+  <img src="fritz-portal/docs/images/screenshot.png" alt="FRITZ!Portal Screenshot" width="800"/>  
+  <img src="fritz-portal/docs/images/traffic.png" alt="FRITZ!Portal traffic" width="50%"/> <img src="fritz-portal/docs/images/network.png" alt="FRITZ!Portal network" width="50%"/>
 </p>
 
 ---

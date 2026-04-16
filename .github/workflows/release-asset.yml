@@ -1,0 +1,45 @@
+name: Build & Release Asset
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release-Tag, an den das Asset angehängt werden soll'
+        required: true
+        type: string
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Release-Tag ermitteln
+        id: get_tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.tag_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: fritz-portal Ordner packen (ohne plan.md)
+        run: |
+          mkdir -p /tmp/fritz-portal-package
+          rsync -a --exclude='plan.md' fritz-portal/ /tmp/fritz-portal-package/fritz-portal/
+          cd /tmp
+          zip -r fritz-portal.zip fritz-portal/
+
+      - name: Asset an Release anhängen
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.get_tag.outputs.tag }}
+          files: /tmp/fritz-portal.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
