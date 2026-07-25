@@ -20,12 +20,35 @@ export default function Traffic({ sid }: TrafficProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [bytesAvailable, setBytesAvailable] = useState(true);
-  const [diagResult, setDiagResult] = useState<Record<string,string> | null>(null);
+  const [diagResult, setDiagResult] = useState<Record<string, string> | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
 
   const headers = { 'X-Fritz-SID': sid };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
+
+  // Helper per tradurre dinamicamente i nomi dei periodi restituiti dal FRITZ!Box
+  const translatePeriodName = (name: string): string => {
+    if (!name) return '';
+    
+    // Mappa dei periodi tipici in tedesco/inglese
+    const periodMap: Record<string, string> = {
+      'Heute': t('Heute'),
+      'Gestern': t('Gestern'),
+      'Aktuelle Woche': t('Aktuelle Woche'),
+      'Aktueller Monat': t('Aktueller Monat'),
+      'Vormonat': t('Vormonat'),
+      'Today': t('Heute'),
+      'Yesterday': t('Gestern'),
+      'Current week': t('Aktuelle Woche'),
+      'Current month': t('Aktueller Monat'),
+      'Previous month': t('Vormonat'),
+    };
+
+    return periodMap[name] || t(name);
+  };
 
   const load = async () => {
     try {
@@ -34,7 +57,7 @@ export default function Traffic({ sid }: TrafficProps) {
       const rows: Counter[] = data.rows || (Array.isArray(data) ? data : []);
       if (rows.length > 0) {
         setCounters(rows);
-        const allZero = rows.every(c => c.received === 0 && c.sent === 0);
+        const allZero = rows.every((c) => c.received === 0 && c.sent === 0);
         setBytesAvailable(!allZero);
       } else {
         setError(data.debug ? `Server: ${data.debug}` : t('Keine Zählerdaten empfangen.'));
@@ -51,8 +74,11 @@ export default function Traffic({ sid }: TrafficProps) {
     try {
       const r = await apiFetch('/api/fritz/traffic-raw', { headers });
       setDiagResult(await r.json());
-    } catch { setDiagResult({ error: 'Fetch fehlgeschlagen' }); }
-    finally { setDiagLoading(false); }
+    } catch {
+      setDiagResult({ error: t('Fetch fehlgeschlagen') });
+    } finally {
+      setDiagLoading(false);
+    }
   };
 
   const fmtBytes = (bytes: number) => {
@@ -68,57 +94,86 @@ export default function Traffic({ sid }: TrafficProps) {
     <div>
       <div className="page-header">
         <h2>{t('Traffic')}</h2>
-        <p>{t('Online-Z\u00e4hler & Datenvolumen')}</p>
+        <p>{t('Online-Zähler & Datenvolumen')}</p>
       </div>
 
       {error && (
-        <div style={{
-          background: 'rgba(239,68,68,0.1)',
-          border: '1px solid #ef4444',
-          borderRadius: 8,
-          padding: '12px 16px',
-          marginBottom: 24,
-          color: '#ef4444',
-          fontSize: 14,
-        }}>
+        <div
+          style={{
+            background: 'rgba(239,68,68,0.1)',
+            border: '1px solid #ef4444',
+            borderRadius: 8,
+            padding: '12px 16px',
+            marginBottom: 24,
+            color: '#ef4444',
+            fontSize: 14,
+          }}
+        >
           {error}
         </div>
       )}
 
       {!bytesAvailable && counters.length > 0 && (
-        <div style={{
-          background: 'rgba(59,130,246,0.08)',
-          border: '1px solid var(--border)',
-          borderRadius: 8,
-          padding: '12px 16px',
-          marginBottom: 24,
-          color: 'var(--text-secondary)',
-          fontSize: 14,
-        }}>
-          <strong style={{ color: 'var(--text-primary)' }}>{t('Datenvolumen nicht verfügbar')}</strong> – Die Fritz!Box liefert keine Volumen-Statistik.
-          Bitte prüfe in der Fritz!Box-Oberfläche unter <strong>Internet &nbsp;›&nbsp; Online-Zähler</strong>,
-          ob die Zählung aktiviert ist. Online-Zeiten werden trotzdem angezeigt.
+        <div
+          style={{
+            background: 'rgba(59,130,246,0.08)',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            padding: '12px 16px',
+            marginBottom: 24,
+            color: 'var(--text-secondary)',
+            fontSize: 14,
+          }}
+        >
+          <strong style={{ color: 'var(--text-primary)' }}>{t('Datenvolumen nicht verfügbar')}</strong> – {t('Die Fritz!Box liefert keine Volumen-Statistik.')}&nbsp;
+          {t('Bitte prüfe in der Fritz!Box-Oberfläche unter')} <strong>{t('Internet')} &nbsp;›&nbsp; {t('Online-Zähler')}</strong>,&nbsp;
+          {t('ob die Zählung aktiviert ist. Online-Zeiten werden trotzdem angezeigt.')}
           <div style={{ marginTop: 10 }}>
             <button
               onClick={runDiag}
               disabled={diagLoading}
-              style={{ padding: '4px 12px', fontSize: 12, borderRadius: 5, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', cursor: 'pointer' }}
+              style={{
+                padding: '4px 12px',
+                fontSize: 12,
+                borderRadius: 5,
+                border: '1px solid var(--border)',
+                background: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                cursor: 'pointer',
+              }}
             >
-              {diagLoading ? 'Prüfe...' : 'Diagnose: Verfügbare Endpunkte prüfen'}
+              {diagLoading ? t('Prüfe...') : t('Diagnose: Verfügbare Endpunkte prüfen')}
             </button>
           </div>
         </div>
       )}
 
       {diagResult && (
-        <div style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 8, padding: 16, marginBottom: 24, fontSize: 12 }}>
-          <strong style={{ display: 'block', marginBottom: 8 }}>Diagnose-Ergebnis (welche Methode liefert Daten?)</strong>
+        <div
+          style={{
+            background: 'var(--bg-primary)',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            padding: 16,
+            marginBottom: 24,
+            fontSize: 12,
+          }}
+        >
+          <strong style={{ display: 'block', marginBottom: 8 }}>
+            {t('Diagnose-Ergebnis (welche Methode liefert Daten?)')}
+          </strong>
           {Object.entries(diagResult).map(([k, v]) => {
             const str = typeof v === 'string' ? v : JSON.stringify(v);
             return (
               <div key={k} style={{ marginBottom: 8 }}>
                 <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{k}: </span>
-                <span style={{ color: str.includes('GB') || str.includes('"grossbytes') ? '#22c55e' : 'var(--text-secondary)', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                <span
+                  style={{
+                    color: str.includes('GB') || str.includes('"grossbytes') ? '#22c55e' : 'var(--text-secondary)',
+                    fontFamily: 'monospace',
+                    wordBreak: 'break-all',
+                  }}
+                >
                   {str.substring(0, 300)}
                 </span>
               </div>
@@ -129,7 +184,7 @@ export default function Traffic({ sid }: TrafficProps) {
 
       {counters.length > 0 ? (
         <>
-          {/* Summary cards for the first entry (Heute) */}
+          {/* Summary cards per il primo elemento (Oggi) */}
           {counters[0] && (
             <div className="stats-grid" style={{ marginBottom: 24 }}>
               <div className="stat-card">
@@ -141,6 +196,7 @@ export default function Traffic({ sid }: TrafficProps) {
                 <h3>{t('Heute Empfangen')}</h3>
                 <div className="value" style={{ color: '#3b82f6' }}>{fmtBytes(counters[0].received)}</div>
               </div>
+
               <div className="stat-card">
                 <div className="stat-icon green">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -150,6 +206,7 @@ export default function Traffic({ sid }: TrafficProps) {
                 <h3>{t('Heute Gesendet')}</h3>
                 <div className="value" style={{ color: '#22c55e' }}>{fmtBytes(counters[0].sent)}</div>
               </div>
+
               <div className="stat-card">
                 <div className="stat-icon orange">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -159,6 +216,7 @@ export default function Traffic({ sid }: TrafficProps) {
                 <h3>{t('Heute Online-Zeit')}</h3>
                 <div className="value" style={{ color: '#f59e0b' }}>{counters[0].onlineTime}</div>
               </div>
+
               {counters[3] && (
                 <div className="stat-card">
                   <div className="stat-icon" style={{ background: 'rgba(139,92,246,0.12)' }}>
@@ -175,7 +233,7 @@ export default function Traffic({ sid }: TrafficProps) {
 
           <div className="card">
             <div className="card-header">
-              <h3>{t('Online-Z\u00e4hler')}</h3>
+              <h3>{t('Online-Zähler')}</h3>
               <button
                 onClick={load}
                 style={{
@@ -207,7 +265,7 @@ export default function Traffic({ sid }: TrafficProps) {
                   <tbody>
                     {counters.map((c, i) => (
                       <tr key={i} style={{ fontWeight: i === 0 ? 600 : 400 }}>
-                        <td>{c.name}</td>
+                        <td>{translatePeriodName(c.name)}</td>
                         <td>{c.onlineTime}</td>
                         <td>{fmtBytes(c.received + c.sent)}</td>
                         <td style={{ color: '#3b82f6' }}>{fmtBytes(c.received)}</td>
@@ -224,7 +282,7 @@ export default function Traffic({ sid }: TrafficProps) {
       ) : (
         <div className="card">
           <div className="card-body" style={{ padding: 32, textAlign: 'center', color: 'var(--text-secondary)' }}>
-            Keine Zählerdaten verf{'\u00fc'}gbar. Bitte Konsole / Log auf <code>traffic-counters raw</code> prüfen.
+            {t('Keine Zählerdaten verfügbar. Bitte Konsole / Log auf traffic-counters raw prüfen.')}
           </div>
         </div>
       )}

@@ -4,7 +4,7 @@ slug: "fritz-portal"
 description: "FRITZ!Box Dashboard für Home Assistant"
 url: "https://github.com/jayjojayson/FRITZ-Portal"
 # Image-Pull statt lokalem Build → korrekte Fortschrittsanzeige beim HA-Update.
-image: "ghcr.io/jayjojayson/fritz-portal/fritz-portal-addon"
+#image: "ghcr.io/jayjojayson/fritz-portal/fritz-portal-addon"
 arch:
   - aarch64
   - amd64

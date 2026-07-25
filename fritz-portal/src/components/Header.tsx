@@ -1,5 +1,5 @@
 import { useTheme } from '../hooks/useTheme';
-import { useI18n } from '../lib/i18n';
+import { useI18n, Lang } from '../lib/i18n';
 import logoUrl from '../logo.png';
 
 type Page = 'dashboard' | 'devices' | 'device-detail' | 'network' | 'traffic' | 'telefonie' | 'smarthome' | 'system';
@@ -19,6 +19,13 @@ const navItems: { page: Page; label: string }[] = [
   { page: 'smarthome', label: 'SmartHome' },
   { page: 'system',    label: 'System' },
 ];
+
+// Funzione per ruotare tra le 3 lingue disponibili
+const NEXT_LANG: Record<Lang, Lang> = {
+  de: 'en',
+  en: 'it',
+  it: 'de',
+};
 
 export default function Header({ currentPage, onNavigate, version = '1.4.6' }: HeaderProps) {
   const { theme, toggleTheme } = useTheme();
@@ -50,7 +57,7 @@ export default function Header({ currentPage, onNavigate, version = '1.4.6' }: H
       <div className="header-actions">
         <button
           className="header-pill"
-          onClick={() => setLang(lang === 'de' ? 'en' : 'de')}
+          onClick={() => setLang(NEXT_LANG[lang] ?? 'de')}
           title={t('Sprache')}
         >
           {lang.toUpperCase()}

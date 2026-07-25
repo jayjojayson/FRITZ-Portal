@@ -93,12 +93,12 @@ export default function System({ sid }: SystemProps) {
       const res = await apiFetch('/api/fritz/reboot', { method: 'POST', headers });
       const data = await res.json();
       if (data.success) {
-        setMessage('Neustart wurde ausgelöst. Die FritzBox startet jetzt neu...');
+        setMessage(t('Neustart wurde ausgelöst. Die FritzBox startet jetzt neu...'));
       } else {
         setError(data.error || t('Neustart fehlgeschlagen'));
       }
     } catch (err) {
-      setError('Verbindungsfehler');
+      setError(t('Verbindungsfehler'));
     } finally {
       setRebooting(false);
     }
@@ -207,9 +207,7 @@ export default function System({ sid }: SystemProps) {
           </div>
           <div className="card-body">
             <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 20, lineHeight: 1.6 }}>
-              FRITZ!Portal sendet Gerätewerte automatisch via MQTT Discovery an Home Assistant.
-              Die Entitäten erscheinen unter <code style={{ background: 'var(--bg-primary)', padding: '1px 6px', borderRadius: 4, fontSize: 12 }}>sensor.fritzportal_*</code> und können direkt auf dem HA-Dashboard verwendet werden.
-              Falls kein MQTT-Broker vorhanden ist, kann der REST-API Fallback aktiviert werden.
+              {t('FRITZ!Portal sendet Gerätewerte automatisch via MQTT Discovery an Home Assistant. Die Entitäten erscheinen unter sensor.fritzportal_* und können direkt auf dem HA-Dashboard verwendet werden. Falls kein MQTT-Broker vorhanden ist, kann der REST-API Fallback aktiviert werden.')}
             </p>
 
             {/* Status-Anzeige */}
@@ -374,7 +372,7 @@ export default function System({ sid }: SystemProps) {
                   background: haSettings.debug_logging ? '#f59e0b' : '#6b7280',
                   position: 'relative', transition: 'background 0.2s', flexShrink: 0,
                 }}
-                title={haSettings.debug_logging ? 'Deaktivieren' : 'Aktivieren'}
+                title={haSettings.debug_logging ? t('Deaktivieren') : t('Aktivieren')}
               >
                 <span style={{
                   position: 'absolute', top: 3,

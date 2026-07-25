@@ -1,10 +1,8 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, ReactNode } from 'react';
 
-export type Lang = 'de' | 'en';
+export type Lang = 'de' | 'en' | 'it';
 
-// Wörterbuch Deutsch -> Englisch. Deutsche Strings dienen als Keys – spart Key-Tabelle
-// und macht Fallback trivial: fehlt ein Eintrag, wird der deutsche String angezeigt.
-// Platzhalter werden als {n}, {name} etc. geschrieben und mit t('...').replace(...) ersetzt.
+// Wörterbuch Deutsch -> Englisch
 const EN: Record<string, string> = {
   // ── App / Login ─────────────────────────────────────────────
   'Wird initialisiert...': 'Initializing...',
@@ -146,7 +144,7 @@ const EN: Record<string, string> = {
   'Netzwerk-Konfiguration und Einstellungen': 'Network configuration and settings',
   'LAN': 'LAN',
   'WAN': 'WAN',
-  'WLAN': 'WLAN',
+  'WLAN': 'Wi-Fi',
   'DHCP': 'DHCP',
   'Router IP': 'Router IP',
   'Subnetzmaske': 'Subnet mask',
@@ -338,6 +336,9 @@ const EN: Record<string, string> = {
   'Letzter Anruf, letzter verpasster und letzter eingehender Anruf (mit Nummer & Name) an Home Assistant übertragen – nur sinnvoll, wenn Telefonie über die FRITZ!Box genutzt wird.': 'Send last call, last missed call and last incoming call (with number & name) to Home Assistant – only useful if telephony runs through the FRITZ!Box.',
   'Heute, Gestern, Aktuelle Woche, Aktueller Monat, Vormonat (Download & Upload)': 'Today, yesterday, current week, current month, previous month (download & upload)',
   'Alle API-Anfragen (data.lua, SOAP) im Add-on-Protokoll ausgeben – hilfreich zur Fehlerdiagnose': 'Log all API requests (data.lua, SOAP) in the add-on log – helpful for diagnostics',
+  'FRITZ!Portal sendet Gerätewerte automatisch via MQTT Discovery an Home Assistant. Die Entitäten erscheinen unter sensor.fritzportal_* und können direkt auf dem HA-Dashboard verwendet werden. Falls kein MQTT-Broker vorhanden ist, kann der REST-API Fallback aktiviert werden.': 'FRITZ!Portal automatically sends device values to Home Assistant via MQTT Discovery. Entities appear under sensor.fritzportal_* and can be used directly on the HA dashboard. If no MQTT broker is present, the REST API fallback can be enabled.',
+  'Sitzung dauerhaft aktiv halten': 'Keep session permanently active',
+  'Verbindung zur FRITZ!Box beim Add-on-Start automatisch aufbauen und permanent offen halten – nur dann werden HA-Sensoren auch dann aktualisiert, wenn das Portal nicht im Browser geöffnet ist.': 'Automatically establish and hold connection to FRITZ!Box on add-on start – required for HA sensors to update when the portal is not open in a browser.',
   'Sek.': 's',
   'Deaktivieren': 'Disable',
   'Aktivieren': 'Enable',
@@ -369,29 +370,444 @@ const EN: Record<string, string> = {
   'Anmelden...': 'Signing in...',
 };
 
-const DICTS: Record<Lang, Record<string, string>> = { de: {}, en: EN };
+// Wörterbuch Deutsch -> Italienisch
+const IT: Record<string, string> = {
+  // ── App / Login ─────────────────────────────────────────────
+  'Wird initialisiert...': 'Inizializzazione in corso...',
+  'Add-On nicht konfiguriert. Bitte FRITZ!Box Zugangsdaten im Add-On eintragen.': 'Add-on non configurato. Inserisci le credenziali della FRITZ!Box nelle opzioni del componente aggiuntivo.',
+  'Verbindung zum Server fehlgeschlagen. Add-On läuft nicht korrekt.': 'Connessione al server fallita. Il componente aggiuntivo non funziona correttamente.',
+  'Fehler beim Autostart. Bitte Add-On-Konfiguration überprüfen.': 'Avvio automatico fallito. Verificare la configurazione dell\'add-on.',
+  'Konfiguration erforderlich:': 'Configurazione richiesta:',
+  'Home Assistant → Einstellungen → Add-Ons → FRITZ!Portal → Konfiguration': 'Home Assistant → Impostazioni → Add-on → FRITZ!Portal → Configurazione',
+  'Geben Sie FRITZ!Box-Adresse, Benutzername und Passwort ein.': 'Inserisci l\'indirizzo della FRITZ!Box, il nome utente e la password.',
+  'Abgemeldet. Bitte Add-On neu starten.': 'Disconnesso. Riavviare il componente aggiuntivo.',
 
-interface I18nContextValue {
+  // ── Navigation ──────────────────────────────────────────────
+  'Dashboard': 'Dashboard',
+  'Geräte': 'Dispositivi',
+  'Netzwerk': 'Rete',
+  'Traffic': 'Traffico',
+  'Telefonie': 'Telefonia',
+  'SmartHome': 'SmartHome',
+  'System': 'Sistema',
+  'Light Mode': 'Modalità Chiara',
+  'Dark Mode': 'Modalità Scura',
+  'Sprache': 'Lingua',
+
+  // ── Status Line (TERMINAL.OS) ───────────────────────────────
+  'OK': 'OK',
+  'Abgelaufen': 'SCADUTO',
+  'LAUFZEIT': 'TEMPO DI ATTIVITÀ',
+  'FW': 'FW',
+  'CPU AVG': 'CPU MED',
+  'Durchschnittliche CPU-Auslastung der FRITZ!Box (1 / 5 / 15 Minuten)': 'Utilizzo medio della CPU del FRITZ!Box (1 / 5 / 15 minuti)',
+  'REC': 'REC',
+  'loading': 'caricamento',
+
+  // ── Command Hint Footer ─────────────────────────────────────
+  'bereit': 'pronto',
+  'navigieren': 'naviga',
+  'öffnen': 'apri',
+  'suchen': 'cerca',
+  'theme': 'tema',
+
+  // ── Gemeinsam ───────────────────────────────────────────────
+  'Status': 'Stato',
+  'Name': 'Nome',
+  'IP-Adresse': 'Indirizzo IP',
+  'MAC-Adresse': 'Indirizzo MAC',
+  'Verbindung': 'Connessione',
+  'Modell': 'Modello',
+  'Online': 'Online',
+  'Offline': 'Offline',
+  'Aktiv': 'Attivo',
+  'Inaktiv': 'Inattivo',
+  'Typ': 'Tipo',
+  'Kanal': 'Canale',
+  'Gesamt': 'Totale',
+  'Speichern': 'Salva',
+  'Speichern...': 'Salvataggio...',
+  'Abbrechen': 'Annulla',
+  'Zurück': 'Indietro',
+  'Aktualisieren': 'Aggiorna',
+  'Einstellungen': 'Impostazioni',
+  'Alle': 'Tutti',
+  'Details': 'Dettagli',
+  'Suchen...': 'Cerca...',
+  'Keine Daten verfügbar': 'Nessun dato disponibile',
+  'Verbindungsfehler': 'Errore di connessione',
+  'Unbekannt': 'Sconosciuto',
+  'gerade eben': 'proprio ora',
+  'vor {n} Min': '{n} min fa',
+  'vor {n} Std': '{n} ore fa',
+  'vor {n} Tagen': '{n} giorni fa',
+  'Zuletzt online': 'Ultima volta online',
+
+  // ── Dashboard ───────────────────────────────────────────────
+  'Übersicht': 'Panoramica',
+  'Modell & Status der Fritz!Box': 'Modello e stato del FRITZ!Box',
+  'Firmware': 'Firmware',
+  'CPU': 'CPU',
+  'RAM': 'RAM',
+  'Temperatur': 'Temperatura',
+  'CPU-Temperatur': 'Temperatura CPU',
+  'Verlauf': 'Cronologia',
+  'Netzwerk-Aktivität (15 Min)': 'Attività di rete (15 min)',
+  'Download': 'Download',
+  'Upload': 'Upload',
+  'Empfangen': 'Ricevuti',
+  'Gesendet': 'Inviati',
+  'Geräte online': 'Dispositivi online',
+  'Externe IP': 'IP Esterno',
+  'Traffic Monat': 'Traffico (mese)',
+  'Verlauf – letzte 3h': 'Cronologia – ultime 3 ore',
+  'Schließen': 'Chiudi',
+  'CPU-Auslastung': 'Utilizzo CPU',
+  'RAM-Auslastung': 'Utilizzo RAM',
+  'CPU-Temperatur (°C)': 'Temperatura CPU (°C)',
+  'Verlauf anzeigen': 'Mostra cronologia',
+  'Verlauf anzeigen →': 'Mostra cronologia →',
+  'Lade Verlauf…': 'Caricamento cronologia…',
+  'Noch nicht genug Datenpunkte.': 'Non ci sono ancora abbastanza dati.',
+  'Daten werden alle 10 Sekunden gesammelt.': 'I dati vengono raccolti ogni 10 secondi.',
+  '{title} — letzte 3h': '{title} — ultime 3 ore',
+  'IP-Adressen frei': 'IP liberi',
+  '{u} vergeben / {n} gesamt': '{u} assegnati / {n} totali',
+  'Monatsverbrauch': 'Consumo mensile',
+  '{gb} GB gesamt': '{gb} GB totali',
+  'Geschwindigkeit': 'Velocità',
+  'Live': 'Live',
+  'Internet Upstream / Downstream (Live)': 'Internet Upstream / Downstream (Live)',
+  'alle 10 Sek.': 'ogni 10 sec',
+  'Mbit/s': 'Mbit/s',
+
+  // ── DeviceList ──────────────────────────────────────────────
+  'Netzwerk Geräte': 'Dispositivi di rete',
+  '{n} IP-Adressen — {u} vergeben — {f} verfügbar': '{n} indirizzi IP — {u} assegnati — {f} disponibili',
+  '{n} Geräte insgesamt — {on} online — {off} offline': '{n} dispositivi totali — {on} online — {off} offline',
+  'Freie IPs': 'IP liberi',
+  'Alle Geräte': 'Tutti i dispositivi',
+  'Keine Geräte gefunden': 'Nessun dispositivo trovato',
+  'Feste IP-Adresse': 'Indirizzo IP statico',
+  'FEST': 'STATICO',
+  '{ip} im Browser öffnen': 'Apri {ip} nel browser',
+
+  // ── DeviceDetail ────────────────────────────────────────────
+  'Geräte-Details': 'Dettagli dispositivo',
+  'Informationen': 'Informazioni',
+  'Hostname': 'Nome host',
+  'Geräteinformationen': 'Informazioni sul dispositivo',
+  'Netzwerk blockieren': 'Blocca sulla rete',
+  'Gerät blockieren': 'Blocca dispositivo',
+  'Gerät entsperren': 'Sblocca dispositivo',
+  'Feste IP-Adresse zuweisen': 'Assegna IP statico',
+  'Feste IP entfernen': 'Rimuovi IP statico',
+  'Neue IP-Adresse': 'Nuovo indirizzo IP',
+  'Das Gerät ist aktuell blockiert.': 'Questo dispositivo è attualmente bloccato.',
+  'Blockierung entfernt': 'Blocco rimosso',
+  'Blockierung fehlgeschlagen': 'Blocco fallito',
+  'Blockiert': 'Bloccato',
+
+  // ── Network ─────────────────────────────────────────────────
+  'Netzwerk-Konfiguration und Einstellungen': 'Configurazione e impostazioni di rete',
+  'LAN': 'LAN',
+  'WAN': 'WAN',
+  'WLAN': 'Wi-Fi',
+  'DHCP': 'DHCP',
+  'Router IP': 'IP Router',
+  'Subnetzmaske': 'Maschera di sottorete',
+  'DNS-Server': 'Server DNS',
+  'Connected': 'Connesso',
+  'Verbunden': 'Connesso',
+  'Getrennt': 'Disconnesso',
+  'LAN Einstellungen': 'Impostazioni LAN',
+  'WAN Einstellungen': 'Impostazioni WAN',
+  'IP-Adresse (Router)': 'Indirizzo IP (Router)',
+  'Externe IP-Adresse': 'Indirizzo IP esterno',
+  'Verbindungsstatus': 'Stato della connessione',
+  'Verbindungstyp': 'Tipo di connessione',
+  'Upstream': 'Upstream',
+  'Downstream': 'Downstream',
+  'Domainname': 'Nome dominio',
+  'WLAN Netzwerke': 'Reti Wi-Fi',
+  'DHCP Einstellungen': 'Impostazioni DHCP',
+  'DHCP Server': 'Server DHCP',
+  'IP-Bereich Start': 'Inizio intervallo IP',
+  'IP-Bereich Ende': 'Fine intervallo IP',
+  'Router (Gateway)': 'Router (Gateway)',
+  'Einstellungen speichern': 'Salva impostazioni',
+  'DHCP-Einstellungen gespeichert': 'Impostazioni DHCP salvate',
+  'Speichern fehlgeschlagen': 'Salvataggio fallito',
+  'Mesh-Topologie': 'Topologia Mesh',
+  'Netzwerk-Topologie': 'Topologia di rete',
+  'Mesh': 'Mesh',
+  'Master': 'Master',
+  'Satellite': 'Satellite',
+  'Client': 'Client',
+  'Infrastruktur': 'Infrastruttura',
+  'LAN-Client': 'Client LAN',
+  'WLAN-Client': 'Client Wi-Fi',
+  'Fritz!Box': 'FRITZ!Box',
+  '{n} Geräte': '{n} dispositivi',
+  '{n} Clients': '{n} client',
+  '{n} Infrastruktur': '{n} infrastrutture',
+  '{n} Geräte online': '{n} dispositivi online',
+  '{n} LAN': '{n} LAN',
+  '{n} WLAN': '{n} Wi-Fi',
+  'Namen': 'Nomi',
+  'Namen ✓': 'Nomi ✓',
+  'Keine Mesh-Daten verfügbar': 'Nessun dato Mesh disponibile',
+  'Keine Netzwerk-Daten verfügbar': 'Nessun dato di rete disponibile',
+  'Dieses Modell unterstützt möglicherweise kein Mesh. Wechsle zur Netzwerk-Ansicht.': 'Questo modello potrebbe non supportare il Mesh. Passa alla vista Rete.',
+  'Die Geräteliste konnte nicht abgerufen werden.': 'Impossibile recuperare l\'elenco dei dispositivi.',
+  'Rolle': 'Ruolo',
+  'MAC': 'MAC',
+  'IP': 'IP',
+  'Aktuell:': 'Attuale:',
+  'Neu setzen:': 'Imposta nuovo:',
+  'Anzeigen': 'Mostra',
+  'Verbergen': 'Nascondi',
+  'WLAN-Passwort (WPA-Schlüssel)': 'Password Wi-Fi (chiave WPA)',
+  'Neues Passwort (min. 8 Zeichen)': 'Nuova password (min. 8 caratteri)',
+  'Passwort gespeichert': 'Password salvata',
+  'Fehler: Mindestens 8 Zeichen erforderlich': 'Errore: richiesti almeno 8 caratteri',
+  'Fehler: {e}': 'Errore: {e}',
+  'Standard': 'Standard',
+  'Verschlüsselung': 'Crittografia',
+  'Keine': 'Nessuna',
+  'Gesichert': 'Protetto',
+  'Kein Passwort verfügbar (Gerät offline oder kein Zugriff)': 'Nessuna password disponibile (dispositivo offline o nessun accesso)',
+  'Keine WLAN-Daten verfügbar': 'Nessun dato Wi-Fi disponibile',
+
+  // ── Traffic ─────────────────────────────────────────────────
+  'Traffic-Übersicht': 'Panoramica del traffico',
+  'Datenverbrauch über verschiedene Zeiträume': 'Consumo dati in diversi periodi di tempo',
+  'Heute': 'Oggi',
+  'Gestern': 'Ieri',
+  'Aktuelle Woche': 'Settimana corrente',
+  'Aktueller Monat': 'Mese corrente',
+  'Vormonat': 'Mese precedente',
+  'Zeitraum': 'Periodo',
+  'Live-Chart': 'Grafico Live',
+  'Online-Zähler & Datenvolumen': 'Contatore online e volume dati',
+  'Online-Zähler': 'Contatore online',
+  'Heute Empfangen': 'Ricevuti oggi',
+  'Heute Gesendet': 'Inviati oggi',
+  'Heute Online-Zeit': 'Tempo online oggi',
+  'Monat Gesamt': 'Totale mese',
+  'Online-Zeit': 'Tempo online',
+  'Verbindungen': 'Connessioni',
+  'Datenvolumen nicht verfügbar': 'Volume dati non disponibile',
+  'Keine Zählerdaten empfangen.': 'Nessun dato contatore ricevuto.',
+  'Fehler beim Laden der Trafficzähler.': 'Impossibile caricare i contatori di traffico.',
+  'Keine Zählerdaten verfügbar.': 'Nessun dato contatore disponibile.',
+
+  // ── Telefonie ───────────────────────────────────────────────
+  'DECT und Anrufliste': 'DECT e registro chiamate',
+  'DECT': 'DECT',
+  'Anrufliste': 'Registro chiamate',
+  'DECT Basisstation': 'Stazione base DECT',
+  'DECT aktiv': 'DECT attivo',
+  'Basisname': 'Nome base',
+  'Eco Mode': 'Modalità Eco',
+  'Pin': 'PIN',
+  'Ja': 'Sì',
+  'Nein': 'No',
+  'Nicht gesetzt': 'Non impostato',
+  'Angemeldete Handsets': 'Dispositivi registrati',
+  'Gerät': 'Dispositivo',
+  '{n} Gerät': '{n} dispositivo',
+  '{n} Geräte ': '{n} dispositivi',
+  'Keine DECT-Geräte gefunden': 'Nessun dispositivo DECT trovato',
+  'Im Gespräch': 'In chiamata',
+  'Aktiv / Bereitschaft': 'Attivo / Standby',
+  'Ausgeschaltet': 'Spento',
+  'Standby / Aus': 'Standby / Spento',
+  'Abgemeldet': 'Disconnesso',
+  'Akku': 'Batteria',
+  'Datum': 'Data',
+  'Rufnummer': 'Numero',
+  'Von': 'Da',
+  'An': 'A',
+  'Dauer': 'Durata',
+  'Eingehend': 'In entrata',
+  'Ausgehend': 'In uscita',
+  'Verpasst': 'Persa',
+  'Aktiv ein.': 'In entrata attiva',
+  'Aktiv aus.': 'In uscita attiva',
+  'Abgewiesen': 'Rifiutata',
+  'Typ {t}': 'Tipo {t}',
+  '{n} Einträge': '{n} voci',
+  'Keine Anrufe gefunden': 'Nessuna chiamata trovata',
+
+  // ── SmartHome ───────────────────────────────────────────────
+  'SmartHome-Geräte': 'Dispositivi SmartHome',
+  'Übersicht deiner FRITZ!SmartHome-Geräte': 'Panoramica dei tuoi dispositivi FRITZ!SmartHome',
+  'Keine SmartHome-Geräte gefunden': 'Nessun dispositivo SmartHome trovato',
+  'Steckdose': 'Presa',
+  'Thermostat': 'Termostato',
+  'Lampe': 'Lampada',
+  'Sensor': 'Sensore',
+  'Ein': 'Acceso',
+  'Aus': 'Spento',
+  'Leistung': 'Potenza',
+  'Energie gesamt': 'Energia totale',
+
+  // ── System ──────────────────────────────────────────────────
+  'System-Informationen': 'Informazioni di sistema',
+  'FRITZ!Box neu starten': 'Riavvia FRITZ!Box',
+  'Wirklich neu starten?': 'Vuoi davvero riavviare?',
+  'Die FRITZ!Box wird heruntergefahren und startet neu.': 'Il FRITZ!Box verrà arrestato e riavviato.',
+  'Neustart läuft...': 'Riavvio in corso...',
+  'Ja, neu starten': 'Sì, riavvia',
+  'Seriennummer': 'Numero di serie',
+  'Version': 'Versione',
+  'Home Assistant Sensoren': 'Sensori Home Assistant',
+  'Sensoren aktivieren': 'Attiva sensori',
+  'Intervall Systemsensoren (Sekunden)': 'Intervallo sensori di sistema (secondi)',
+  'Intervall Traffic-Sensoren (Sekunden)': 'Intervallo sensori di traffico (secondi)',
+  'Debug-Logging': 'Logging di debug',
+  'Traffic-Verlauf serverseitig sammeln': 'Raccogli la cronologia del traffico sul server',
+  'Der Server sammelt den Download-/Upload-Verlauf der letzten 30 min durchgehend – auch wenn das Portal nicht geöffnet ist. Das Dashboard-Chart ist beim Zurückkehren sofort lückenlos gefüllt. Kostet etwas mehr FRITZ!Box-Last. (Ohne diese Option wird der Verlauf nur im Browser gespeichert und kann nach längerer Abwesenheit kurz veraltet sein.)': 'Il server raccoglie continuamente la cronologia di download/upload degli ultimi 30 minuti, anche quando il portale non è aperto. Il grafico della dashboard sarà completamente aggiornato quando ritorni. Richiede un carico leggermente maggiore sul FRITZ!Box. (Senza questa opzione la cronologia viene salvata solo nel browser e potrebbe essere brevemente obsoleta dopo un\'assenza prolungata.)',
+  'Gespeichert': 'Salvato',
+  'Speichern fehlgeschlagen.': 'Salvataggio fallito.',
+  'HA Supervisor': 'HA Supervisor',
+  'erreichbar': 'raggiungibile',
+  'nicht erreichbar': 'non raggiungibile',
+  'MQTT Broker': 'Broker MQTT',
+  'REST-API Fallback': 'Fallback REST API',
+  'Änderungen werden sofort wirksam (kein Neustart nötig).': 'Le modifiche hanno effetto immediato (nessun riavvio necessario).',
+  'Abmelden': 'Disconnetti',
+  'FRITZ!Box Systeminformationen und Verwaltung': 'Informazioni e gestione del sistema FRITZ!Box',
+  'Systeminformationen': 'Informazioni di sistema',
+  'Hardware': 'Hardware',
+  'Laufzeit': 'Tempo di attività',
+  'Neustart': 'Riavvio',
+  'Starten Sie Ihre FritzBox neu. Die Verbindung wird währenddessen kurzzeitig unterbrochen.': 'Riavvia il tuo FRITZ!Box. La connessione verrà brevemente interrotta.',
+  'Startet neu...': 'Riavvio in corso...',
+  'Jetzt neustarten': 'Riavvia ora',
+  'Firmware Update': 'Aggiornamento firmware',
+  'Prüfen Sie auf verfügbare Firmware-Updates für Ihre FRITZ!Box.': 'Verifica la presenza di aggiornamenti firmware disponibili per il tuo FRITZ!Box.',
+  'In FritzBox öffnen': 'Apri in FRITZ!Box',
+  'FritzBox Webinterface': 'Interfaccia web FRITZ!Box',
+  'Öffnen Sie das originale FritzBox Webinterface für erweiterte Einstellungen.': 'Apri l\'interfaccia web originale del FRITZ!Box per le impostazioni avanzate.',
+  'Öffnen': 'Apri',
+  'Kein SUPERVISOR_TOKEN – Sensor-Push nur im HA Add-on verfügbar': 'Nessun SUPERVISOR_TOKEN – invio sensori disponibile solo nell\'add-on HA',
+  'REST-API aktiv – Sensoren werden via HA REST-API an Home Assistant gesendet': 'REST API attiva – i sensori vengono inviati a Home Assistant tramite REST API',
+  'MQTT Discovery aktiv – Sensoren werden via MQTT an Home Assistant gesendet': 'MQTT Discovery attivo – i sensori vengono inviati a Home Assistant tramite MQTT',
+  'MQTT nicht erreichbar – REST-API Fallback aktivieren um Sensoren zu übertragen': 'MQTT non raggiungibile – attiva il fallback REST API per inviare i sensori',
+  'Sensoren über HA REST-API senden wenn kein MQTT-Broker verfügbar ist': 'Invia i sensori tramite REST API di HA quando non è disponibile un broker MQTT',
+  'Intervall: Systemsensoren': 'Intervallo: sensori di sistema',
+  'CPU, RAM, Temperatur, Geräte online, freie IPs, Download, Upload': 'CPU, RAM, temperatura, dispositivi online, IP liberi, download, upload',
+  'Intervall: Traffic-Sensoren': 'Intervallo: sensori di traffico',
+  'Telefonie-Sensoren': 'Sensori di telefonia',
+  'Letzter Anruf, letzter verpasster und letzter eingehender Anruf (mit Nummer & Name) an Home Assistant übertragen – nur sinnvoll, wenn Telefonie über die FRITZ!Box genutzt wird.': 'Invia ultima chiamata, ultima chiamata persa e ultima chiamata in arrivo (con numero e nome) a Home Assistant – utile solo se la telefonia passa dal FRITZ!Box.',
+  'Heute, Gestern, Aktuelle Woche, Aktueller Monat, Vormonat (Download & Upload)': 'Oggi, ieri, settimana corrente, mese corrente, mese precedente (download e upload)',
+  'Alle API-Anfragen (data.lua, SOAP) im Add-on-Protokoll ausgeben – hilfreich zur Fehlerdiagnose': 'Registra tutte le richieste API (data.lua, SOAP) nel registro dell\'add-on – utile per la diagnosi degli errori',
+  'FRITZ!Portal sendet Gerätewerte automatisch via MQTT Discovery an Home Assistant. Die Entitäten erscheinen unter sensor.fritzportal_* und können direkt auf dem HA-Dashboard verwendet werden. Falls kein MQTT-Broker vorhanden ist, kann der REST-API Fallback aktiviert werden.': 'FRITZ!Portal invia automaticamente i valori dei dispositivi a Home Assistant tramite MQTT Discovery. Le entità appaiono sotto sensor.fritzportal_* e possono essere usate direttamente nella dashboard HA. Se non è presente un broker MQTT, è possibile attivare il fallback REST API.',
+  'Sitzung dauerhaft aktiv halten': 'Mantieni la sessione permanentemente attiva',
+  'Verbindung zur FRITZ!Box beim Add-on-Start automatisch aufbauen und permanent offen halten – nur dann werden HA-Sensoren auch dann aktualisiert, wenn das Portal nicht im Browser geöffnet ist.': 'Stabilisci e mantieni automaticamente la connessione con il FRITZ!Box all\'avvio dell\'add-on – necessario affinché i sensori HA si aggiornino anche quando il portale non è aperto nel browser.',
+  'Sek.': 'sec',
+  'Deaktivieren': 'Disattiva',
+  'Aktivieren': 'Attiva',
+  'Neustart fehlgeschlagen': 'Riavvio fallito',
+  'Gerät nicht gefunden': 'Dispositivo non trovato',
+  '← Zurück zur Liste': '← Torna alla lista',
+  'Gerätedetails für {mac}': 'Dettagli dispositivo per {mac}',
+  'Gerätename': 'Nome dispositivo',
+  'Leerzeichen werden zu Bindestrichen, Umlaute werden umgeschrieben': 'Gli spazi diventano trattini, i caratteri speciali vengono riscritti',
+  'Gerätekontrolle': 'Controllo dispositivo',
+  'Internet sperren': 'Blocca Internet',
+  'Internet freigeben': 'Consenti Internet',
+  'Wird ausgeführt...': 'In esecuzione...',
+  'Gerät ist gesperrt': 'Il dispositivo è bloccato',
+  'IPv4-Adresse dauerhaft zuweisen': 'Assegna indirizzo IPv4 permanente',
+  'Reservierung aktiv: {ip}': 'Prenotazione attiva: {ip}',
+  'Weist diesem Gerät immer die gleiche IPv4-Adresse zu (DHCP-Reservierung). Das Gerät erhält diese IP bei jeder Verbindung automatisch.': 'Assegna sempre lo stesso indirizzo IPv4 a questo dispositivo (prenotazione DHCP). Il dispositivo riceve automaticamente questo IP a ogni connessione.',
+  'Dauerhaft zuweisen': 'Assegna in modo permanente',
+  'Reservierung aktualisieren': 'Aggiorna prenotazione',
+  'Reservierung entfernen': 'Rimuovi prenotazione',
+  'fest zugewiesen': 'statico',
+  'Interface': 'Interfaccia',
+
+  // ── Login ───────────────────────────────────────────────────
+  'FRITZ!Box Adresse': 'Indirizzo FRITZ!Box',
+  'Benutzername': 'Nome utente',
+  'Passwort': 'Password',
+  'Anmelden': 'Accedi',
+  'Anmelden...': 'Accesso in corso...',
+};
+
+interface LanguageContextType {
   lang: Lang;
-  setLang: (l: Lang) => void;
-  t: (s: string) => string;
+  setLang: (lang: Lang) => void;
+  t: (key: string, params?: Record<string, string | number>) => string;
 }
 
-const I18nContext = createContext<I18nContextValue>({ lang: 'de', setLang: () => {}, t: s => s });
+const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
-export function I18nProvider({ children }: { children: ReactNode }) {
+const LOCAL_STORAGE_KEY = 'fritz_portal_lang';
+
+export const LanguageProvider = ({ children }: { children: ReactNode }) => {
   const [lang, setLangState] = useState<Lang>(() => {
-    const saved = localStorage.getItem('lang');
-    return (saved === 'en' || saved === 'de') ? saved : 'de';
+    const saved = localStorage.getItem(LOCAL_STORAGE_KEY) as Lang;
+    if (saved && ['de', 'en', 'it'].includes(saved)) {
+      return saved;
+    }
+    const navLang = navigator.language.slice(0, 2);
+    if (navLang === 'it') return 'it';
+    if (navLang === 'en') return 'en';
+    return 'de';
   });
-  useEffect(() => { document.documentElement.setAttribute('lang', lang); }, [lang]);
-  const setLang = (l: Lang) => { setLangState(l); localStorage.setItem('lang', l); };
-  const dict = DICTS[lang];
-  const t = (s: string) => dict[s] ?? s;
-  return <I18nContext.Provider value={{ lang, setLang, t }}>{children}</I18nContext.Provider>;
-}
 
-export function useI18n() { return useContext(I18nContext); }
+  const setLang = (newLang: Lang) => {
+    setLangState(newLang);
+    if (localStorage.getItem(LOCAL_STORAGE_KEY) !== newLang) {
+      localStorage.setItem(LOCAL_STORAGE_KEY, newLang);
+    }
+  };
 
-// Bequemlichkeits-Hook: nur die t-Funktion zurückgeben
-export function useT() { return useContext(I18nContext).t; }
+  const t = (key: string, params?: Record<string, string | number>): string => {
+    let dict: Record<string, string> = {};
+    if (lang === 'en') dict = EN;
+    if (lang === 'it') dict = IT;
+
+    let text = dict[key] || key;
+
+    if (params) {
+      Object.entries(params).forEach(([paramKey, value]) => {
+        text = text.replace(new RegExp(`\\{${paramKey}\\}`, 'g'), String(value));
+      });
+    }
+
+    return text;
+  };
+
+  return (
+    <LanguageContext.Provider value={{ lang, setLang, t }}>
+      {children}
+    </LanguageContext.Provider>
+  );
+};
+
+export const useLanguage = (): LanguageContextType => {
+  const context = useContext(LanguageContext);
+  if (!context) {
+    throw new Error('useLanguage must be used within a LanguageProvider');
+  }
+  return context;
+};
+
+// ── Alias e Helper per compatibilità con i vari file di componenti ──────────
+
+// Alias per compatibilità con src/main.tsx
+export { LanguageProvider as I18nProvider };
+
+// Hook alias per compatibilità con Header.tsx, Login.tsx, StatusLine.tsx
+export { useLanguage as useI18n };
+
+// Hook alias 'useT' per compatibilità con Dashboard, DeviceList, Network, ecc.
+export const useT = () => {
+  const { t } = useLanguage();
+  return t;
+};
