@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/Version-1.4.9-blue" alt="Version"/>
   <img src="https://img.shields.io/badge/Architektur-amd64%20%7C%20aarch64%20%7C%20armv7-green" alt="Arch"/>
   <img src="https://img.shields.io/badge/Lizenz-MIT-lightgrey" alt="Lizenz"/>  
-  <img src="https://img.shields.io/badge/Downloads-22.8K-blue" alt="Downloads"/>
+  <img src="https://img.shields.io/badge/Downloads-25.8K-blue" alt="Downloads"/>
   <a href="README_eng.md"><img src="https://img.shields.io/badge/README-Eng-lightblue" alt="English"/></a>
 </p>
 <p align="center">
