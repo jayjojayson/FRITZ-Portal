@@ -9,7 +9,7 @@ import Traffic from './pages/Traffic';
 import Telefonie from './pages/Telefonie';
 import SmartHome from './pages/SmartHome';
 import System from './pages/System';
-import { apiFetch } from './lib/apiFetch';
+import { apiFetch, setSessionReady } from './lib/apiFetch';
 import { useT } from './lib/i18n';
 
 type Page = 'dashboard' | 'devices' | 'device-detail' | 'network' | 'traffic' | 'telefonie' | 'smarthome' | 'system';
@@ -25,6 +25,9 @@ interface AppCache {
 
 const CACHE_TTL = 600000; // 10 minutes
 const LS_CACHE_KEY = 'fritzportal_apicache';
+// Letzte erfolgreiche Sitzungs-ID – erlaubt den Sofortstart mit gecachter Ansicht
+const LS_SID_KEY = 'fritzportal_sid';
+const lastSid = (() => { try { return localStorage.getItem(LS_SID_KEY); } catch { return null; } })();
 
 // Beim Start: in-memory-Cache aus localStorage hydratisieren, damit Dashboard-Daten
 // (inkl. Traffic-Chart-Verlauf) einen iframe-Reload des Ingress-Panels überleben und
@@ -74,10 +77,12 @@ function formatLoad(s: { load1?: number; load5?: number; load15?: number } | nul
 
 export default function App() {
   const t = useT();
-  const [sid, setSid] = useState<string | null>(null);
+  // Mit bekannter Sitzung sofort starten: Seiten zeigen ihren Cache, ihre Anfragen warten
+  // (apiFetch), bis auto-session die Sitzung bestätigt hat – kein Ladebildschirm mehr
+  const [sid, setSid] = useState<string | null>(lastSid);
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!lastSid);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<StatusInfo>({ uptime: null, firmware: null, wanIp: null, load: null });
 
@@ -91,7 +96,11 @@ export default function App() {
         if (data.active && data.sid) {
           setSid(data.sid);
           setError(null);
+          try { localStorage.setItem(LS_SID_KEY, data.sid); } catch {}
+          setSessionReady();
         } else {
+          try { localStorage.removeItem(LS_SID_KEY); } catch {}
+          setSid(null);
           console.log('Auto-login failed - no credentials configured in Add-On');
           setError(t('Add-On nicht konfiguriert. Bitte FRITZ!Box Zugangsdaten im Add-On eintragen.'));
         }
@@ -99,6 +108,7 @@ export default function App() {
       })
       .catch((err: any) => {
         console.error('Auto-login error:', err);
+        setSid(null);
         setError(t('Verbindung zum Server fehlgeschlagen. Add-On läuft nicht korrekt.'));
         setLoading(false);
       });

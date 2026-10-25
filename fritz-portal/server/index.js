@@ -722,6 +722,12 @@ function parseAhaDeviceList(xml) {
       present: get('present'),
       name: get('name'),
     };
+    // Kategorie wie in der Smart-Home-REST-API (productCategory) aus der Funktions-Bitmaske
+    // (AHA-Doku): Bit 6 Heizkörperregler, 18 Rollladen, 2 Licht, 9 Schaltsteckdose,
+    // 8/4/20 Temperatur-/Alarm-/Feuchtesensor, 5 Taster
+    const fb = device.functionbitmask;
+    device.category = fb & (1 << 6) ? 'thermostat' : fb & (1 << 18) ? 'blind' : fb & (1 << 2) ? 'lamp'
+      : fb & (1 << 9) ? 'socket' : fb & ((1 << 8) | (1 << 4) | (1 << 20)) ? 'sensor' : fb & (1 << 5) ? 'control' : 'other';
     const tempBlock = body.match(/<temperature>([\s\S]*?)<\/temperature>/);
     if (tempBlock) {
       const celsius = parseInt(tempBlock[1].match(/<celsius>([^<]*)<\/celsius>/)?.[1] || '', 10);
@@ -749,6 +755,15 @@ function parseAhaDeviceList(xml) {
     const humidity = parseInt(body.match(/<rel_humidity>([^<]*)<\/rel_humidity>/)?.[1] ?? '', 10);
     if (Number.isFinite(humidity)) device.humidity = humidity;
     devices.push(device);
+  }
+  // Gruppen der FRITZ!Box (Smart Home → Gruppen; meist als Räume angelegt):
+  // <group name> … <groupinfo><members>interne IDs</members> → Gruppenname je Gerät
+  const groupRegex = /<group\s([^>]*)>([\s\S]*?)<\/group>/g;
+  let gm;
+  while ((gm = groupRegex.exec(xml)) !== null) {
+    const name = decodeXmlEntities(gm[2].match(/<name>([^<]*)<\/name>/)?.[1] || '');
+    const members = (gm[2].match(/<members>([^<]*)<\/members>/)?.[1] || '').split(',').map(x => x.trim()).filter(Boolean);
+    for (const d of devices) if (name && members.includes(String(d.id)) && !d.group) d.group = name;
   }
   return dedupSmartHomeDevices(devices);
 }
@@ -1082,6 +1097,14 @@ app.get('/api/fritz/auto-session', async (req, res) => {
   if (!host || !username || !password) {
     console.log('Auto-session: No credentials configured');
     return res.json({ active: false });
+  }
+  // Bestehende Session (z. B. Keep-Alive oder vorheriger Aufruf) sofort wiederverwenden –
+  // vorher wurde bei jedem Öffnen des Panels die TR-064-Beschreibung neu geladen
+  // (bis zu 2 s), bevor die Oberfläche überhaupt starten konnte
+  const existing = sessions.get(AUTO_SID);
+  if (existing && existing.host === host && existing.username === username && existing.password === password) {
+    existing.lastUsed = Date.now();
+    return res.json({ active: true, sid: AUTO_SID, host });
   }
   try {
     const controlUrls = await discoverControlUrls(host);
@@ -2164,7 +2187,18 @@ async function getWlanStates(session) {
       const info = await soapRequest(session.host, svc, 'GetInfo', session.username, session.password, session.controlUrls);
       if (!info || typeof info !== 'object' || info.NewSSID === undefined) continue;
       const ssid = decodeXmlEntities(info.NewSSID || '');
-      states.push({ index: i, ssid, enabled: wlanEnabled(info), label: ssid || `WLAN ${i}` });
+      // Band in den Namen (#31): bei gleicher SSID auf allen Bändern waren die
+      // HA-Schalter sonst nicht unterscheidbar
+      let band = '';
+      try {
+        const ext = await soapRequest(session.host, svc, 'X_AVM-DE_GetWLANExtInfo', session.username, session.password, session.controlUrls);
+        band = String(ext?.['NewX_AVM-DE_FrequencyBand'] || '');
+      } catch {}
+      const ch = parseInt(info.NewChannel || '', 10);
+      const bandLabel = band.startsWith('2400') ? '2,4 GHz' : band.startsWith('5000') ? '5 GHz' : band.startsWith('6000') ? '6 GHz'
+        : ch >= 1 && ch <= 14 ? '2,4 GHz' : ch >= 36 ? '5 GHz' : '';
+      const base = ssid || `WLAN ${i}`;
+      states.push({ index: i, ssid, band: bandLabel, enabled: wlanEnabled(info), label: bandLabel ? `${base} (${bandLabel})` : base });
     } catch {}
   }
   if (states.length) setCached('network-wlan', states);
@@ -2920,10 +2954,20 @@ function looksLikePhone(d) {
 // Filter bereits kennen (temperature in 0,1 °C, power in mW, energy in Wh).
 function mapSmartHomeRest(overview) {
   const unitsByDevice = new Map();
+  const deviceOfUnit = new Map();
   for (const u of overview?.units || []) {
     if (!u.deviceUid) continue;
     if (!unitsByDevice.has(u.deviceUid)) unitsByDevice.set(u.deviceUid, []);
     unitsByDevice.get(u.deviceUid).push(u);
+    deviceOfUnit.set(u.UID, u.deviceUid);
+  }
+  // Gruppe je Gerät (Gruppen der FRITZ!Box – meist als Räume angelegt)
+  const groupOfDevice = new Map();
+  for (const g of overview?.groups || []) {
+    for (const uid of g.memberUnitUids || []) {
+      const dev = deviceOfUnit.get(uid);
+      if (dev && g.name && !groupOfDevice.has(dev)) groupOfDevice.set(dev, g.name);
+    }
   }
   return (overview?.devices || []).map(d => {
     const dev = {
@@ -2938,6 +2982,7 @@ function mapSmartHomeRest(overview) {
       updateAvailable: !!d.isUpdateAvailable,
       battery: Number.isFinite(d.batteryValue) ? d.batteryValue : null,
       batteryLow: !!d.isBatteryLow,
+      group: groupOfDevice.get(d.UID) || '',
       _source: 'rest',
     };
     for (const u of unitsByDevice.get(d.UID) || []) {
@@ -3773,7 +3818,35 @@ const NET_ENTITIES = {
   dsl_upstream:    { component: 'sensor', id: 'dsl_upstream',    name: 'DSL-Sync Upload',   icon: 'mdi:upload-network',   unit: 'Mbit/s', device_class: 'data_rate', state_class: 'measurement' },
   mesh_devices:    { component: 'sensor', id: 'mesh_devices',    name: 'Mesh-Geräte online', icon: 'mdi:access-point-network', state_class: 'measurement', json_attributes: true },
   firmware_update: { component: 'binary_sensor', id: 'firmware_update', name: 'Firmware-Update', icon: 'mdi:package-up', device_class: 'update', json_attributes: true },
+  smarthome:       { component: 'sensor', id: 'smarthome',       name: 'Smart-Home-Geräte online', icon: 'mdi:home-automation', state_class: 'measurement', json_attributes: true },
 };
+
+// Smart-Home-Übersicht für die Dashboard-Card: Zustand aller Geräte als Attribut. Ohne
+// Geräte (leere Liste) nur alle 10 Minuten erneut nachsehen – spart Abfragen bei Boxen
+// ohne Smart Home. Die Liste kommt aus dem 60-s-Cache (AHA bzw. Smart-Home-REST-API).
+let smartHomeEmptySince = 0;
+async function pushSmartHomeSensorToHA() {
+  if (!HA_TOKEN) return;
+  const session = [...sessions.values()][0];
+  if (!session) return;
+  if (smartHomeEmptySince && Date.now() - smartHomeEmptySince < 600000) return;
+  let devices;
+  try { devices = await fetchSmartHomeDevices(session); } catch { return; }
+  if (!Array.isArray(devices) || devices.length === 0) { smartHomeEmptySince = Date.now(); return; }
+  smartHomeEmptySince = 0;
+  const num = (v) => (Number.isFinite(v) ? v : null);
+  const list = devices.filter(d => !looksLikePhone(d)).map(d => ({
+    name: d.name || d.productname || '', product: d.productname || '', group: d.group || '',
+    category: d.category || '', online: d.present === '1',
+    on: d.switch_state === '1' ? true : d.switch_state === '0' ? false : null,
+    power_w: Number.isFinite(d.power) ? +(d.power / 1000).toFixed(1) : null,
+    energy_kwh: Number.isFinite(d.energy) ? +(d.energy / 1000).toFixed(2) : null,
+    temperature: Number.isFinite(d.temperature) ? +(d.temperature / 10).toFixed(1) : null,
+    target: num(d.tsoll_celsius), humidity: num(d.humidity), battery: num(d.battery),
+    battery_low: !!d.batteryLow, last_change: num(d.lastChange),
+  }));
+  await pushNetEntity(NET_ENTITIES.smarthome, list.filter(d => d.online).length, { total: list.length, devices: list });
+}
 const lazyDiscovered = new Set();
 
 async function ensureMqttEntity(def) {
@@ -3914,8 +3987,15 @@ async function pushPhoneSensorsToHA() {
     { id: 'last_incoming_call', call: lastIncoming, friendly: 'FRITZ!Portal Letzter eingehender Anruf', icon: 'mdi:phone-incoming' },
   ];
 
+  // Die letzten 20 Anrufe als Attribut am „Letzter Anruf"-Sensor – die Dashboard-Card
+  // zeigt davon so viele, wie im Card-Editor eingestellt
+  const recent = calls.slice(0, 20).map(c => ({
+    name: c.name || '', number: c.number || '', date: c.date || '',
+    type: CALL_TYPE_LABELS[c.type] || c.type || '', duration_minutes: c.durationMin ?? null,
+  }));
   for (const s of sensors) {
     const { state, attributes } = callToSensorPayload(s.call);
+    if (s.id === 'last_call') attributes.recent_calls = recent;
     // MQTT: immer wenn Broker erreichbar
     if (mqttAvailable) {
       await publishMqtt(`fritzportal/${s.id}/state`, state);
@@ -4006,6 +4086,7 @@ function startHaTimers() {
     pushFastSensorsToHA().catch(() => {});
     pushPhoneSensorsToHA().catch(() => {});
     pushWanSensorsToHA().catch(() => {});
+    pushSmartHomeSensorToHA().catch(() => {});
   }, haFastIntervalSec * 1000);
   haTrafficTimer = setInterval(() => {
     pushTrafficSensorsToHA().catch(() => {});

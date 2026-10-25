@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { apiFetch } from '../lib/apiFetch';
+import { getApiCache, setApiCache } from '../App';
 import { useT } from '../lib/i18n';
 
 interface Counter {
@@ -16,8 +17,10 @@ interface TrafficProps {
 
 export default function Traffic({ sid }: TrafficProps) {
   const t = useT();
-  const [counters, setCounters] = useState<Counter[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Cache-first wie auf den anderen Seiten: letzter Stand sofort, frische Werte im Hintergrund
+  const cached: Counter[] | null = getApiCache('traffic-counters');
+  const [counters, setCounters] = useState<Counter[]>(cached || []);
+  const [loading, setLoading] = useState(!cached);
   const [error, setError] = useState('');
   const [bytesAvailable, setBytesAvailable] = useState(true);
   const [diagResult, setDiagResult] = useState<Record<string, string> | null>(null);
@@ -57,6 +60,7 @@ export default function Traffic({ sid }: TrafficProps) {
       const rows: Counter[] = data.rows || (Array.isArray(data) ? data : []);
       if (rows.length > 0) {
         setCounters(rows);
+        setApiCache('traffic-counters', rows);
         const allZero = rows.every((c) => c.received === 0 && c.sent === 0);
         setBytesAvailable(!allZero);
       } else {

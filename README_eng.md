@@ -9,10 +9,10 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Home%20Assistant-App-41BDF5?logo=home-assistant&logoColor=white" alt="HA App"/>
-  <img src="https://img.shields.io/badge/Version-1.4.7-blue" alt="Version"/>
+  <img src="https://img.shields.io/badge/Version-1.4.8-blue" alt="Version"/>
   <img src="https://img.shields.io/badge/Architecture-amd64%20%7C%20aarch64%20%7C%20armhf-green" alt="Arch"/>
   <img src="https://img.shields.io/badge/License-MIT-lightgrey" alt="License"/>
-  <img src="https://img.shields.io/badge/Downloads-17.3K-blue" alt="Downloads"/>
+  <img src="https://img.shields.io/badge/Downloads-22.8K-blue" alt="Downloads"/>
   <a href="README.md"><img src="https://img.shields.io/badge/README-De-lightblue" alt="Deutsch"/></a>
 </p>
 <p align="center">
@@ -131,21 +131,28 @@ Lovelace resource). Then pick **"Add card" → "FRITZ!Portal"** in your dashboar
 ```yaml
 type: custom:fritz-portal-card
 title: FRITZ!Box                 # optional
-sections: [system, wan, traffic, hosts, mesh, wlan, phone]   # optional, fixed order
+sections: [system, wan, traffic, traffic_stats, hosts, mesh, wlan, phone, smarthome]   # optional, fixed order
 hosts_limit: 8                   # devices shown while collapsed
 hosts_sort: activity             # activity | ip | name
+phone_count: 5                   # number of recent calls (1–20, v1.4.8+)
+smarthome_group: group           # group (FRITZ!Box groups/rooms) | category (device type) | none
+ha_style: false                  # true = Home Assistant's standard design instead of the terminal look
 theme: auto                      # auto | dark | light
 ```
+
+All options can also be set in the card's **visual editor** (native HA controls).
 
 | Section | Content |
 |---|---|
 | `system` | CPU, RAM, temperature, devices online, free IPs – with utilisation bars, click opens the HA more-info dialog |
 | `wan` | Internet status, access type, IPv4/IPv6, DSL sync, uptime |
 | `traffic` | Live download/upload in Mbit/s, today's volume and 30-min history from HA history |
+| `traffic_stats` | Traffic statistics table: today, yesterday, current week, current month, last month (received/sent) |
 | `hosts` | Active devices with search, filter (all/LAN/WLAN/guest) and sorting (activity/IP/name); clicking the IP opens the device's web UI |
 | `mesh` | FRITZ!Box and repeaters with model, firmware, link and client count ("2/3 online") |
 | `wlan` | WLAN switches (controllable with MQTT, otherwise read-only) |
-| `phone` | Last, missed and incoming call (requires `ha_phone_sensors`) |
+| `phone` | The most recent calls, count set via `phone_count` (requires `ha_phone_sensors`) |
+| `smarthome` | Smart home devices grouped by FRITZ!Box groups (rooms) or device type, with switch state, temperature, power and battery |
 
 Sections without data are hidden automatically. Lovelace in **YAML mode**? Then add the resource yourself:
 `url: /local/fritz-portal/fritz-portal-card.js`, `type: module`.
@@ -233,6 +240,7 @@ state appears as a read-only sensor `sensor.fritzportal_wlan_<N>` (no switching 
 | `sensor.fritzportal_external_ip` | External IPv4 address |
 | `sensor.fritzportal_dsl_downstream` / `_upstream` | DSL sync rate in Mbit/s (DSL lines only) |
 | `sensor.fritzportal_mesh_devices` | Number of connected mesh devices; attribute `devices` with model, firmware, link, clients; `total` incl. disconnected ones |
+| `sensor.fritzportal_smarthome` | Number of reachable smart home devices; attribute `devices` with name, group/room, type, switch state, power, energy, temperature, battery (v1.4.8+) |
 | `binary_sensor.fritzportal_firmware_update` | FRITZ!OS update available; attributes: installed/new version, release notes link |
 
 Entities only appear once the FRITZ!Box delivers the respective data (e.g. no DSL sensors on cable/fiber).
@@ -267,7 +275,7 @@ three sensors to Home Assistant – via MQTT Discovery and/or the REST API fallb
 
 | Sensor | Content |
 |---|---|
-| `sensor.fritzportal_last_call` | Last call (incoming or outgoing) |
+| `sensor.fritzportal_last_call` | Last call (incoming or outgoing); attribute `recent_calls` with the last 20 calls (v1.4.8+) |
 | `sensor.fritzportal_last_missed_call` | Last missed call |
 | `sensor.fritzportal_last_incoming_call` | Last accepted incoming call |
 

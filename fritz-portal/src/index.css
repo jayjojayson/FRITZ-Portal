@@ -924,8 +924,24 @@ textarea {
   50% { opacity: 0; }
 }
 
+/* Lade-Anzeige im Terminal-Stil („$ loading ▮") – war vorher per display:none
+   ausgeblendet, Seiten wie Traffic zeigten beim Laden nur eine leere Fläche */
 .spinner {
-  display: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  letter-spacing: 0.4px;
+  color: var(--text-secondary);
+}
+.spinner::before { content: '$ loading'; }
+.spinner::after {
+  content: '';
+  width: 9px;
+  height: 16px;
+  background: var(--accent);
+  animation: blink 1s steps(1) infinite;
 }
 
 /* ── Action Grid (System page) ────────────────────────────────────────────── */

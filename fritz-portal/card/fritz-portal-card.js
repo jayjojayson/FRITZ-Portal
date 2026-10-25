@@ -2,27 +2,41 @@
  * FRITZ!Portal Dashboard-Card für Home Assistant
  * ------------------------------------------------
  * Zeigt die vom FRITZ!Portal-Add-on gelieferten Sensoren (sensor.fritzportal_*)
- * im Terminal-Look des Portals: System-Kacheln, Internet/WAN, Live-Traffic mit
- * Verlauf, aktive Geräte (Suche/Filter/Sortierung), Mesh, WLAN-Schalter, Anrufe.
+ * im Terminal-Look des Portals (oder im Home-Assistant-Design): System-Kacheln,
+ * Internet/WAN, Live-Traffic mit Verlauf, Traffic-Statistik, aktive Geräte
+ * (Suche/Filter/Sortierung), Mesh, WLAN-Schalter, Anrufe und Smart Home.
  *
  * Wird vom Add-on automatisch nach /local/fritz-portal/ kopiert und als
  * Lovelace-Ressource registriert. Keine externen Abhängigkeiten.
  *
  *   type: custom:fritz-portal-card
- *   sections: [system, wan, traffic, hosts, mesh, wlan, phone]   # optional
- *   hosts_limit: 8                                               # optional
+ *   sections: [system, wan, traffic, traffic_stats, hosts, mesh, wlan, phone, smarthome]
+ *   hosts_limit: 8          # Geräte im eingeklappten Zustand
+ *   phone_count: 5          # Anzahl der letzten Anrufe
+ *   smarthome_group: group  # group (FRITZ!Box-Gruppen) | category (Gerätetyp) | none
+ *   ha_style: false         # true = Standard-Design von Home Assistant
  */
 
-const CARD_VERSION = '1.4.7';
-const ALL_SECTIONS = ['system', 'wan', 'traffic', 'hosts', 'mesh', 'wlan', 'phone'];
+const CARD_VERSION = '1.4.8';
+const ALL_SECTIONS = ['system', 'wan', 'traffic', 'traffic_stats', 'hosts', 'mesh', 'wlan', 'phone', 'smarthome'];
 const SECTION_LABELS = {
   system: 'System (CPU, RAM, Temperatur, Geräte)',
   wan: 'Internet / WAN',
   traffic: 'Traffic live + Verlauf',
+  traffic_stats: 'Traffic-Statistik (Heute … Vormonat)',
   hosts: 'Aktive Geräte',
   mesh: 'Mesh',
   wlan: 'WLAN-Schalter',
   phone: 'Anrufe',
+  smarthome: 'Smart Home',
+};
+const HA_TITLES = {
+  'system.status': 'System', 'internet.wan': 'Internet', 'traffic.live': 'Traffic live', 'traffic.stats': 'Traffic-Statistik',
+  'hosts.active': 'Aktive Geräte', 'mesh.nodes': 'Mesh', 'wlan.ssid': 'WLAN', 'phone.calls': 'Anrufe', 'smarthome': 'Smart Home',
+};
+const SMARTHOME_CATEGORY = {
+  socket: 'Steckdosen', thermostat: 'Heizung', lamp: 'Licht', blind: 'Rollläden',
+  sensor: 'Sensoren', control: 'Taster', other: 'Sonstige',
 };
 
 // Alle dynamischen Texte (Gerätenamen kommen aus dem Netzwerk!) escapen
@@ -47,6 +61,29 @@ const STYLE = `
   }
   ha-card { background: var(--fp-bg); color: var(--fp-text); font-family: var(--fp-mono);
     border: 1px solid var(--fp-border); border-radius: 0; overflow: hidden; }
+  /* Option „Home-Assistant-Design": Farben, Schrift und Rundungen aus dem aktiven HA-Theme */
+  :host([ha]) {
+    --fp-mono: var(--ha-font-family-body, var(--paper-font-body1_-_font-family, Roboto, sans-serif));
+    --fp-bg: var(--ha-card-background, var(--card-background-color, #fff));
+    --fp-bg2: var(--ha-card-background, var(--card-background-color, #fff));
+    --fp-text: var(--primary-text-color); --fp-text2: var(--secondary-text-color);
+    --fp-muted: var(--disabled-text-color, var(--secondary-text-color));
+    --fp-border: var(--divider-color); --fp-border2: var(--divider-color);
+    --fp-accent: var(--primary-color); --fp-ok: var(--success-color, #43a047);
+    --fp-warn: var(--warning-color, #ffa600); --fp-bad: var(--error-color, #db4437);
+    --fp-cyan: var(--info-color, var(--primary-color));
+  }
+  :host([ha]) ha-card { border: var(--ha-card-border-width, 1px) solid var(--ha-card-border-color, var(--divider-color));
+    border-radius: var(--ha-card-border-radius, 12px); box-shadow: var(--ha-card-box-shadow, none); }
+  :host([ha]) .head { background: transparent; border-bottom: none; padding: 16px 16px 4px; }
+  :host([ha]) .head .title { font-size: 20px; font-weight: 400; letter-spacing: 0; }
+  :host([ha]) .head .title::before, :host([ha]) .sec-head .t::before, :host([ha]) .tile .tk { display: none; }
+  :host([ha]) .sec { border-bottom: none; }
+  :host([ha]) .sec-head, :host([ha]) .tile .lbl, :host([ha]) .grp, :host([ha]) table.stats th, :host([ha]) .foot { text-transform: none; letter-spacing: 0; }
+  :host([ha]) .sec-head { font-size: 12px; padding: 12px 16px 0; font-weight: 500; }
+  :host([ha]) .tile, :host([ha]) .tools input, :host([ha]) button.fb { border-radius: 8px; }
+  :host([ha]) .chip { border-radius: 10px; }
+  :host([ha]) .foot { display: none; }
   .head { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
     border-bottom: 1px solid var(--fp-border); background: var(--fp-bg2); }
   .head .title { font-weight: 600; font-size: 14px; letter-spacing: .5px; }
@@ -61,15 +98,20 @@ const STYLE = `
     font-size: 10px; letter-spacing: 1.4px; color: var(--fp-text2); text-transform: uppercase; }
   .sec-head .t::before { content: '── '; color: var(--fp-muted); }
   .sec-body { padding: 8px 14px 12px; }
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 8px; }
-  .tile { position: relative; border: 1px solid var(--fp-border); padding: 9px 10px 8px; cursor: pointer; min-width: 0; }
+  /* Kacheln immer in einer Reihe; erst bei sehr schmalen Karten 3 Spalten (Container-Query
+     richtet sich nach der Kartenbreite, nicht nach dem Bildschirm) */
+  .sec-body { container-type: inline-size; }
+  .tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+  @container (max-width: 300px) { .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  .tile { position: relative; border: 1px solid var(--fp-border); padding: 9px 7px 8px; cursor: pointer; min-width: 0; }
   .tile:hover { background: var(--fp-bg2); }
   .tile .tk { position: absolute; font-size: 10px; line-height: 1; color: var(--fp-accent); }
   .tile .tl { top: -2px; left: -1px; } .tile .tr { top: -2px; right: -1px; }
   .tile .bl { bottom: -3px; left: -1px; } .tile .br { bottom: -3px; right: -1px; }
-  .tile .lbl { font-size: 10px; letter-spacing: 1.2px; color: var(--fp-text2); text-transform: uppercase; }
+  .tile .lbl { font-size: 9.5px; letter-spacing: 1px; color: var(--fp-text2); text-transform: uppercase;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .tile .val { font-size: 21px; font-weight: 600; margin-top: 4px; white-space: nowrap; }
-  .tile .val small { font-size: 11px; color: var(--fp-text2); font-weight: 400; margin-left: 3px; }
+  .tile .val small { font-size: 10px; color: var(--fp-text2); font-weight: 400; margin-left: 2px; }
   .bar { height: 3px; background: var(--fp-border2); margin-top: 7px; position: relative; }
   .bar > span { position: absolute; inset: 0 auto 0 0; background: var(--fp-accent); }
   .bar > span.warn { background: var(--fp-warn); } .bar > span.bad { background: var(--fp-bad); }
@@ -111,6 +153,15 @@ const STYLE = `
   .toggle.on { border-color: var(--fp-ok); } .toggle.on::after { left: 18px; background: var(--fp-ok); }
   .toggle[disabled] { cursor: default; opacity: .6; }
   .empty { font-size: 12px; color: var(--fp-text2); padding: 6px 0; }
+  table.stats { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.stats th { font-weight: 500; font-size: 10px; letter-spacing: 1px; color: var(--fp-text2);
+    text-transform: uppercase; text-align: right; padding: 4px 0; border-bottom: 1px solid var(--fp-border); }
+  table.stats th:first-child, table.stats td:first-child { text-align: left; }
+  table.stats td { text-align: right; padding: 5px 0; border-top: 1px dashed var(--fp-border); white-space: nowrap; }
+  table.stats tr:first-of-type td { border-top: none; }
+  table.stats .dn { color: var(--fp-cyan); } table.stats .up { color: var(--fp-wlan); }
+  .grp { font-size: 10px; letter-spacing: 1.2px; color: var(--fp-text2); text-transform: uppercase; margin: 8px 0 2px; }
+  .grp:first-child { margin-top: 0; }
   .foot { display: flex; justify-content: space-between; padding: 6px 14px; font-size: 10px; color: var(--fp-muted);
     letter-spacing: .6px; border-top: 1px solid var(--fp-border); text-transform: uppercase; }
 `;
@@ -133,6 +184,9 @@ class FritzPortalCard extends HTMLElement {
       entity_prefix: 'fritzportal',
       sections: ALL_SECTIONS,
       hosts_limit: 8,
+      phone_count: 5,
+      smarthome_group: 'group',
+      ha_style: false,
       theme: 'auto',
       ...(config || {}),
     };
@@ -147,6 +201,7 @@ class FritzPortalCard extends HTMLElement {
     const dark = this._config?.theme === 'dark' || (this._config?.theme !== 'light' && !!hass?.themes?.darkMode);
     const darkChanged = dark !== this.hasAttribute('dark');
     this.toggleAttribute('dark', dark);
+    this.toggleAttribute('ha', !!this._config?.ha_style);
     this._maybeFetchHistory();
     // HA ruft diesen Setter bei JEDER Zustandsänderung irgendeiner Entität auf – nur neu
     // zeichnen, wenn sich eine eigene Entität geändert hat (HA erzeugt dann ein neues
@@ -215,10 +270,12 @@ class FritzPortalCard extends HTMLElement {
     if (this._show('system'))  sections.push(this._renderSystem());
     if (this._show('wan'))     sections.push(this._renderWan());
     if (this._show('traffic')) sections.push(this._renderTraffic());
+    if (this._show('traffic_stats')) sections.push(this._renderTrafficStats());
     if (this._show('hosts'))   sections.push(this._renderHosts());
     if (this._show('mesh'))    sections.push(this._renderMesh());
     if (this._show('wlan'))    sections.push(this._renderWlan());
     if (this._show('phone'))   sections.push(this._renderPhone());
+    if (this._show('smarthome')) sections.push(this._renderSmartHome());
     const body = sections.filter(Boolean).join('');
 
     const wan = this._hass.states[this._id('binary_sensor', 'wan_connected')];
@@ -250,7 +307,9 @@ class FritzPortalCard extends HTMLElement {
   }
 
   _sec(title, right, body) {
-    return `<div class="sec"><div class="sec-head"><span class="t">${esc(title)}</span><span>${right || ''}</span></div>
+    // Im Home-Assistant-Design lesbare Überschriften statt Terminal-Bezeichnungen
+    const shown = this._config.ha_style ? (HA_TITLES[title] || title) : title;
+    return `<div class="sec"><div class="sec-head"><span class="t">${esc(shown)}</span><span>${right || ''}</span></div>
       <div class="sec-body">${body}</div></div>`;
   }
 
@@ -273,7 +332,8 @@ class FritzPortalCard extends HTMLElement {
       this._tile('RAM', ram === null ? null : Math.round(ram), '%', 'ram', ram),
       this._tile('Temp', temp === null ? null : Math.round(temp), '°C', 'temperature', temp === null ? null : temp / 0.95),
       this._tile('Online', online, '', 'online_devices'),
-      this._tile('Freie IPs', free, '', 'free_ips'),
+      // „IP-Pool … frei" wie im Portal-Dashboard – passt auch in schmale Kacheln
+      this._tile('IP-Pool', free, 'frei', 'free_ips'),
     ];
     return this._sec('system.status', '', `<div class="tiles">${tiles.join('')}</div>`);
   }
@@ -407,24 +467,104 @@ class FritzPortalCard extends HTMLElement {
   }
 
   _renderPhone() {
-    const items = [
-      ['last_call', '☎', 'letzter'],
-      ['last_missed_call', '✕', 'verpasst'],
-      ['last_incoming_call', '↙', 'eingehend'],
-    ].map(([suffix, icon, label]) => {
-      const s = this._st('sensor', suffix);
-      if (!s) return '';
-      const a = s.attributes || {};
-      const nr = a.number && a.number !== s.state ? `<span class="sub">${esc(a.number)}</span>` : '';
-      const color = suffix === 'last_missed_call' ? 'var(--fp-bad)' : 'var(--fp-text2)';
-      const dur = a.duration_minutes ? ` · ${esc(a.duration_minutes)} min` : '';
-      return `<div class="row" data-more="${esc(this._id('sensor', suffix))}" style="cursor:pointer">
-        <span style="color:${color};font-size:11px">${icon}</span>
-        <span class="name">${esc(s.state === '-' ? '—' : s.state)}${nr}</span>
-        <span class="right">${esc(label)} · ${esc(a.date || '—')}${dur}</span></div>`;
+    const icons = {
+      incoming: ['↙', 'var(--fp-ok)'], incoming_active: ['↙', 'var(--fp-ok)'], missed: ['✕', 'var(--fp-bad)'],
+      rejected: ['⊘', 'var(--fp-warn)'], outgoing: ['↗', 'var(--fp-accent)'], outgoing_active: ['↗', 'var(--fp-accent)'],
+    };
+    const last = this._st('sensor', 'last_call');
+    const recent = last?.attributes?.recent_calls;
+    const count = Math.max(1, parseInt(this._config.phone_count, 10) || 5);
+    let rows = '';
+    if (Array.isArray(recent) && recent.length) {
+      rows = recent.slice(0, count).map(c => {
+        const [icon, color] = icons[c.type] || ['•', 'var(--fp-text2)'];
+        const nr = c.name && c.number ? `<span class="sub">${esc(c.number)}</span>` : '';
+        const dur = c.duration_minutes ? ` · ${esc(c.duration_minutes)} min` : '';
+        return `<div class="row" data-more="${esc(this._id('sensor', 'last_call'))}" style="cursor:pointer">
+          <span style="color:${color};font-size:11px">${icon}</span>
+          <span class="name">${esc(c.name || c.number || '—')}${nr}</span>
+          <span class="right">${esc(c.date || '—')}${dur}</span></div>`;
+      }).join('');
+    } else {
+      // Ältere Add-on-Versionen ohne recent_calls: die drei Einzelsensoren
+      rows = [
+        ['last_call', '☎', 'letzter'],
+        ['last_missed_call', '✕', 'verpasst'],
+        ['last_incoming_call', '↙', 'eingehend'],
+      ].map(([suffix, icon, label]) => {
+        const st = this._st('sensor', suffix);
+        if (!st) return '';
+        const a = st.attributes || {};
+        const nr = a.number && a.number !== st.state ? `<span class="sub">${esc(a.number)}</span>` : '';
+        const color = suffix === 'last_missed_call' ? 'var(--fp-bad)' : 'var(--fp-text2)';
+        const dur = a.duration_minutes ? ` · ${esc(a.duration_minutes)} min` : '';
+        return `<div class="row" data-more="${esc(this._id('sensor', suffix))}" style="cursor:pointer">
+          <span style="color:${color};font-size:11px">${icon}</span>
+          <span class="name">${esc(st.state === '-' ? '—' : st.state)}${nr}</span>
+          <span class="right">${esc(label)} · ${esc(a.date || '—')}${dur}</span></div>`;
+      }).join('');
+    }
+    if (!rows) return '';
+    return this._sec('phone.calls', Array.isArray(recent) ? `${Math.min(count, recent.length)} / ${recent.length}` : '', `<div class="rows">${rows}</div>`);
+  }
+
+  // Traffic-Statistik wie auf der Traffic-Seite des Portals: Heute … Vormonat
+  _renderTrafficStats() {
+    const periods = [['today', 'Heute'], ['yesterday', 'Gestern'], ['week', 'Aktuelle Woche'], ['month', 'Aktueller Monat'], ['last_month', 'Vormonat']];
+    // MQTT-Sensoren liefern MB, REST-Sensoren GB – einheitlich lesbar darstellen
+    const fmt = (suffix) => {
+      const st = this._st('sensor', suffix);
+      const v = num(st?.state);
+      if (v === null) return null;
+      const unit = st.attributes?.unit_of_measurement || 'MB';
+      const mb = unit === 'GB' ? v * 1024 : unit === 'KB' ? v / 1024 : v;
+      return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(0)} MB`;
+    };
+    const rows = periods.map(([k, label]) => {
+      const dn = fmt(`traffic_${k}_received`), up = fmt(`traffic_${k}_sent`);
+      if (dn === null && up === null) return '';
+      return `<tr data-more="${esc(this._id('sensor', `traffic_${k}_received`))}" style="cursor:pointer">
+        <td>${esc(label)}</td><td class="dn">${esc(dn ?? '—')}</td><td class="up">${esc(up ?? '—')}</td></tr>`;
     }).join('');
-    if (!items) return '';
-    return this._sec('phone.calls', '', `<div class="rows">${items}</div>`);
+    if (!rows) return '';
+    return this._sec('traffic.stats', '', `<table class="stats"><thead><tr><th>Zeitraum</th><th>↓ Download</th><th>↑ Upload</th></tr></thead><tbody>${rows}</tbody></table>`);
+  }
+
+  // Smart-Home-Geräte, gruppiert nach FRITZ!Box-Gruppe (meist Räume) oder Gerätetyp
+  _renderSmartHome() {
+    const st = this._st('sensor', 'smarthome');
+    const devs = st?.attributes?.devices;
+    if (!Array.isArray(devs) || devs.length === 0) return '';
+    const mode = this._config.smarthome_group || 'group';
+    const keyOf = (d) => mode === 'category' ? (SMARTHOME_CATEGORY[d.category] || SMARTHOME_CATEGORY.other)
+      : mode === 'group' ? (d.group || 'Ohne Gruppe') : '';
+    const groups = new Map();
+    for (const d of [...devs].sort((a, b) => String(a.name).localeCompare(String(b.name), 'de'))) {
+      const k = keyOf(d);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(d);
+    }
+    // Benannte Gruppen alphabetisch, „Ohne Gruppe"/„Sonstige" zum Schluss
+    const order = [...groups.keys()].sort((a, b) =>
+      (a === 'Ohne Gruppe' || a === 'Sonstige') - (b === 'Ohne Gruppe' || b === 'Sonstige') || a.localeCompare(b, 'de'));
+    const value = (d) => {
+      const v = [];
+      if (d.on === true || d.on === false) v.push(d.on ? 'an' : 'aus');
+      if (d.power_w !== null && d.power_w !== undefined && d.on) v.push(`${d.power_w} W`);
+      if (d.temperature !== null && d.temperature !== undefined) v.push(`${d.temperature} °C`);
+      if (d.target !== null && d.target !== undefined) v.push(`→ ${d.target} °C`);
+      if (d.humidity !== null && d.humidity !== undefined) v.push(`${d.humidity} %`);
+      if (d.battery_low) v.push('🔋 schwach');
+      return v.join(' · ') || '—';
+    };
+    const body = order.map(k => {
+      const rows = groups.get(k).map(d => `<div class="row">
+        <span class="dot ${!d.online || d.on === false ? 'off' : d.on === true ? 'wlan' : ''}"></span>
+        <span class="name">${esc(d.name)}${d.product && d.product !== d.name ? `<span class="sub">${esc(d.product)}</span>` : ''}</span>
+        <span class="right">${esc(value(d))}</span></div>`).join('');
+      return `${k ? `<div class="grp">${esc(k)}</div>` : ''}<div class="rows">${rows}</div>`;
+    }).join('');
+    return this._sec('smarthome', `<span data-more="${esc(this._id('sensor', 'smarthome'))}" style="cursor:pointer">${esc(st.state)}/${esc(st.attributes.total || devs.length)} online</span>`, body);
   }
 
   _bind() {
@@ -451,46 +591,101 @@ class FritzPortalCard extends HTMLElement {
 }
 
 // ── Visueller Editor ──
-class FritzPortalCardEditor extends HTMLElement {
-  setConfig(config) { this._config = { ...config }; this._render(); }
-  set hass(hass) { this._hass = hass; }
+// Nutzt <ha-form> – dieselbe Komponente wie die eingebauten HA-Karten: native Schalter,
+// Auswahllisten und Zahlenfelder, passend zum aktiven Theme.
+const EDITOR_LABELS = {
+  title: 'Titel',
+  ha_style: 'Home-Assistant-Design verwenden (statt FRITZ!Portal-Terminal-Look)',
+  theme: 'Hell/Dunkel (nur FRITZ!Portal-Design)',
+  hosts_limit: 'Aktive Geräte: Anzahl im eingeklappten Zustand',
+  hosts_sort: 'Aktive Geräte: Sortierung',
+  phone_count: 'Anrufe: Anzahl der letzten Anrufe',
+  smarthome_group: 'Smart Home: Gruppierung',
+  ...Object.fromEntries(ALL_SECTIONS.map(k => [`show_${k}`, SECTION_LABELS[k]])),
+};
 
-  _emit() {
-    this.dispatchEvent(new CustomEvent('config-changed', { detail: { config: this._config }, bubbles: true, composed: true }));
+const EDITOR_SCHEMA = [
+  { name: 'title', selector: { text: {} } },
+  {
+    type: 'expandable', name: 'grp_sections', title: 'Bereiche', flatten: true, expanded: true, icon: 'mdi:view-dashboard-outline',
+    schema: ALL_SECTIONS.map(k => ({ name: `show_${k}`, selector: { boolean: {} } })),
+  },
+  {
+    type: 'expandable', name: 'grp_style', title: 'Darstellung', flatten: true, icon: 'mdi:palette-outline',
+    schema: [
+      { name: 'ha_style', selector: { boolean: {} } },
+      { name: 'theme', selector: { select: { mode: 'dropdown', options: [
+        { value: 'auto', label: 'Automatisch (wie Home Assistant)' }, { value: 'dark', label: 'Dunkel' }, { value: 'light', label: 'Hell' }] } } },
+    ],
+  },
+  {
+    type: 'expandable', name: 'grp_options', title: 'Optionen', flatten: true, icon: 'mdi:tune-variant',
+    schema: [
+      { type: 'grid', name: 'grp_counts', schema: [
+        { name: 'hosts_limit', selector: { number: { min: 1, max: 200, mode: 'box' } } },
+        { name: 'phone_count', selector: { number: { min: 1, max: 20, mode: 'box' } } },
+      ] },
+      { name: 'hosts_sort', selector: { select: { mode: 'dropdown', options: [
+        { value: 'activity', label: 'Zuletzt aktiv zuerst' }, { value: 'ip', label: 'IP-Adresse' }, { value: 'name', label: 'Name' }] } } },
+      { name: 'smarthome_group', selector: { select: { mode: 'dropdown', options: [
+        { value: 'group', label: 'Nach FRITZ!Box-Gruppe (Räume)' }, { value: 'category', label: 'Nach Gerätetyp' }, { value: 'none', label: 'Keine Gruppierung' }] } } },
+    ],
+  },
+];
+
+class FritzPortalCardEditor extends HTMLElement {
+  setConfig(config) { this._config = { ...config }; this._update(); }
+  set hass(hass) { this._hass = hass; this._update(); }
+
+  // Konfig ↔ Formulardaten: Bereiche als einzelne Schalter statt Liste
+  _formData() {
+    const c = this._config || {};
+    const sections = c.sections || ALL_SECTIONS;
+    return {
+      title: c.title ?? 'FRITZ!Portal', ha_style: !!c.ha_style, theme: c.theme || 'auto',
+      hosts_limit: c.hosts_limit ?? 8, phone_count: c.phone_count ?? 5,
+      hosts_sort: c.hosts_sort || 'activity', smarthome_group: c.smarthome_group || 'group',
+      ...Object.fromEntries(ALL_SECTIONS.map(k => [`show_${k}`, sections.includes(k)])),
+    };
   }
 
-  _render() {
-    if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
-    const sections = this._config.sections || ALL_SECTIONS;
-    this.shadowRoot.innerHTML = `
-      <style>
-        .ed { display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
-        label { display: flex; align-items: center; gap: 8px; }
-        input[type=text], input[type=number] { padding: 6px 8px; font-size: 14px; width: 100%; box-sizing: border-box; }
-        .grp { border: 1px solid var(--divider-color, #ccc); padding: 8px 10px; }
-        .grp b { display: block; margin-bottom: 6px; }
-      </style>
-      <div class="ed">
-        <label>Titel <input type="text" id="title" value="${esc(this._config.title || 'FRITZ!Portal')}"></label>
-        <div class="grp"><b>Bereiche</b>
-          ${ALL_SECTIONS.map(s => `<label><input type="checkbox" data-sec="${s}" ${sections.includes(s) ? 'checked' : ''}> ${esc(SECTION_LABELS[s])}</label>`).join('')}
-        </div>
-        <label>Anzahl Geräte (eingeklappt) <input type="number" id="limit" min="1" max="200" value="${esc(this._config.hosts_limit || 8)}"></label>
-        <label>Darstellung
-          <select id="theme">
-            ${['auto', 'dark', 'light'].map(t => `<option value="${t}" ${(this._config.theme || 'auto') === t ? 'selected' : ''}>${t}</option>`).join('')}
-          </select>
-        </label>
-      </div>`;
-    const r = this.shadowRoot;
-    r.getElementById('title').addEventListener('change', e => { this._config = { ...this._config, title: e.target.value }; this._emit(); });
-    r.getElementById('limit').addEventListener('change', e => { this._config = { ...this._config, hosts_limit: parseInt(e.target.value, 10) || 8 }; this._emit(); });
-    r.getElementById('theme').addEventListener('change', e => { this._config = { ...this._config, theme: e.target.value }; this._emit(); });
-    r.querySelectorAll('[data-sec]').forEach(cb => cb.addEventListener('change', () => {
-      const chosen = ALL_SECTIONS.filter(s => r.querySelector(`[data-sec="${s}"]`).checked);
-      this._config = { ...this._config, sections: chosen };
-      this._emit();
-    }));
+  _update() {
+    if (!this._config || !this._hass) return;
+    if (!customElements.get('ha-form')) {
+      // ha-form ist noch nicht geladen (z. B. frisches Dashboard): über den Editor einer
+      // eingebauten Karte nachladen lassen – der übliche Weg für Custom-Card-Editoren
+      if (!this._loading) {
+        this._loading = (async () => {
+          try {
+            const helpers = await window.loadCardHelpers?.();
+            const card = await helpers?.createCardElement({ type: 'entities', entities: [] });
+            await card?.constructor?.getConfigElement?.();
+          } catch { /* Fallback: YAML-Editor bleibt nutzbar */ }
+          await customElements.whenDefined('ha-form');
+          this._update();
+        })();
+      }
+      return;
+    }
+    if (!this._form) {
+      // ha-form wird von HA spätestens beim Öffnen eines Karten-Editors geladen
+      this._form = document.createElement('ha-form');
+      this._form.computeLabel = (s) => EDITOR_LABELS[s.name] ?? s.name;
+      this._form.addEventListener('value-changed', (e) => {
+        const v = e.detail.value;
+        const config = { ...this._config };
+        config.sections = ALL_SECTIONS.filter(k => v[`show_${k}`]);
+        for (const key of ['title', 'ha_style', 'theme', 'hosts_limit', 'phone_count', 'hosts_sort', 'smarthome_group']) {
+          if (v[key] !== undefined) config[key] = v[key];
+        }
+        this._config = config;
+        this.dispatchEvent(new CustomEvent('config-changed', { detail: { config }, bubbles: true, composed: true }));
+      });
+      this.appendChild(this._form);
+    }
+    this._form.hass = this._hass;
+    this._form.schema = EDITOR_SCHEMA;
+    this._form.data = this._formData();
   }
 }
 

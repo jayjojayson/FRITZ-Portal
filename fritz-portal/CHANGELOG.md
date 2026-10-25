@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.8
+
+- Neu (**Dashboard-Card – Traffic-Statistik**): Neuer Bereich `traffic_stats` mit einer Tabelle für Heute, Gestern, aktuelle Woche, aktueller Monat und Vormonat (empfangen/gesendet, automatisch in MB bzw. GB).
+- Neu (**Dashboard-Card – Smart Home**): Neuer Bereich `smarthome` – die Geräte werden nach den Gruppen der FRITZ!Box sortiert (meist als Räume angelegt), wahlweise nach Gerätetyp oder ungruppiert. Angezeigt werden Schaltzustand, Temperatur/Soll-Temperatur, Leistung und Akku. Hinweis: Die FRITZ!Box-Schnittstellen kennen keine „Räume" – genutzt werden die Gruppen aus Smart Home → Gruppen. Dafür neu: `sensor.fritzportal_smarthome` (Anzahl erreichbarer Geräte, Attribut `devices` mit Name, Gruppe, Typ und Messwerten).
+- Neu (**Dashboard-Card – Anrufe**): Die Anzahl der letzten Anrufe ist im Editor einstellbar (`phone_count`, 1–20, Standard 5; vorher fest 3). Dafür hat `sensor.fritzportal_last_call` das neue Attribut `recent_calls` mit den letzten 20 Anrufen.
+- Neu (**Dashboard-Card – Home-Assistant-Design**): Mit `ha_style: true` (Editor: „Home-Assistant-Design verwenden") übernimmt die Karte Farben, Schrift und Rundungen des aktiven HA-Themes statt des Terminal-Looks.
+- Verbessert (**Dashboard-Card – Editor**): Der visuelle Editor nutzt jetzt die nativen HA-Bedienelemente (Schalter, Zahlenfelder, Auswahllisten, aufklappbare Gruppen).
+- Fix (Dashboard-Card): Die Kachel „freie IPs" brach um, die Zahl stand dadurch tiefer als bei den anderen Kacheln. Die Beschriftungen sind jetzt einzeilig („IP-Pool"), auf schmalen Karten werden die Kacheln dreispaltig angeordnet.
+- Verbessert (#31, **WLAN-Schalter in HA**): Die Schalter tragen jetzt das Frequenzband im Namen, z. B. „WLAN Zuhause (5 GHz)" – bei gleicher SSID auf allen Bändern waren sie vorher nicht zu unterscheiden. Die Entity-IDs bleiben unverändert.
+- Verbessert (**schneller Panel-Start**): Beim erneuten Öffnen des Panels erscheint sofort die zuletzt geladene Ansicht aus dem Cache, aktualisiert wird im Hintergrund – kein Ladebildschirm mehr (im Test 60 ms statt 1,4 s bis zum ersten Inhalt). Der Server verwendet dabei die bestehende Sitzung weiter, statt jedes Mal die Dienste der FRITZ!Box neu zu ermitteln.
+- Fix (**Ladeanzeige**): Die Ladeanzeige war seit einem früheren Design-Umbau unsichtbar – jetzt erscheint wieder ein Hinweis im Terminal-Stil (`$ loading …`). Die Traffic-Seite zeigt beim ersten Laden eine Ladeanzeige und danach sofort die zuletzt geladenen Zähler aus dem Cache.
+
 ## 1.4.7
 
 - Neu (**Italienisch** 🇮🇹, PR #36 von [@Mistergatti](https://github.com/Mistergatti) – danke!): Komplette italienische Oberfläche, Sprachwechsel im Header reihum DE → EN → IT, beim ersten Aufruf wird die Browsersprache übernommen (die bisher gewählte Sprache bleibt erhalten). Zusätzlich wurden feste deutsche Texte auf der System- und Traffic-Seite übersetzbar gemacht (u. a. Neustart-Meldung, MQTT-Hinweis, Traffic-Diagnose). Die italienischen Texte für die neuen Funktionen aus v1.4.7 wurden ergänzt. Nicht übernommen: das Auskommentieren von `image:` in `config.yaml` (das Add-on würde sonst bei allen Nutzern lokal gebaut).
