@@ -1,19 +1,20 @@
 node_modules
-server
-src
-!fritz-portal/src/logo.png
+# Altlasten eines früheren Projektaufbaus im Hauptverzeichnis – nur dort ignorieren,
+# nicht in fritz-portal/ (neue Dateien in src/ und server/ fehlten sonst im Build)
+/server
+/src
 dist
 electron-dist
 release
-vite.config.ts
+/vite.config.ts
 tsconfig.tsbuildinfo
-tsconfig.json
+/tsconfig.json
 package-lock.json
-package.json
-info.md
-index.html
-electron-main.js
-build-standalone.mjs
+/package.json
+/info.md
+/index.html
+/electron-main.js
+/build-standalone.mjs
 .vscode/settings.json
 .claude/.DS_Store
 .claude/
@@ -23,3 +24,6 @@ fritz-portal/plan.md
 fritz-portal/docs/.DS_Store
 fritz-portal/.DS_Store
 .DS_Store
+
+# Lokale Laufzeitdaten des Servers (Einstellungen, Geräte-Zuordnungen)
+.data/

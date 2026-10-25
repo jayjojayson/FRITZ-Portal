@@ -97,7 +97,6 @@ function DECTTab({ dectInfo, t }: { dectInfo: any; t: (s: string) => string }) {
               <tr><td style={{ fontWeight: 500, color: 'var(--text-secondary)', width: 220 }}>{t('DECT aktiv')}</td><td>{dectInfo?.NewDECTActive === '1' ? t('Ja') : t('Nein')}</td></tr>
               <tr><td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('Basisname')}</td><td>{dectInfo?.NewDECTBaseName || '—'}</td></tr>
               <tr><td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('Eco Mode')}</td><td>{dectInfo?.NewDECTPowerActive === '1' ? t('Aktiv') : t('Inaktiv')}</td></tr>
-              <tr><td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('Pin')}</td><td>{dectInfo?.NewDECTPin ? '****' : t('Nicht gesetzt')}</td></tr>
             </tbody>
           </table>
         </div>
@@ -117,6 +116,7 @@ function DECTTab({ dectInfo, t }: { dectInfo: any; t: (s: string) => string }) {
                 <thead>
                   <tr>
                     <th>{t('Name')}</th>
+                    <th>{t('Modell')}</th>
                     <th>{t('Status')}</th>
                     <th>{t('Akku')}</th>
                   </tr>
@@ -142,6 +142,10 @@ function DECTTab({ dectInfo, t }: { dectInfo: any; t: (s: string) => string }) {
                     return (
                       <tr key={i}>
                         <td className="device-name">{h.name}</td>
+                        <td style={{ color: 'var(--text-secondary)' }}>
+                          {h.model || '—'}
+                          {h.updateAvailable && <span style={{ marginLeft: 6, fontSize: 10, color: '#f59e0b' }}>{t('Update verfügbar')}</span>}
+                        </td>
                         <td>
                           <span className={`status-dot ${dotClass}`} />
                           {label}
@@ -175,6 +179,17 @@ function CallsTab({ calls, t }: { calls: any[]; t: (s: string) => string }) {
       case '11': return { label: t('Aktiv aus.'), color: '#3b82f6' };
       default:   return { label: t('Typ {t}').replace('{t}', type), color: 'var(--text-secondary)' };
     }
+  }
+
+  // Issue #41: AVM liefert die Dauer als „h:mm" (Stunden:Minuten) – „0:05" sind
+  // 5 Minuten, nicht 5 Sekunden. Der Server rechnet in durationMin um.
+  function formatDuration(call: any) {
+    const min: number | null = typeof call.durationMin === 'number' ? call.durationMin : null;
+    if (min === null) return call.duration || '—';
+    if (call.type === '2' || call.type === '10') return '—';
+    if (min === 0) return t('< 1 Min');
+    if (min < 60) return t('{n} Min').replace('{n}', String(min));
+    return t('{h} Std {m} Min').replace('{h}', String(Math.floor(min / 60))).replace('{m}', String(min % 60));
   }
 
   const filterOptions = [
@@ -249,7 +264,7 @@ function CallsTab({ calls, t }: { calls: any[]; t: (s: string) => string }) {
                       <td style={{ fontFamily: 'monospace' }}>{call.to || '—'}</td>
                       <td style={{ color: 'var(--text-secondary)' }}>{call.device || '—'}</td>
                       <td><span style={{ color, fontWeight: 500 }}>{label}</span></td>
-                      <td>{call.duration || '—'}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>{formatDuration(call)}</td>
                     </tr>
                   );
                 })}

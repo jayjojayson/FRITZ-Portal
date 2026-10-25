@@ -8,7 +8,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Home%20Assistant-App-41BDF5?logo=home-assistant&logoColor=white" alt="HA App"/>
-  <img src="https://img.shields.io/badge/Version-1.4.6-blue" alt="Version"/>
+  <img src="https://img.shields.io/badge/Version-1.4.7-blue" alt="Version"/>
   <img src="https://img.shields.io/badge/Architektur-amd64%20%7C%20aarch64%20%7C%20armv7-green" alt="Arch"/>
   <img src="https://img.shields.io/badge/Lizenz-MIT-lightgrey" alt="Lizenz"/>  
   <img src="https://img.shields.io/badge/Downloads-21.7K-blue" alt="Downloads"/>
@@ -46,13 +46,14 @@ Wenn euch die App gefällt, würde ich mich über eine Sternebewertung ⭐ freue
 | **Netzwerk** | LAN, WAN, WLAN, DHCP – Details auf einen Blick; **Mesh-Topologie-Visualisierung** mit Mesh- und radialer Netzwerk-Ansicht; **WLAN ein/aus pro SSID** (z. B. Gastzugang); WLAN-Passwort direkt änderbar |
 | **Traffic** | Download/Upload-Chart live (30 s Takt, 30 min Verlauf) + Statistiken für Heute, Gestern, Woche, Monat, Vormonat |
 | **Telefonie** | Anrufliste (Von/An/Gerät getrennt, Typ-Filter) und DECT-Handsets – **saubere Trennung zu SmartHome** (DECT-Aktoren wie FRITZ!DECT 200/301 landen nur noch in SmartHome) |
-| **SmartHome** | Übersicht aller AHA-Geräte (Steckdosen, Thermostate, Sensoren, RolloTron) mit Temperatur, Schalter-Status und Leistung |
+| **SmartHome** | Alle Smart-Home-Geräte inkl. **Zigbee** (ab FRITZ!OS 8.20 über die neue Smart-Home-REST-API, sonst AHA) mit Temperatur, Soll-Temperatur, Luftfeuchte, Schaltzustand, Leistung, Energie, Akku und Firmware |
 | **System** | Fritz!Box Modell, Firmware, Uptime, Seriennummer, Neustart-Funktion; HA-Sensoren-Konfiguration, Debug-Logging, „Sitzung dauerhaft halten", „Traffic-Verlauf serverseitig sammeln" |
+| **Dashboard-Card** | Eigene Lovelace-Karte `custom:fritz-portal-card` im Portal-Look (System, Internet, Traffic mit Verlauf, aktive Geräte mit Suche/Filter, Mesh, WLAN-Schalter, Anrufe) – wird automatisch installiert |
 | **HA-Sensoren** | CPU, RAM, Temp, Geräte, freie IPs, Download, Upload, Traffic-Counter – automatisch als Sensoren in Home Assistant (mit `state_class` → in Statistik-Diagrammen nutzbar) |
 | **WLAN-Schalter in HA** | Jede WLAN/SSID (inkl. Gastzugang) wird als **steuerbarer Schalter** (`switch.fritzportal_wlan_…`, via MQTT) bzw. Nur-Anzeige-Sensor (REST) in HA registriert – WLAN direkt vom HA-Dashboard ein-/ausschalten |
 | **MQTT Discovery** | Standard-Übertragungsweg: Alle Sensoren werden via MQTT als gruppiertes „FRITZ!Portal"-Gerät in HA registriert |
 | **REST-API Fallback** | Optional aktivierbar für Nutzer ohne MQTT-Broker – Sensoren erscheinen dann als einzelne Entitäten |
-| **Sprache** | **Vollständig deutsch / englisch** umschaltbar über DE/EN-Pille im Header, Auswahl bleibt persistent |
+| **Sprache** | **Deutsch / Englisch / Italienisch** – umschaltbar über die Sprach-Pille im Header (DE → EN → IT), Auswahl bleibt erhalten; beim ersten Aufruf wird die Browsersprache übernommen |
 | **Dark / Light Mode** | Reaktives Theme (TERMINAL.OS Slate · Blue) ohne Reload |
 | **Ingress** | Vollständige Integration in die Home Assistant Oberfläche, kein Port-Forwarding nötig |
 
@@ -88,6 +89,7 @@ Wenn euch die App gefällt, würde ich mich über eine Sternebewertung ⭐ freue
 | `keep_session_alive` | FRITZ!Box-Session permanent offen halten – nötig für kontinuierliche HA-Sensor-Updates auch wenn das Portal nicht aktiv geöffnet ist. **Erhöht die FRITZ!Box-Last und kann mit der HA-eigenen Fritz!SmartHome-Integration konkurrieren** – nur einschalten wenn die Sensoren wirklich rund um die Uhr aktualisiert werden müssen. **Auch Voraussetzung, um WLAN aus HA zu schalten, wenn das Portal nicht geöffnet ist.** | `false` |
 | `traffic_history_server` | Den Download-/Upload-Verlauf (letzte 30 min) serverseitig durchgehend sammeln, damit das Dashboard-Chart beim Zurückkehren sofort lückenlos gefüllt ist – unabhängig davon ob das Portal offen war. Kostet etwas mehr FRITZ!Box-Last. Ohne diese Option wird der Verlauf nur im Browser (localStorage) gespeichert. | `false` |
 | `debug_logging` | Alle API-Anfragen (TR-064, data.lua) im Protokoll ausgeben – hilfreich zur Fehlerdiagnose, ansonsten ausgeschaltet lassen | `false` |
+| `dashboard_card` | Dashboard-Card beim Start nach `/config/www/fritz-portal/` kopieren und als Lovelace-Ressource registrieren | `true` |
 
 4. **Speichern → Starten**
 5. Via **Benutzeroberfläche** öffnen oder direkt unter `http://<ha-ip>:3003`
@@ -118,6 +120,34 @@ Das FRITZ!Portal-Dashboard zeigt **6 Live-Tiles** (Modell, CPU, RAM, Temperatur,
 und die sortierbare `HOSTS.ACTIVE`-Liste (umschaltbar **nach Aktivität / IP / Name** über den `↑↓`-Button
 oben rechts im Panel). Diese reichhaltige Ansicht lebt im Portal selbst – über **Ingress** ist sie ohne
 Port-Freigabe direkt in der HA-Oberfläche eingebettet.
+
+### FRITZ!Portal Dashboard-Card (ab v1.4.7)
+
+FRITZ!Portal bringt eine eigene Karte für deine HA-Dashboards mit – im gleichen Terminal-Look wie das Portal.
+Sie wird beim Start des Add-ons **automatisch installiert** (Datei nach `/config/www/fritz-portal/`, Eintrag als
+Lovelace-Ressource). Danach im Dashboard **„Karte hinzufügen" → „FRITZ!Portal"** wählen oder per YAML:
+
+```yaml
+type: custom:fritz-portal-card
+title: FRITZ!Box                 # optional
+sections: [system, wan, traffic, hosts, mesh, wlan, phone]   # optional, Reihenfolge fix
+hosts_limit: 8                   # Geräte im eingeklappten Zustand
+hosts_sort: activity             # activity | ip | name
+theme: auto                      # auto | dark | light
+```
+
+| Bereich | Inhalt |
+|---|---|
+| `system` | CPU, RAM, Temperatur, Geräte online, freie IPs – mit Auslastungsbalken, Klick öffnet den HA-Detaildialog |
+| `wan` | Internetstatus, Anschlussart, IPv4/IPv6, DSL-Sync, Online-Zeit |
+| `traffic` | Download/Upload live in Mbit/s, Tagesvolumen und 30-min-Verlauf aus der HA-History |
+| `hosts` | Aktive Geräte mit Suche, Filter (Alle/LAN/WLAN/Gast) und Sortierung (Aktivität/IP/Name); Klick auf die IP öffnet die Weboberfläche des Geräts |
+| `mesh` | FRITZ!Box und Repeater mit Modell, Firmware, Verbindung und Anzahl Clients („2/3 online") |
+| `wlan` | WLAN-Schalter (mit MQTT steuerbar, sonst Nur-Anzeige) |
+| `phone` | Letzter, verpasster und eingehender Anruf (benötigt `ha_phone_sensors`) |
+
+Bereiche ohne Daten werden automatisch ausgeblendet. Lovelace im **YAML-Modus**? Dann die Ressource selbst
+eintragen: `url: /local/fritz-portal/fritz-portal-card.js`, `type: module`.
 
 ### Sparkline-Tiles & Traffic in eigene HA-Dashboards einbinden
 
@@ -193,6 +223,42 @@ erscheint der Status als Nur-Anzeige-Sensor `sensor.fritzportal_wlan_<N>` (kein 
 > **Voraussetzung:** Zum Schalten muss eine FRITZ!Box-Session bestehen. Wenn das Portal gerade **nicht**
 > im Browser geöffnet ist, wird der Schaltbefehl nur ausgeführt, wenn `keep_session_alive: true` gesetzt
 > ist. Außerdem braucht der FRITZ!Box-Benutzer Schreibrecht auf **„FRITZ!Box-Einstellungen"**.
+
+### Internet-, Mesh- & Firmware-Sensoren (ab v1.4.7)
+
+| Entität | Inhalt |
+|---|---|
+| `binary_sensor.fritzportal_wan_connected` | Internetverbindung an/aus – ideal für Automationen bei Ausfall; Attribute: Status, Anschlussart, IPv4/IPv6, Online-Zeit |
+| `sensor.fritzportal_wan_access_type` | Anschlussart: DSL, Glasfaser, Kabel, Mobilfunk (LTE/5G), Ethernet |
+| `sensor.fritzportal_external_ip` | Externe IPv4-Adresse |
+| `sensor.fritzportal_dsl_downstream` / `_upstream` | DSL-Sync-Rate in Mbit/s (nur bei DSL-Anschluss) |
+| `sensor.fritzportal_mesh_devices` | Anzahl verbundener Mesh-Geräte; Attribut `devices` mit Modell, Firmware, Verbindung, Clients; `total` inkl. getrennter |
+| `binary_sensor.fritzportal_firmware_update` | FRITZ!OS-Update verfügbar; Attribute: installierte/neue Version, Link zu den Versionshinweisen |
+
+Die Entitäten erscheinen erst, wenn die FRITZ!Box die jeweiligen Daten liefert (z. B. keine DSL-Sensoren bei Kabel/Glasfaser).
+
+### Events für Automationen (ab v1.4.7)
+
+| Event | Wann | Daten |
+|---|---|---|
+| `fritzportal_new_device` | Ein bisher unbekanntes Gerät taucht im Heimnetz auf | `mac`, `ip`, `name`, `interface`, `guest` |
+| `fritzportal_external_ip_changed` | Die externe IPv4-Adresse hat sich geändert | `old_ip`, `new_ip` |
+
+Beispiel – Push-Nachricht bei neuem Gerät:
+
+```yaml
+automation:
+  - alias: Neues Gerät im WLAN
+    trigger:
+      - platform: event
+        event_type: fritzportal_new_device
+    action:
+      - service: notify.mobile_app_mein_handy
+        data:
+          message: "Neues Gerät: {{ trigger.event.data.name }} ({{ trigger.event.data.ip }})"
+```
+
+Beim allerersten Start merkt sich FRITZ!Portal nur die vorhandenen Geräte – Events kommen erst für danach neu auftauchende.
 
 ### Telefonie-Sensoren: letzte Anrufe in Home Assistant (ab v1.4.6)
 
@@ -283,6 +349,17 @@ Der Dev-Server läuft auf **http://localhost:5173** und proxyt API-Anfragen auto
 ## 📋 Changelog
 
 Die vollständige Versionshistorie ist in [CHANGELOG.md](fritz-portal/CHANGELOG.md) zu finden.
+
+---
+
+## 🤝 Mitwirkende
+
+| | Beitrag |
+|---|---|
+| [@jayjojayson](https://github.com/jayjojayson) | Entwicklung & Pflege |
+| [@Mistergatti](https://github.com/Mistergatti) | Italienische Übersetzung ([#36](https://github.com/jayjojayson/FRITZ-Portal/pull/36)) |
+
+Danke auch an alle, die mit Fehlerberichten und Debug-Protokollen in den [Issues](https://github.com/jayjojayson/FRITZ-Portal/issues) geholfen haben. Beiträge sind willkommen – einfach einen Pull Request öffnen.
 
 ---
 

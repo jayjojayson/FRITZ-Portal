@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useI18n } from '../lib/i18n';
+import { useI18n, type Lang } from '../lib/i18n';
 
 interface StatusLineProps {
   authenticated: boolean;
@@ -17,11 +17,13 @@ function formatUptime(sec: number | null | undefined): string {
   return `${d}d ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-function formatClock(d: Date, lang: 'de' | 'en'): string {
+function formatClock(d: Date, lang: Lang): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   const day = pad(d.getDate());
   const mon = pad(d.getMonth() + 1);
   const yr  = String(d.getFullYear()).slice(-2);
+
+  // Formattazione data in base alla lingua (es. YYYY-MM-DD per EN, DD.MM.YY per DE e IT)
   const date = lang === 'en' ? `${yr}-${mon}-${day}` : `${day}.${mon}.${yr}`;
   return `${date}  ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }

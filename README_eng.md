@@ -9,7 +9,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Home%20Assistant-App-41BDF5?logo=home-assistant&logoColor=white" alt="HA App"/>
-  <img src="https://img.shields.io/badge/Version-1.4.6-blue" alt="Version"/>
+  <img src="https://img.shields.io/badge/Version-1.4.7-blue" alt="Version"/>
   <img src="https://img.shields.io/badge/Architecture-amd64%20%7C%20aarch64%20%7C%20armhf-green" alt="Arch"/>
   <img src="https://img.shields.io/badge/License-MIT-lightgrey" alt="License"/>
   <img src="https://img.shields.io/badge/Downloads-17.3K-blue" alt="Downloads"/>
@@ -47,13 +47,14 @@ If you like the App, I would appreciate a Star rating ⭐ from you. 🤗
 | **Network** | LAN, WAN, WLAN, DHCP – details at a glance; **Mesh topology visualisation** with mesh and radial network view; **WLAN on/off per SSID** (e.g. guest access); WLAN password editable inline |
 | **Traffic** | Live download/upload chart (30 s tick, 30 min history) + statistics for Today, Yesterday, Week, Month, Last Month |
 | **Telephony** | Call list (caller/called/device separated, type filter) and DECT handsets – **clean separation from SmartHome** (DECT actors like FRITZ!DECT 200/301 only appear under SmartHome) |
-| **SmartHome** | Overview of all AHA devices (sockets, thermostats, sensors, RolloTron) with temperature, switch state and power consumption |
+| **SmartHome** | All smart home devices incl. **Zigbee** (FRITZ!OS 8.20+ via the new Smart Home REST API, otherwise AHA) with temperature, target temperature, humidity, switch state, power, energy, battery and firmware |
 | **System** | Fritz!Box model, firmware, uptime, serial number, reboot function; HA sensor configuration, debug logging, „keep session alive" and „collect traffic history on the server" toggles |
+| **Dashboard card** | Own Lovelace card `custom:fritz-portal-card` in the portal look (system, internet, traffic with history, active devices with search/filter, mesh, WLAN switches, calls) – installed automatically |
 | **HA Sensors** | CPU, RAM, temp, devices, free IPs, download, upload, traffic counters – automatically pushed as sensors to Home Assistant (with `state_class` → usable in statistics graphs) |
 | **WLAN switches in HA** | Each WLAN/SSID (incl. guest access) is registered as a **controllable switch** (`switch.fritzportal_wlan_…`, via MQTT) or read-only sensor (REST) in HA – turn WLAN on/off straight from the HA dashboard |
 | **MQTT Discovery** | Default transfer method: all sensors are registered via MQTT as a grouped „FRITZ!Portal" device in the HA device overview |
 | **REST API Fallback** | Optionally enabled for users without an MQTT broker – sensors then appear as individual entities |
-| **Languages** | **Fully German / English** switchable via DE/EN pill in the header, selection is persisted |
+| **Languages** | **German / English / Italian** – switchable via the language pill in the header (DE → EN → IT), selection is persisted; on first visit the browser language is used |
 | **Dark / Light Mode** | Reactive theme (TERMINAL.OS Slate · Blue) without page reload |
 | **Ingress** | Full integration into the Home Assistant interface, no port forwarding required |
 
@@ -89,6 +90,7 @@ If you like the App, I would appreciate a Star rating ⭐ from you. 🤗
 | `keep_session_alive` | Keep the FRITZ!Box session permanently open – required for continuous HA sensor updates even when the portal is not actively opened. **Increases load on the FRITZ!Box and can compete with HA's built-in Fritz!SmartHome integration** – only enable when the sensors really must be updated 24/7. **Also required to switch WLAN from HA while the portal is not open.** | `false` |
 | `traffic_history_server` | Continuously collect the download/upload history (last 30 min) on the server so the dashboard chart is fully filled immediately when you return – regardless of whether the portal was open. Costs slightly more FRITZ!Box load. Without this option the history is stored in the browser (localStorage) only. | `false` |
 | `debug_logging` | Log all API requests (TR-064, data.lua) to the protocol – useful for troubleshooting, otherwise leave off | `false` |
+| `dashboard_card` | Copy the dashboard card to `/config/www/fritz-portal/` on start and register it as a Lovelace resource | `true` |
 
 4. **Save → Start**
 5. Open via **Web UI** or directly at `http://<ha-ip>:3003`
@@ -119,6 +121,34 @@ The FRITZ!Portal dashboard shows **6 live tiles** (model, CPU, RAM, temperature,
 and the sortable `HOSTS.ACTIVE` list (switchable **by activity / IP / name** via the `↑↓` button in the
 top-right of the panel). This rich view lives inside the portal itself – via **Ingress** it is embedded
 directly in the HA interface without any port forwarding.
+
+### FRITZ!Portal dashboard card (v1.4.7+)
+
+FRITZ!Portal ships its own card for your HA dashboards – in the same terminal look as the portal. It is
+**installed automatically** when the add-on starts (file copied to `/config/www/fritz-portal/`, registered as a
+Lovelace resource). Then pick **"Add card" → "FRITZ!Portal"** in your dashboard or use YAML:
+
+```yaml
+type: custom:fritz-portal-card
+title: FRITZ!Box                 # optional
+sections: [system, wan, traffic, hosts, mesh, wlan, phone]   # optional, fixed order
+hosts_limit: 8                   # devices shown while collapsed
+hosts_sort: activity             # activity | ip | name
+theme: auto                      # auto | dark | light
+```
+
+| Section | Content |
+|---|---|
+| `system` | CPU, RAM, temperature, devices online, free IPs – with utilisation bars, click opens the HA more-info dialog |
+| `wan` | Internet status, access type, IPv4/IPv6, DSL sync, uptime |
+| `traffic` | Live download/upload in Mbit/s, today's volume and 30-min history from HA history |
+| `hosts` | Active devices with search, filter (all/LAN/WLAN/guest) and sorting (activity/IP/name); clicking the IP opens the device's web UI |
+| `mesh` | FRITZ!Box and repeaters with model, firmware, link and client count ("2/3 online") |
+| `wlan` | WLAN switches (controllable with MQTT, otherwise read-only) |
+| `phone` | Last, missed and incoming call (requires `ha_phone_sensors`) |
+
+Sections without data are hidden automatically. Lovelace in **YAML mode**? Then add the resource yourself:
+`url: /local/fritz-portal/fritz-portal-card.js`, `type: module`.
 
 ### Embedding sparkline tiles & traffic into your own HA dashboards
 
@@ -193,6 +223,42 @@ state appears as a read-only sensor `sensor.fritzportal_wlan_<N>` (no switching 
 > **Prerequisite:** switching requires an active FRITZ!Box session. When the portal is **not** currently
 > open in a browser, the switch command is only executed if `keep_session_alive: true` is set. The
 > FRITZ!Box user also needs write access to **„FRITZ!Box settings"**.
+
+### Internet, mesh & firmware sensors (v1.4.7+)
+
+| Entity | Content |
+|---|---|
+| `binary_sensor.fritzportal_wan_connected` | Internet connection on/off – ideal for outage automations; attributes: status, access type, IPv4/IPv6, uptime |
+| `sensor.fritzportal_wan_access_type` | Access type: DSL, fiber, cable, mobile (LTE/5G), Ethernet |
+| `sensor.fritzportal_external_ip` | External IPv4 address |
+| `sensor.fritzportal_dsl_downstream` / `_upstream` | DSL sync rate in Mbit/s (DSL lines only) |
+| `sensor.fritzportal_mesh_devices` | Number of connected mesh devices; attribute `devices` with model, firmware, link, clients; `total` incl. disconnected ones |
+| `binary_sensor.fritzportal_firmware_update` | FRITZ!OS update available; attributes: installed/new version, release notes link |
+
+Entities only appear once the FRITZ!Box delivers the respective data (e.g. no DSL sensors on cable/fiber).
+
+### Events for automations (v1.4.7+)
+
+| Event | When | Data |
+|---|---|---|
+| `fritzportal_new_device` | A previously unknown device appears in the home network | `mac`, `ip`, `name`, `interface`, `guest` |
+| `fritzportal_external_ip_changed` | The external IPv4 address changed | `old_ip`, `new_ip` |
+
+Example – push notification for a new device:
+
+```yaml
+automation:
+  - alias: New device on the WLAN
+    trigger:
+      - platform: event
+        event_type: fritzportal_new_device
+    action:
+      - service: notify.mobile_app_my_phone
+        data:
+          message: "New device: {{ trigger.event.data.name }} ({{ trigger.event.data.ip }})"
+```
+
+On the very first start FRITZ!Portal only remembers the existing devices – events are fired for devices appearing afterwards.
 
 ### Telephony sensors: recent calls in Home Assistant (v1.4.6+)
 
@@ -286,6 +352,17 @@ The dev server runs at **http://localhost:5173** and proxies API requests automa
 
 The full version history can be found in [CHANGELOG.md](fritz-portal/CHANGELOG.md).
 
+
+---
+
+## 🤝 Contributors
+
+| | Contribution |
+|---|---|
+| [@jayjojayson](https://github.com/jayjojayson) | Development & maintenance |
+| [@Mistergatti](https://github.com/Mistergatti) | Italian translation ([#36](https://github.com/jayjojayson/FRITZ-Portal/pull/36)) |
+
+Thanks also to everyone who helped with bug reports and debug logs in the [issues](https://github.com/jayjojayson/FRITZ-Portal/issues). Contributions are welcome – just open a pull request.
 ---
 
 <p align="center">

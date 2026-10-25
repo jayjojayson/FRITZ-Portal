@@ -2,13 +2,18 @@ import { useState, useEffect } from 'react';
 import { apiFetch } from '../lib/apiFetch';
 import { getApiCache } from '../App';
 import { useT } from '../lib/i18n';
+import { ConnectionSettings, AccessProfileSettings, type TopologyHost } from '../components/DeviceSettings';
 
-interface Host {
-  mac: string;
-  ip: string;
-  active: boolean;
-  name: string;
+interface Host extends TopologyHost {
   interface: string;
+  connDisplay?: string;
+  guest?: boolean;
+  vpn?: boolean;
+  model?: string;
+  updateAvailable?: boolean;
+  deviceClass?: string;
+  priority?: boolean;
+  editHide?: boolean;
 }
 
 interface DeviceDetailProps {
@@ -27,14 +32,21 @@ export default function DeviceDetail({ sid, mac, onBack }: DeviceDetailProps) {
   const [loading, setLoading] = useState(cachedHosts.length === 0);
   const [blocked, setBlocked] = useState(false);
   const [blocking, setBlocking] = useState(false);
-  const [message, setMessage] = useState('');
+  // Meldung + Art – vorher wurde die Farbe aus dem Text („Fehler") abgeleitet, was in
+  // der englischen Oberfläche („Error") Fehler als Erfolg darstellte
+  const [message, setMessageState] = useState<{ text: string; ok: boolean } | null>(null);
+  const setMessage = (text: string, ok = true) => setMessageState(text ? { text, ok } : null);
+  const fail = (detail?: string) => setMessage(`${t('Fehler')}: ${detail || t('Unbekannt')}`, false);
   const [deviceName, setDeviceName] = useState('');
-  const [deviceIp, setDeviceIp] = useState('');
   const [saving, setSaving] = useState(false);
   const [staticDhcp, setStaticDhcp] = useState<{ exists: boolean; ip: string } | null>(null);
   const [staticDhcpInput, setStaticDhcpInput] = useState('');
   const [settingDhcp, setSettingDhcp] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [waking, setWaking] = useState(false);
+  const [priority, setPriority] = useState<boolean | null>(null);
+  const [autoWol, setAutoWol] = useState<{ supported: boolean; enabled: boolean } | null>(null);
+  const [toggling, setToggling] = useState<'priority' | 'autowol' | null>(null);
 
   const headers = { 'X-Fritz-SID': sid };
 
@@ -58,12 +70,55 @@ export default function DeviceDetail({ sid, mac, onBack }: DeviceDetailProps) {
         }
         onBack();
       } else {
-        setMessage(`Fehler: ${data.error || 'Löschen fehlgeschlagen'}`);
+        fail(data.error || t('Löschen fehlgeschlagen'));
       }
     } catch {
-      setMessage('Verbindungsfehler');
+      fail(t('Verbindungsfehler'));
     } finally {
       setDeleting(false);
+    }
+  };
+
+  // Wake-on-LAN: die FRITZ!Box sendet das Magic Packet selbst ins Heimnetz
+  const handleWake = async (host: Host) => {
+    setWaking(true);
+    setMessage('');
+    try {
+      const res = await apiFetch('/api/fritz/device/wol', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({ mac: host.mac }),
+      });
+      const data = await res.json();
+      if (data.success) setMessage(t('Weckruf an „{n}" gesendet – das Gerät startet je nach Einstellung in einigen Sekunden.').replace('{n}', host.name || host.mac));
+      else fail(data.error);
+    } catch {
+      fail(t('Verbindungsfehler'));
+    } finally {
+      setWaking(false);
+    }
+  };
+
+  // Echtzeit-Priorität (FRITZ!Box „Priorisierung") bzw. automatisches Wake-on-LAN umschalten
+  const handleToggle = async (kind: 'priority' | 'autowol', host: Host) => {
+    setToggling(kind);
+    setMessage('');
+    const current = kind === 'priority' ? (priority ?? !!host.priority) : !!autoWol?.enabled;
+    try {
+      const res = await apiFetch(`/api/fritz/device/${kind}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify(kind === 'priority' ? { ip: host.ip, enabled: !current } : { mac: host.mac, enabled: !current }),
+      });
+      const data = await res.json();
+      if (!data.success) return fail(data.error);
+      if (kind === 'priority') setPriority(!current);
+      else setAutoWol(a => ({ supported: true, enabled: !(a?.enabled) }));
+      setMessage(t('Einstellung gespeichert.'));
+    } catch {
+      fail(t('Verbindungsfehler'));
+    } finally {
+      setToggling(null);
     }
   };
 
@@ -85,9 +140,19 @@ export default function DeviceDetail({ sid, mac, onBack }: DeviceDetailProps) {
       .then(d => setBlocked(d.blocked === true))
       .catch(() => {});
 
+    apiFetch(`/api/fritz/device/autowol?mac=${encodeURIComponent(mac)}`, { headers })
+      .then(r => r.json())
+      .then(setAutoWol)
+      .catch(() => {});
+
     apiFetch(`/api/fritz/device/static-dhcp?mac=${encodeURIComponent(mac)}`, { headers })
       .then(r => r.json())
-      .then(d => { setStaticDhcp(d); setStaticDhcpInput(d.ip || ''); })
+      .then(d => {
+        setStaticDhcp(d);
+        // Feld mit reservierter bzw. aktuell vergebener IP vorbefüllen – so muss nur noch
+        // die letzte Stelle angepasst werden statt die komplette Adresse einzutippen
+        setStaticDhcpInput(prev => d.ip || prev || cachedHosts.find((h: Host) => h.mac === mac)?.ip || '');
+      })
       .catch(() => {});
 
     try { await hostsP; } finally { setLoading(false); }
@@ -105,9 +170,9 @@ export default function DeviceDetail({ sid, mac, onBack }: DeviceDetailProps) {
       const data = await res.json();
       if (data.success) {
         setBlocked(!blocked);
-        setMessage(blocked ? 'Gerät freigegeben' : 'Gerät gesperrt');
+        setMessage(blocked ? t('Gerät freigegeben') : t('Gerät gesperrt'));
       } else {
-        setMessage(`Fehler: ${data.error || 'Unbekannt'}`);
+        fail(data.error);
       }
     } finally {
       setBlocking(false);
@@ -118,24 +183,20 @@ export default function DeviceDetail({ sid, mac, onBack }: DeviceDetailProps) {
     setSaving(true);
     setMessage('');
     try {
-      const body: any = { mac };
-      if (deviceName) body.name = deviceName;
-      if (deviceIp) body.ip = deviceIp;
-
       const res = await apiFetch('/api/fritz/device/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ mac, name: deviceName }),
       });
       const data = await res.json();
       if (data.success) {
-        setMessage(deviceIp ? 'Name und IP gespeichert' : 'Name gespeichert');
-        setHosts(prev => prev.map(h => h.mac === mac ? { ...h, name: deviceName || h.name, ip: deviceIp || h.ip } : h));
+        setMessage(t('Name gespeichert'));
+        setHosts(prev => prev.map(h => h.mac === mac ? { ...h, name: deviceName || h.name } : h));
       } else {
-        setMessage(`Fehler: ${data.error || 'Unbekannt'}`);
+        fail(data.error);
       }
-    } catch (err) {
-      setMessage('Verbindungsfehler');
+    } catch {
+      fail(t('Verbindungsfehler'));
     } finally {
       setSaving(false);
     }
@@ -155,12 +216,12 @@ export default function DeviceDetail({ sid, mac, onBack }: DeviceDetailProps) {
       const data = await res.json();
       if (data.success) {
         setStaticDhcp({ exists: true, ip: staticDhcpInput });
-        setMessage(`IP ${staticDhcpInput} dauerhaft zugewiesen`);
+        setMessage(t('IP {ip} dauerhaft zugewiesen').replace('{ip}', staticDhcpInput));
       } else {
-        setMessage(`Fehler: ${data.error || 'Unbekannt'}`);
+        fail(data.error);
       }
     } catch {
-      setMessage('Verbindungsfehler');
+      fail(t('Verbindungsfehler'));
     } finally {
       setSettingDhcp(false);
     }
@@ -178,16 +239,22 @@ export default function DeviceDetail({ sid, mac, onBack }: DeviceDetailProps) {
       const data = await res.json();
       if (data.success) {
         setStaticDhcp({ exists: false, ip: '' });
-        setMessage('DHCP-Reservierung entfernt');
+        setMessage(t('DHCP-Reservierung entfernt'));
       } else {
-        setMessage(`Fehler: ${data.error || 'Unbekannt'}`);
+        fail(data.error);
       }
     } catch {
-      setMessage('Verbindungsfehler');
+      fail(t('Verbindungsfehler'));
     } finally {
       setSettingDhcp(false);
     }
   };
+
+  // Hosts erst nachgeladen (kein Cache)? Dann IP-Feld jetzt vorbefüllen
+  useEffect(() => {
+    const ip = hosts.find(h => h.mac === mac)?.ip;
+    if (ip) setStaticDhcpInput(prev => prev || ip);
+  }, [hosts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return <div className="loading"><div className="spinner" /></div>;
 
@@ -204,7 +271,9 @@ export default function DeviceDetail({ sid, mac, onBack }: DeviceDetailProps) {
     );
   }
 
-  const isWlan = (() => { const s = String(device.interface || '').toLowerCase(); return s.includes('wlan') || s.includes('802'); })();
+  const isWlan = device.connType
+    ? device.connType === 'WLAN'
+    : (() => { const s = String(device.interface || '').toLowerCase(); return s.includes('wlan') || s.includes('802'); })();
 
   return (
     <div>
@@ -214,13 +283,15 @@ export default function DeviceDetail({ sid, mac, onBack }: DeviceDetailProps) {
         <p>{t('Ger\u00e4tedetails f\u00fcr {mac}').replace('{mac}', device.mac)}</p>
       </div>
 
-      {message && <div className={message.includes('Fehler') ? 'error-message' : 'success-message'}>{message}</div>}
+      {message && <div className={message.ok ? 'success-message' : 'error-message'}>{message.text}</div>}
 
       <div className="card">
         <div className="card-header">
           <h3>{t('Ger\u00e4teinformationen')}</h3>
-          <span className={`status-dot ${device.active ? 'online' : 'offline'}`} style={{ marginLeft: 8 }} />
-          <span style={{ fontSize: 14 }}>{device.active ? t('Online') : t('Offline')}</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 14 }}>
+            <span className={`status-dot ${device.active ? 'online' : 'offline'}`} />
+            {device.active ? t('Online') : t('Offline')}
+          </span>
         </div>
         <div className="card-body">
           <table>
@@ -286,26 +357,51 @@ export default function DeviceDetail({ sid, mac, onBack }: DeviceDetailProps) {
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                     {isWlan ? (
                       <>
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2">
-                          <path d="M5 12.55a11 11 0 0 1 14.08 0" /><path d="M1.42 9a16 16 0 0 1 21.16 0" /><path d="M8.53 16.11a6 6 0 0 1 6.95 0" /><circle cx="12" cy="20" r="1" fill="#3b82f6" />
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2">
+                          <path d="M5 12.55a11 11 0 0 1 14.08 0" /><path d="M1.42 9a16 16 0 0 1 21.16 0" /><path d="M8.53 16.11a6 6 0 0 1 6.95 0" /><circle cx="12" cy="20" r="1" fill="#10b981" />
                         </svg>
-                        <span style={{ color: '#3b82f6', fontWeight: 500 }}>WLAN</span>
+                        <span style={{ color: '#10b981', fontWeight: 500 }}>WLAN</span>
                       </>
                     ) : (
                       <>
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2">
                           <rect x="1" y="6" width="22" height="12" rx="2" /><line x1="1" y1="10" x2="23" y2="10" />
                         </svg>
-                        <span style={{ color: '#22c55e', fontWeight: 500 }}>LAN</span>
+                        <span style={{ color: '#3b82f6', fontWeight: 500 }}>LAN</span>
                       </>
                     )}
+                    {device.viaName && <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>· {t('über {n}').replace('{n}', device.viaName)}</span>}
                   </span>
                 </td>
               </tr>
+              {device.connDisplay && (
+                <tr>
+                  <td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('Verbindungsdetail')}</td>
+                  <td style={{ fontFamily: 'monospace' }}>{device.connDisplay}</td>
+                </tr>
+              )}
               {device.interface && (
                 <tr>
                   <td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('Interface')}</td>
                   <td style={{ fontFamily: 'monospace' }}>{device.interface}</td>
+                </tr>
+              )}
+              {(device.guest || device.vpn) && (
+                <tr>
+                  <td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('Netz')}</td>
+                  <td style={{ color: '#f59e0b' }}>{device.guest ? t('Gastnetz') : t('VPN')}</td>
+                </tr>
+              )}
+              {device.deviceClass && (
+                <tr>
+                  <td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('Geräteklasse')}</td>
+                  <td>{device.deviceClass}</td>
+                </tr>
+              )}
+              {device.model && (
+                <tr>
+                  <td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('Modell')}</td>
+                  <td>{device.model}{device.updateAvailable && <span style={{ marginLeft: 8, fontSize: 12, color: '#f59e0b' }}>{t('Update verfügbar')}</span>}</td>
                 </tr>
               )}
             </tbody>
@@ -317,9 +413,18 @@ export default function DeviceDetail({ sid, mac, onBack }: DeviceDetailProps) {
               <button
                 className={`btn ${blocked ? 'btn-primary' : 'btn-danger'}`}
                 onClick={handleBlock}
-                disabled={blocking}
+                disabled={blocking || !!device.editHide}
+                title={device.editHide ? t('Die FRITZ!Box erlaubt für dieses Gerät keine Sperre') : undefined}
               >
                 {blocking ? t('Wird ausgef\u00fchrt...') : blocked ? t('Internet freigeben') : t('Internet sperren')}
+              </button>
+              <button
+                className="btn btn-outline"
+                onClick={() => handleWake(device)}
+                disabled={waking}
+                title={t('Wake-on-LAN: Gerät über das Netzwerk einschalten (muss WoL unterstützen)')}
+              >
+                {waking ? t('Wird gesendet...') : t('Aufwecken (WoL)')}
               </button>
               <button
                 className="btn btn-danger"
@@ -329,6 +434,26 @@ export default function DeviceDetail({ sid, mac, onBack }: DeviceDetailProps) {
               >
                 {deleting ? t('Wird entfernt...') : t('Ger\u00e4t entfernen')}
               </button>
+              {device.ip && !device.editHide && (
+                <button
+                  className={`btn ${(priority ?? device.priority) ? 'btn-primary' : 'btn-outline'}`}
+                  onClick={() => handleToggle('priority', device)}
+                  disabled={toggling !== null}
+                  title={t('Echtzeitanwendungen: Gerät bekommt bei voller Leitung Vorrang (z. B. Videotelefonie, Gaming)')}
+                >
+                  {(priority ?? device.priority) ? `✓ ${t('Echtzeit-Priorität')}` : t('Echtzeit-Priorität')}
+                </button>
+              )}
+              {autoWol?.supported && (
+                <button
+                  className={`btn ${autoWol.enabled ? 'btn-primary' : 'btn-outline'}`}
+                  onClick={() => handleToggle('autowol', device)}
+                  disabled={toggling !== null}
+                  title={t('Die FRITZ!Box weckt das Gerät automatisch, wenn aus dem Internet darauf zugegriffen wird')}
+                >
+                  {autoWol.enabled ? `✓ ${t('Auto-WoL')}` : t('Auto-WoL')}
+                </button>
+              )}
               {blocked && (
                 <span style={{ color: 'var(--danger)', fontSize: 13, fontWeight: 500 }}>
                   {'\u26d4'} {t('Ger\u00e4t ist gesperrt')}
@@ -343,6 +468,10 @@ export default function DeviceDetail({ sid, mac, onBack }: DeviceDetailProps) {
           </div>
         </div>
       </div>
+
+      <ConnectionSettings sid={sid} device={device} hosts={hosts} onChanged={h => setHosts(h as Host[])} />
+
+      <AccessProfileSettings sid={sid} ip={device.ip} disabled={!!device.editHide} />
 
       <div className="card">
         <div className="card-header">
@@ -361,6 +490,7 @@ export default function DeviceDetail({ sid, mac, onBack }: DeviceDetailProps) {
               value={staticDhcpInput}
               onChange={e => setStaticDhcpInput(e.target.value)}
               placeholder={device.ip || '192.168.178.x'}
+              onFocus={e => { const v = e.target.value; const dot = v.lastIndexOf('.'); if (dot > 0) e.target.setSelectionRange(dot + 1, v.length); }}
               style={{
                 padding: '6px 10px',
                 borderRadius: 6,
@@ -400,10 +530,7 @@ export default function DeviceDetail({ sid, mac, onBack }: DeviceDetailProps) {
         </div>
         <div className="card-body">
           <p style={{ color: 'var(--text-secondary)', fontSize: 14, margin: 0 }}>
-            Die Fritz!Box stellt keinen gerätespezifischen Traffic-Verlauf über die API zur Verfügung.
-            Den gesamten Internet-WAN-Traffic (alle Geräte) findest du auf der{' '}
-            <strong>Dashboard</strong>-Seite, historische Verbrauchsstatistiken unter{' '}
-            <strong>Traffic</strong>.
+            {t('Die FRITZ!Box stellt keinen gerätespezifischen Traffic-Verlauf über ihre offiziellen Schnittstellen bereit. Den gesamten Internet-Traffic findest du auf dem Dashboard, Verbrauchsstatistiken unter Traffic.')}
           </p>
         </div>
       </div>

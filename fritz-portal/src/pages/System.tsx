@@ -6,6 +6,110 @@ interface SystemProps {
   sid: string;
 }
 
+type LogFilter = 'all' | 'sys' | 'net' | 'fon' | 'wlan' | 'usb';
+const LOG_FILTERS: [LogFilter, string][] = [
+  ['all', 'Alle'], ['sys', 'System'], ['net', 'Internet'], ['fon', 'Telefonie'], ['wlan', 'WLAN'], ['usb', 'USB'],
+];
+
+// Optionale Dashboard-Boxen ein-/ausblenden. Wird sofort gespeichert (serverseitig,
+// gilt also für alle Browser und übersteht Add-on-Updates).
+function DashboardSettings({ sid, initial }: { sid: string; initial: { calls: boolean; smarthome: boolean } }) {
+  const t = useT();
+  const [state, setState] = useState(initial);
+  useEffect(() => setState(initial), [initial.calls, initial.smarthome]);
+  const toggle = async (key: 'calls' | 'smarthome') => {
+    const next = { ...state, [key]: !state[key] };
+    setState(next);
+    try {
+      await apiFetch('/api/fritz/dashboard-settings', {
+        method: 'POST',
+        headers: { 'X-Fritz-SID': sid, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dashboard_calls: next.calls, dashboard_smarthome: next.smarthome }),
+      });
+    } catch { setState(state); }
+  };
+  const row = (key: 'calls' | 'smarthome', label: string, hint: string) => (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderTop: '1px solid var(--border)' }}>
+      <div>
+        <div style={{ fontWeight: 500, fontSize: 14 }}>{t(label)}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>{t(hint)}</div>
+      </div>
+      <button onClick={() => toggle(key)} title={state[key] ? t('Deaktivieren') : t('Aktivieren')} style={{
+        width: 46, height: 26, borderRadius: 13, border: 'none', cursor: 'pointer',
+        background: state[key] ? '#22c55e' : '#6b7280', position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+      }}>
+        <span style={{ position: 'absolute', top: 3, left: state[key] ? 23 : 3, width: 20, height: 20, borderRadius: '50%', background: 'white', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.25)' }} />
+      </button>
+    </div>
+  );
+  return (
+    <div className="card" style={{ marginTop: 24 }}>
+      <div className="card-header"><h3>{t('Dashboard')}</h3></div>
+      <div className="card-body" style={{ paddingTop: 0 }}>
+        {row('calls', 'Letzte Anrufe anzeigen', 'Box „CALLS.RECENT" mit den letzten Anrufen auf dem Dashboard')}
+        {row('smarthome', 'SmartHome-Status anzeigen', 'Box „SMARTHOME.STATUS" mit den zuletzt aktiven Smart-Home-Geräten auf dem Dashboard')}
+      </div>
+    </div>
+  );
+}
+
+// Ereignisprotokoll der FRITZ!Box (wie „System → Ereignisse" in der Box-Oberfläche)
+function DeviceLog({ sid }: { sid: string }) {
+  const t = useT();
+  const [filter, setFilter] = useState<LogFilter>('all');
+  const [events, setEvents] = useState<{ date: string; time: string; msg: string; group?: string }[] | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    apiFetch(`/api/fritz/device-log?filter=${filter}`, { headers: { 'X-Fritz-SID': sid } })
+      .then(r => r.json())
+      .then(d => setEvents(Array.isArray(d?.events) ? d.events : []))
+      .catch(() => setEvents([]))
+      .finally(() => setLoading(false));
+  }, [filter]);
+
+  return (
+    <div className="card" style={{ marginTop: 24 }}>
+      <div className="card-header" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <h3>{t('Ereignisprotokoll')}</h3>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {LOG_FILTERS.map(([id, label]) => (
+            <button key={id} onClick={() => setFilter(id)} style={{
+              padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
+              border: `1px solid ${filter === id ? 'var(--accent)' : 'var(--border)'}`,
+              background: filter === id ? 'var(--accent)' : 'var(--bg-primary)',
+              color: filter === id ? '#fff' : 'var(--text-secondary)',
+            }}>{t(label)}</button>
+          ))}
+        </div>
+      </div>
+      <div className="card-body" style={{ maxHeight: 420, overflowY: 'auto', padding: 0 }}>
+        {loading && !events ? (
+          <div style={{ padding: 24, textAlign: 'center' }}><div className="spinner" /></div>
+        ) : !events || events.length === 0 ? (
+          <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
+            {t('Keine Ereignisse verfügbar')}
+          </div>
+        ) : (
+          <table style={{ opacity: loading ? 0.5 : 1 }}>
+            <tbody>
+              {events.map((e, i) => (
+                <tr key={i}>
+                  <td style={{ whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)', width: 150, verticalAlign: 'top' }}>
+                    {e.date} {e.time}
+                  </td>
+                  <td style={{ fontSize: 13 }}>{e.msg}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function System({ sid }: SystemProps) {
   const t = useT();
   const [deviceInfo, setDeviceInfo] = useState<any>(null);
@@ -13,7 +117,6 @@ export default function System({ sid }: SystemProps) {
   const [rebooting, setRebooting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [version] = useState('1.4.6');
   const [fritzHost, setFritzHost] = useState('fritz.box');
 
   // HA-Sensor-Einstellungen
@@ -27,7 +130,10 @@ export default function System({ sid }: SystemProps) {
     debug_logging: boolean;
     keep_session_alive: boolean;
     traffic_history_server: boolean;
+    dashboard_calls?: boolean;
+    dashboard_smarthome?: boolean;
   } | null>(null);
+  const [firmware, setFirmware] = useState<{ updateAvailable: boolean; newVersion?: string; infoUrl?: string; unavailable?: boolean } | null>(null);
   const [haSaving, setHaSaving] = useState(false);
   const [haMessage, setHaMessage] = useState('');
   const [haMessageOk, setHaMessageOk] = useState(true);
@@ -36,6 +142,11 @@ export default function System({ sid }: SystemProps) {
 
   useEffect(() => {
     loadInfo();
+    // Firmware-Status der Box (UserInterface:1#GetInfo – die Box prüft selbst bei AVM)
+    apiFetch('/api/fritz/firmware', { headers })
+      .then(r => r.json())
+      .then(d => setFirmware(d))
+      .catch(() => {});
     // HA-Einstellungen laden
     apiFetch('/api/fritz/ha-settings', { headers })
       .then(r => r.json())
@@ -93,12 +204,12 @@ export default function System({ sid }: SystemProps) {
       const res = await apiFetch('/api/fritz/reboot', { method: 'POST', headers });
       const data = await res.json();
       if (data.success) {
-        setMessage('Neustart wurde ausgelöst. Die FritzBox startet jetzt neu...');
+        setMessage(t('Neustart wurde ausgelöst. Die FritzBox startet jetzt neu...'));
       } else {
         setError(data.error || t('Neustart fehlgeschlagen'));
       }
     } catch (err) {
-      setError('Verbindungsfehler');
+      setError(t('Verbindungsfehler'));
     } finally {
       setRebooting(false);
     }
@@ -139,7 +250,7 @@ export default function System({ sid }: SystemProps) {
               </tr>
               <tr>
                 <td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>FRITZ!Portal</td>
-                <td>v{version || '-'}</td>
+                <td>v{__APP_VERSION__}</td>
               </tr>
               <tr>
                 <td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('Seriennummer')}</td>
@@ -175,7 +286,20 @@ export default function System({ sid }: SystemProps) {
             </svg>
           </div>
           <h4>{t('Firmware Update')}</h4>
-          <p>{t('Prüfen Sie auf verfügbare Firmware-Updates für Ihre FritzBox.')}</p>
+          {firmware && !firmware.unavailable ? (
+            firmware.updateAvailable ? (
+              <p style={{ color: 'var(--warning)' }}>
+                {t('Neue FRITZ!OS-Version verfügbar: {v}').replace('{v}', firmware.newVersion || '?')}
+                {firmware.infoUrl && (
+                  <> – <a href={firmware.infoUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>{t('Versionshinweise')}</a></>
+                )}
+              </p>
+            ) : (
+              <p style={{ color: 'var(--success)' }}>{t('FRITZ!OS ist aktuell.')} {deviceInfo?.NewSoftwareVersion ? `(${deviceInfo.NewSoftwareVersion})` : ''}</p>
+            )
+          ) : (
+            <p>{t('Prüfen Sie auf verfügbare Firmware-Updates für Ihre FritzBox.')}</p>
+          )}
           <button className="btn btn-primary" onClick={() => window.open(fritzUrl, '_blank')}>
             {t('In FritzBox öffnen')}
           </button>
@@ -207,9 +331,7 @@ export default function System({ sid }: SystemProps) {
           </div>
           <div className="card-body">
             <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 20, lineHeight: 1.6 }}>
-              FRITZ!Portal sendet Gerätewerte automatisch via MQTT Discovery an Home Assistant.
-              Die Entitäten erscheinen unter <code style={{ background: 'var(--bg-primary)', padding: '1px 6px', borderRadius: 4, fontSize: 12 }}>sensor.fritzportal_*</code> und können direkt auf dem HA-Dashboard verwendet werden.
-              Falls kein MQTT-Broker vorhanden ist, kann der REST-API Fallback aktiviert werden.
+              {t('FRITZ!Portal sendet Gerätewerte automatisch via MQTT Discovery an Home Assistant. Die Entitäten erscheinen unter sensor.fritzportal_* und können direkt auf dem HA-Dashboard verwendet werden. Falls kein MQTT-Broker vorhanden ist, kann der REST-API Fallback aktiviert werden.')}
             </p>
 
             {/* Status-Anzeige */}
@@ -374,7 +496,7 @@ export default function System({ sid }: SystemProps) {
                   background: haSettings.debug_logging ? '#f59e0b' : '#6b7280',
                   position: 'relative', transition: 'background 0.2s', flexShrink: 0,
                 }}
-                title={haSettings.debug_logging ? 'Deaktivieren' : 'Aktivieren'}
+                title={haSettings.debug_logging ? t('Deaktivieren') : t('Aktivieren')}
               >
                 <span style={{
                   position: 'absolute', top: 3,
@@ -400,6 +522,26 @@ export default function System({ sid }: SystemProps) {
           </div>
         </div>
       )}
+
+      {haSettings?.ha_available && (
+        <div className="card" style={{ marginTop: 24 }}>
+          <div className="card-header"><h3>{t('Dashboard-Card')}</h3></div>
+          <div className="card-body">
+            <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 12, lineHeight: 1.6 }}>
+              {t('FRITZ!Portal bringt eine eigene Karte für deine Home-Assistant-Dashboards mit (System, Internet, Traffic, Geräte, Mesh, WLAN, Anrufe). Sie wird beim Start automatisch installiert – einfach im Dashboard „Karte hinzufügen" → „FRITZ!Portal" wählen oder per YAML:')}
+            </p>
+            <pre style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', padding: '10px 14px', fontSize: 12, margin: 0, overflowX: 'auto' }}>
+{`type: custom:fritz-portal-card
+sections: [system, wan, traffic, hosts, mesh, wlan, phone]
+hosts_limit: 8`}
+            </pre>
+          </div>
+        </div>
+      )}
+
+      <DashboardSettings sid={sid} initial={{ calls: haSettings?.dashboard_calls !== false, smarthome: haSettings?.dashboard_smarthome !== false }} />
+
+      <DeviceLog sid={sid} />
     </div>
   );
 }

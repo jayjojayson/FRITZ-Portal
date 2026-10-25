@@ -26,13 +26,45 @@ interface NetworkData {
   upload: number;
 }
 
+type DashboardTarget = 'devices' | 'network' | 'telefonie' | 'smarthome' | 'system';
+
 interface DashboardProps {
   sid: string;
+  onSelectDevice: (mac: string) => void;
+  onNavigate: (page: DashboardTarget) => void;
+}
+
+// Anruftyp (AVM-Call-XML) → Symbol und Farbe
+const CALL_ICON: Record<string, { icon: string; color: string }> = {
+  '1': { icon: '↙', color: 'var(--success)' }, '9': { icon: '↙', color: 'var(--success)' },
+  '2': { icon: '✕', color: 'var(--danger)' },  '10': { icon: '⊘', color: 'var(--warning)' },
+  '3': { icon: '↗', color: 'var(--accent)' },  '11': { icon: '↗', color: 'var(--accent)' },
+};
+
+// Kurzbeschreibung des Zustands eines Smart-Home-Geräts für die Dashboard-Liste
+function smartHomeSummary(d: any, t: (s: string) => string): string {
+  const v: string[] = [];
+  if (d.switch_state === '1' || d.switch_state === '0') v.push(d.switch_state === '1' ? t('an') : t('aus'));
+  if (Number.isFinite(d.power) && d.switch_state === '1') v.push(`${(d.power / 1000).toFixed(1)} W`);
+  if (Number.isFinite(d.temperature)) v.push(`${(d.temperature / 10).toFixed(1)} °C`);
+  if (Number.isFinite(d.tsoll_celsius)) v.push(`→ ${d.tsoll_celsius} °C`);
+  if (Number.isFinite(d.humidity)) v.push(`${d.humidity} %`);
+  return v.join(' · ') || '—';
+}
+
+function ago(unixSec: number, t: (s: string) => string): string {
+  const diff = Math.max(0, Math.floor(Date.now() / 1000 - unixSec));
+  if (diff < 60) return t('gerade eben');
+  if (diff < 3600) return t('vor {n} Min').replace('{n}', String(Math.floor(diff / 60)));
+  if (diff < 86400) return t('vor {n} Std').replace('{n}', String(Math.floor(diff / 3600)));
+  return t('vor {n} Tagen').replace('{n}', String(Math.floor(diff / 86400)));
 }
 
 type EcoModal = 'cpu' | 'ram' | 'temp' | null;
 
 const MAX_POINTS = 60;
+// Spalten der HOSTS.ACTIVE-Liste: Name | .Endziffer der IP | Verbindung
+const HOST_COLS = 'minmax(0, 1fr) 40px 156px';
 
 // ── Sparkline helper ───────────────────────────────────────────────────────
 function buildSpark(values: number[]): { path: string; fill: string } | null {
@@ -115,7 +147,7 @@ function EcoHistoryModal({ type, sid, onClose }: { type: EcoModal; sid: string; 
   );
 }
 
-export default function Dashboard({ sid }: DashboardProps) {
+export default function Dashboard({ sid, onSelectDevice, onNavigate }: DashboardProps) {
   const t = useT();
   const [deviceInfo, setDeviceInfo] = useState<any>(getApiCache('device-info'));
   const [hosts, setHosts] = useState<Host[]>(getApiCache('hosts') || []);
@@ -136,12 +168,30 @@ export default function Dashboard({ sid }: DashboardProps) {
   const [loading, setLoading] = useState(!hasAnyCache);
   const [ecoModal, setEcoModal] = useState<EcoModal>(null);
   const [hostsSort, setHostsSort] = useState<HostsSort>('activity');
+  // Optionale Boxen „Letzte Anrufe" / „SmartHome" (ein-/ausschaltbar unter System)
+  const [panels, setPanels] = useState<{ calls: boolean; smarthome: boolean }>(getApiCache('dashboard-panels') || { calls: true, smarthome: true });
+  const [calls, setCalls] = useState<any[]>(getApiCache('calls') || []);
+  const [smartDevices, setSmartDevices] = useState<any[]>(getApiCache('smartHome') || []);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const headers = { 'X-Fritz-SID': sid };
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   const gridColor = isDark ? '#2a323e' : '#d8dde5';
   const textColor = isDark ? '#8390a3' : '#5a6678';
+
+  // Zusatz-Boxen nachladen (nur wenn eingeschaltet)
+  useEffect(() => {
+    apiFetch('/api/fritz/ha-settings', { headers })
+      .then(r => r.json())
+      .then(d => {
+        const p = { calls: d?.dashboard_calls !== false, smarthome: d?.dashboard_smarthome !== false };
+        setPanels(p);
+        setApiCache('dashboard-panels', p);
+        if (p.calls) apiFetch('/api/fritz/calls', { headers }).then(r => r.json()).then(c => { if (Array.isArray(c)) { setCalls(c); setApiCache('calls', c); } }).catch(() => {});
+        if (p.smarthome) apiFetch('/api/fritz/smartHome', { headers }).then(r => r.json()).then(sh => { if (Array.isArray(sh)) { setSmartDevices(sh); setApiCache('smartHome', sh); } }).catch(() => {});
+      })
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     loadData();
@@ -376,6 +426,8 @@ export default function Dashboard({ sid }: DashboardProps) {
           value={modelValue}
           unit={modelUnit}
           hint={<>── {String(deviceInfo?.NewFriendlyName || 'fritz.box').toLowerCase()}</>}
+          onClick={() => onNavigate('system')}
+          title={t('Systeminformationen öffnen')}
         />
         <StatTile
           label="CPU"
@@ -412,11 +464,15 @@ export default function Dashboard({ sid }: DashboardProps) {
           value={activeHosts.length}
           unit={t('online')}
           hint={<>── {totalKnown} {t('known')}</>}
+          onClick={() => onNavigate('devices')}
+          title={t('Geräteliste öffnen')}
         />
         <StatTile
           label="IP POOL"
           value={ipStats.free || 0}
           unit={t('free')}
+          onClick={() => onNavigate('network')}
+          title={t('Netzwerk & DHCP öffnen')}
           hint={
             ipStats.total > 0 ? (
               <div className="tile-progress">
@@ -506,7 +562,7 @@ export default function Dashboard({ sid }: DashboardProps) {
         >
           <div style={{
             padding: '10px 16px 6px',
-            display: 'grid', gridTemplateColumns: '1fr 60px 70px',
+            display: 'grid', gridTemplateColumns: HOST_COLS,
             gap: 10,
             fontSize: 11,
             color: 'var(--text-muted)',
@@ -522,19 +578,29 @@ export default function Dashboard({ sid }: DashboardProps) {
               const link = h.connDisplay || h.connSpeed
                 || (h.connType === 'WLAN' ? 'Wi-Fi' : h.connType === 'LAN' ? 'LAN' : '—');
               return (
-                <div key={h.mac || i} style={{
-                  display: 'grid', gridTemplateColumns: '1fr 60px 70px', gap: 10,
-                  padding: '9px 16px',
+                <div key={h.mac || i}
+                  className="dash-row"
+                  role="button"
+                  tabIndex={0}
+                  title={t('Gerätedetails öffnen')}
+                  onClick={() => h.mac && onSelectDevice(h.mac)}
+                  onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && h.mac) { e.preventDefault(); onSelectDevice(h.mac); } }}
+                  style={{
+                  display: 'grid', gridTemplateColumns: HOST_COLS, gap: 10,
+                  padding: '7px 16px',
                   fontSize: 12.5,
                   borderBottom: i === Math.min(activeHosts.length, 10) - 1 ? 'none' : '1px solid var(--bg-elevated)',
                   color: 'var(--text-primary)',
+                  cursor: h.mac ? 'pointer' : 'default',
                 }}>
                   <span style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
                     <span style={{ color: 'var(--success)', marginRight: 9 }}>●</span>
                     {h.name || t('Unbekannt')}
                   </span>
                   <span style={{ color: 'var(--text-secondary)', fontSize: 11.5 }}>.{lastOctet}</span>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: 11.5 }}>{link}</span>
+                  {/* Einzeilig: lange Texte („WLAN · mi-routermutti") brachen vorher in der
+                      schmalen Spalte auf 2–3 Zeilen um und machten die Liste höher als das Diagramm */}
+                  <span title={link} style={{ color: 'var(--text-secondary)', fontSize: 11.5, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{link}</span>
                 </div>
               );
             })}
@@ -546,6 +612,69 @@ export default function Dashboard({ sid }: DashboardProps) {
           </div>
         </TerminalPanel>
       </div>
+
+      {(panels.calls || panels.smarthome) && (
+        <div className="dashboard-extra-grid" style={{
+          display: 'grid', gap: 18, marginTop: 18,
+          gridTemplateColumns: panels.calls && panels.smarthome ? '1fr 1fr' : '1fr',
+        }}>
+          {panels.calls && (
+            <TerminalPanel
+              title="CALLS.RECENT"
+              subtitle={`${Math.min(calls.length, 6)} of ${calls.length}`}
+              right={<button className="dash-link" onClick={() => onNavigate('telefonie')}>{t('alle')} →</button>}
+              bodyPadding={0}
+            >
+              {calls.slice(0, 6).map((c, i) => {
+                const meta = CALL_ICON[c.type] || { icon: '•', color: 'var(--text-secondary)' };
+                const dur = typeof c.durationMin === 'number' && c.durationMin > 0 ? `${c.durationMin} min` : '';
+                return (
+                  <div key={i} className="dash-row" role="button" tabIndex={0}
+                    onClick={() => onNavigate('telefonie')}
+                    onKeyDown={e => { if (e.key === 'Enter') onNavigate('telefonie'); }}
+                    style={{ display: 'grid', gridTemplateColumns: '18px 1fr auto', gap: 10, padding: '8px 16px', fontSize: 12.5, cursor: 'pointer', borderBottom: '1px solid var(--bg-elevated)' }}>
+                    <span style={{ color: meta.color }}>{meta.icon}</span>
+                    <span style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                      {c.name || c.number || t('Unbekannt')}
+                      {c.name && c.number && <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: 11 }}>{c.number}</span>}
+                    </span>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: 11.5, whiteSpace: 'nowrap' }}>{c.date}{dur && ` · ${dur}`}</span>
+                  </div>
+                );
+              })}
+              {calls.length === 0 && <div style={{ padding: 16, color: 'var(--text-muted)', textAlign: 'center', fontSize: 12 }}>{t('Keine Anrufe gefunden')}</div>}
+            </TerminalPanel>
+          )}
+          {panels.smarthome && (() => {
+            // Zuletzt aktive zuerst (Zeitstempel nur über die Smart-Home-REST-API), sonst eingeschaltete
+            const list = [...smartDevices].sort((a, b) =>
+              (b.lastChange || 0) - (a.lastChange || 0) || (b.switch_state === '1' ? 1 : 0) - (a.switch_state === '1' ? 1 : 0));
+            return (
+              <TerminalPanel
+                title="SMARTHOME.STATUS"
+                subtitle={`${smartDevices.filter(d => d.present === '1').length} online`}
+                right={<button className="dash-link" onClick={() => onNavigate('smarthome')}>{t('alle')} →</button>}
+                bodyPadding={0}
+              >
+                {list.slice(0, 6).map((d, i) => (
+                  <div key={d.identifier || i} className="dash-row" role="button" tabIndex={0}
+                    onClick={() => onNavigate('smarthome')}
+                    onKeyDown={e => { if (e.key === 'Enter') onNavigate('smarthome'); }}
+                    style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, padding: '8px 16px', fontSize: 12.5, cursor: 'pointer', borderBottom: '1px solid var(--bg-elevated)' }}>
+                    <span style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                      <span style={{ color: d.present === '1' ? 'var(--success)' : 'var(--text-muted)', marginRight: 9 }}>●</span>
+                      {d.name || t('Unbekannt')}
+                      {d.lastChange && <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: 11 }}>{ago(d.lastChange, t)}</span>}
+                    </span>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: 11.5, whiteSpace: 'nowrap' }}>{smartHomeSummary(d, t)}</span>
+                  </div>
+                ))}
+                {smartDevices.length === 0 && <div style={{ padding: 16, color: 'var(--text-muted)', textAlign: 'center', fontSize: 12 }}>{t('Keine SmartHome-Geräte gefunden')}</div>}
+              </TerminalPanel>
+            );
+          })()}
+        </div>
+      )}
     </div>
   );
 }

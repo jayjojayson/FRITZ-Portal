@@ -1,13 +1,19 @@
 import express from 'express';
 import DigestFetch from 'digest-fetch';
 import mqtt from 'mqtt';
+import WebSocket from 'ws';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { createHash, pbkdf2Sync } from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// Dauerhafte Daten (Einstellungen, Geräte-Zuordnungen, „zuletzt online"): im HA-Add-on
+// /data – bleibt bei Add-on-Updates erhalten. Lokal/Docker ohne /data: fritz-portal/.data
+const DATA_DIR = existsSync('/data') ? '/data' : join(__dirname, '..', '.data');
+try { if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true }); } catch {}
 
 // ── Timestamps für alle Konsolenausgaben (HA-Protokoll) ──
 const _log   = console.log.bind(console);
@@ -60,17 +66,33 @@ globalThis.fetch = async function patchedFetch(url, opts) {
   return _origFetch(url, opts);
 };
 
-// ── HA Add-on: Zugangsdaten aus /data/options.json lesen (überschreibt Env-Vars nicht) ──
+// ── Zugangsdaten/Optionen lesen (überschreibt Env-Vars nicht) ──
+// HA-Add-on: /data/options.json. Lokal/Docker ohne /data: fritz-portal/.data/options.json
+// (gleiches Format, von Git ignoriert) – praktisch zum Testen ohne Passwort in der Shell.
+const OPTIONS_FILE = existsSync('/data/options.json') ? '/data/options.json' : join(DATA_DIR, 'options.json');
+// Platzhalter der lokalen Vorlage („DEIN-…") nicht als Zugangsdaten verwenden – ein
+// Login-Versuch damit würde nur die Login-Sperre (BlockTime) der Box auslösen
+const realOpt = (v) => (v && !/^DEIN-/.test(String(v)) ? v : '');
+// Nur die Zugangsdaten neu einlesen – z. B. wenn die Datei erst nach dem Start ausgefüllt wurde
+function loadCredentialOptions() {
+  try {
+    if (!existsSync(OPTIONS_FILE)) return;
+    const raw = JSON.parse(readFileSync(OPTIONS_FILE, 'utf-8'));
+    const o = { fritzbox_host: realOpt(raw.fritzbox_host), fritzbox_user: realOpt(raw.fritzbox_user), fritzbox_password: realOpt(raw.fritzbox_password) };
+    if (o.fritzbox_host     && !process.env.FRITZBOX_HOST)     process.env.FRITZBOX_HOST     = o.fritzbox_host;
+    if (o.fritzbox_user     && !process.env.FRITZBOX_USER)     process.env.FRITZBOX_USER     = o.fritzbox_user;
+    if (o.fritzbox_password && !process.env.FRITZBOX_PASSWORD) process.env.FRITZBOX_PASSWORD = o.fritzbox_password;
+  } catch (e) { console.log(`Optionen (${OPTIONS_FILE}) nicht lesbar: ${e.message}`); }
+}
 try {
-  if (existsSync('/data/options.json')) {
-    const opts = JSON.parse(readFileSync('/data/options.json', 'utf-8'));
-    if (opts.fritzbox_host     && !process.env.FRITZBOX_HOST)     process.env.FRITZBOX_HOST     = opts.fritzbox_host;
-    if (opts.fritzbox_user     && !process.env.FRITZBOX_USER)     process.env.FRITZBOX_USER     = opts.fritzbox_user;
-    if (opts.fritzbox_password && !process.env.FRITZBOX_PASSWORD) process.env.FRITZBOX_PASSWORD = opts.fritzbox_password;
+  if (existsSync(OPTIONS_FILE)) {
+    const opts = JSON.parse(readFileSync(OPTIONS_FILE, 'utf-8'));
+    loadCredentialOptions();
     if (opts.ha_sensors                  !== undefined && !process.env.HA_SENSORS)                  process.env.HA_SENSORS                  = String(opts.ha_sensors);
     if (opts.ha_sensors_interval          !== undefined && !process.env.HA_SENSORS_INTERVAL)          process.env.HA_SENSORS_INTERVAL          = String(opts.ha_sensors_interval);
     if (opts.ha_sensors_traffic_interval  !== undefined && !process.env.HA_SENSORS_TRAFFIC_INTERVAL)  process.env.HA_SENSORS_TRAFFIC_INTERVAL  = String(opts.ha_sensors_traffic_interval);
     if (opts.ha_phone_sensors             !== undefined && !process.env.HA_PHONE_SENSORS)              process.env.HA_PHONE_SENSORS             = String(opts.ha_phone_sensors);
+    if (opts.dashboard_card               !== undefined && !process.env.DASHBOARD_CARD)                process.env.DASHBOARD_CARD               = String(opts.dashboard_card);
     if (opts.keep_session_alive           !== undefined && !process.env.KEEP_SESSION_ALIVE)            process.env.KEEP_SESSION_ALIVE           = String(opts.keep_session_alive);
     if (opts.traffic_history_server       !== undefined && !process.env.TRAFFIC_HISTORY_SERVER)        process.env.TRAFFIC_HISTORY_SERVER       = String(opts.traffic_history_server);
     if (opts.debug_logging !== undefined) debugLogging = !!opts.debug_logging;
@@ -110,6 +132,14 @@ app.use((req, _res, next) => {
   next();
 });
 
+// Dashboard-Card (Lovelace) – auch direkt abrufbar, z. B. für Docker-Standalone-Nutzer,
+// die sie manuell nach /config/www/ kopieren möchten.
+const CARD_FILE = join(__dirname, '..', 'card', 'fritz-portal-card.js');
+app.get('/card/fritz-portal-card.js', (req, res) => {
+  if (!existsSync(CARD_FILE)) return res.status(404).end();
+  res.type('application/javascript').sendFile(CARD_FILE);
+});
+
 // Serve static frontend files
 const distPath = join(__dirname, '..', 'dist');
 const staticPath = existsSync(distPath) ? distPath : null;
@@ -139,6 +169,9 @@ if (staticPath) {
 
 const sessions = new Map();
 const AUTO_SID = 'auto-session-ha-addon';
+const APP_VERSION = (() => {
+  try { return JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf-8')).version || '0'; } catch { return '0'; }
+})();
 
 // ── Caching ──
 const cache = new Map();
@@ -152,10 +185,16 @@ const WEB_SID_FAIL_TTL = 30000;  // 30 Sekunden Retry bei fehlgeschlagenem Login
 
 async function getCachedWebSid(session) {
   const now = Date.now();
-  // Gültige SID: für 5 Minuten cachen
-  if (cachedWebSid !== null && cachedWebSid !== '' && now - cachedWebSidTime < WEB_SID_TTL) return cachedWebSid;
+  // Gültige SID: 5 Minuten ohne Rückfrage verwenden
+  if (cachedWebSid && now - cachedWebSidTime < WEB_SID_TTL) return cachedWebSid;
   // Fehlgeschlagene SID: erst nach 30 Sekunden erneut versuchen
   if (cachedWebSid === '' && now - cachedWebSidTime < WEB_SID_FAIL_TTL) return cachedWebSid;
+  // Danach die bestehende SID prüfen und weiterverwenden (bleibt bei Nutzung gültig),
+  // statt alle 5 Minuten eine neue Session auf der Box anzulegen
+  if (isValidSid(cachedWebSid) && await checkWebSid(session.host, cachedWebSid)) {
+    cachedWebSidTime = Date.now();
+    return cachedWebSid;
+  }
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 8000);
@@ -175,8 +214,60 @@ async function getCachedWebSid(session) {
 const lastKnownFast    = { cpu: 0, ram: 0, cpu_temp: 0, online: 0, free_ips: 0, activeHosts: [] };
 const lastKnownTraffic = {};
 
-// MAC → Unix-Timestamp (Sek.), wann Gerät zuletzt als aktiv gesehen wurde
+// MAC → Unix-Timestamp (Sek.), wann Gerät zuletzt als aktiv gesehen wurde. Die
+// TR-064-Host-Liste enthält keinen solchen Zeitstempel – wir führen ihn selbst und
+// speichern ihn in /data, damit „zuletzt online" einen Add-on-Neustart übersteht.
+// knownMacs: alle je gesehenen Geräte → Erkennung neuer Geräte (HA-Event).
+const HOSTS_STATE_FILE = join(DATA_DIR, 'fritz-portal-hosts.json');
 const lastSeenMap = new Map();
+const knownMacs = new Set();
+let knownMacsInitialized = false;
+try {
+  if (existsSync(HOSTS_STATE_FILE)) {
+    const st = JSON.parse(readFileSync(HOSTS_STATE_FILE, 'utf-8'));
+    for (const [mac, ts] of Object.entries(st.lastSeen || {})) lastSeenMap.set(mac, ts);
+    for (const mac of st.known || []) knownMacs.add(mac);
+    knownMacsInitialized = knownMacs.size > 0;
+  }
+} catch {}
+function saveHostsState() {
+  try {
+    writeFileSync(HOSTS_STATE_FILE, JSON.stringify({ lastSeen: Object.fromEntries(lastSeenMap), known: [...knownMacs] }));
+  } catch {}
+}
+setInterval(saveHostsState, 5 * 60 * 1000);
+// Beim Stoppen/Neustart des Add-ons (Supervisor sendet SIGTERM) noch einmal sichern
+for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { saveHostsState(); process.exit(0); });
+
+// Neue Geräte erkennen und als HA-Event melden (fritzportal_new_device). Beim allerersten
+// Lauf wird nur die Ausgangsliste gemerkt – sonst käme ein Event für jedes Gerät.
+function trackNewHosts(hosts) {
+  const fresh = [];
+  for (const h of hosts) {
+    if (!h.mac || knownMacs.has(h.mac)) continue;
+    knownMacs.add(h.mac);
+    if (knownMacsInitialized) fresh.push(h);
+  }
+  knownMacsInitialized = true;
+  for (const h of fresh) {
+    console.log(`Neues Gerät im Heimnetz: ${h.name || '?'} (${h.mac}, ${h.ip || 'keine IP'})`);
+    fireHaEvent('fritzportal_new_device', {
+      mac: h.mac, ip: h.ip || '', name: h.name || '', interface: h.interface || '', guest: !!h.guest,
+    });
+  }
+}
+
+// HA-Event über die Core-REST-API auslösen (nutzbar als Automations-Trigger)
+async function fireHaEvent(type, data) {
+  if (!HA_TOKEN) return;
+  try {
+    await fetch(`${HA_API}/events/${type}`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${HA_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+  } catch (e) { debugLog(`HA-Event ${type} fehlgeschlagen: ${e.message}`); }
+}
 
 // ── Traffic history für Dashboard-Chart (server-seitig, alle 10 Sekunden) ──
 const trafficHistory = { down: [], up: [] };
@@ -206,10 +297,23 @@ function computeLoadAvg() {
   return { load1: calc(windows[0]), load5: calc(windows[1]), load15: calc(windows[2]) };
 }
 
-async function collectEcoHistory(session) {
+// CPU/RAM/Temperatur aus einer data.lua-Antwort (Seiten home/eco/ecoStat/…) lesen.
+// Je nach Modell als Zeitreihe (7590, 6591) oder Direktwert (7530 und ältere).
+function parseEcoData(d) {
+  const last = (arr) => (Array.isArray(arr) && arr.length ? arr[arr.length - 1] : undefined);
+  let cpu      = parseInt(last(d.cpuutil?.series?.[0] || d.cpuUtilization?.series?.[0]) ?? '0', 10) || 0;
+  let ram      = Math.round(last(d.ramusage?.series?.[2] || d.ramusage?.series?.[0] || d.ramUsage?.series?.[0]) ?? 0) || 0;
+  let cpu_temp = parseInt(last(d.cputemp?.series?.[0] || d.cpuTemp?.series?.[0]) ?? '0', 10) || 0;
+  if (!cpu)      cpu      = parseInt(d.cpu  || d.cpuload  || d.cpu_util || d.cpuUtil || d.stat?.cpu || '0', 10) || 0;
+  if (!ram)      ram      = parseInt(d.ram  || d.ramutil  || d.ram_util || d.ramUtil || d.memory || d.stat?.ram || d.memUsage || '0', 10) || 0;
+  if (!cpu_temp) cpu_temp = parseInt(d.temp || d.cpu_temp || d.cputemp  || d.cpuTemp || d.temperature || d.stat?.temp || '0', 10) || 0;
+  return { cpu, ram, cpu_temp };
+}
+
+// CPU/RAM/Temperatur von der Box holen (data.lua, mehrere Seiten je nach Modell)
+async function fetchEcoStats(session, pages = ['home', 'eco', 'ecoStat', 'overview', 'system', 'sysStat']) {
   const webSid = await getCachedWebSid(session);
-  if (!webSid) return;
-  const pages = ['home', 'eco', 'ecoStat', 'overview'];
+  if (!webSid) return null;
   for (const page of pages) {
     try {
       const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
@@ -220,37 +324,105 @@ async function collectEcoHistory(session) {
       });
       const text = await r.text();
       if (!text.trim().startsWith('{')) continue;
-      const d = JSON.parse(text)?.data || {};
-      const cpuSeries  = d.cpuutil?.series?.[0]  || d.cpuUtilization?.series?.[0]  || [];
-      const ramSeries  = d.ramusage?.series?.[2]  || d.ramusage?.series?.[0] || d.ramUsage?.series?.[0] || [];
-      const tempSeries = d.cputemp?.series?.[0]   || d.cpuTemp?.series?.[0]  || [];
-      let cpu      = cpuSeries.length  > 0 ? parseInt(cpuSeries[cpuSeries.length - 1],   10) : 0;
-      let ram      = ramSeries.length  > 0 ? Math.round(ramSeries[ramSeries.length - 1])    : 0;
-      let temp     = tempSeries.length > 0 ? parseInt(tempSeries[tempSeries.length - 1], 10) : 0;
-      if (cpu  === 0) cpu  = parseInt(d.cpu  || d.cpuload || d.cpu_util  || d.cpuUtil  || d.stat?.cpu  || '0', 10) || 0;
-      if (ram  === 0) ram  = parseInt(d.ram  || d.ramutil || d.ram_util  || d.ramUtil  || d.memory || d.stat?.ram || d.memUsage || '0', 10) || 0;
-      if (temp === 0) temp = parseInt(d.temp || d.cpu_temp || d.cputemp  || d.cpuTemp  || d.temperature || d.stat?.temp || '0', 10) || 0;
-      if (cpu  === 0 && typeof d.cpuUtil     === 'number') cpu  = d.cpuUtil;
-      if (ram  === 0 && typeof d.ramUtil     === 'number') ram  = d.ramUtil;
-      if (temp === 0 && typeof d.temperature === 'number') temp = d.temperature;
-      if (cpu > 0 || ram > 0 || temp > 0) {
-        const now = Date.now();
-        const cutoff = now - 3 * 60 * 60 * 1000; // 3 Stunden
-        ecoHistory.cpu.push({ time: now, value: cpu });
-        ecoHistory.ram.push({ time: now, value: ram });
-        ecoHistory.temp.push({ time: now, value: temp });
-        ecoHistory.cpu  = ecoHistory.cpu.filter(p => p.time > cutoff);
-        ecoHistory.ram  = ecoHistory.ram.filter(p => p.time > cutoff);
-        ecoHistory.temp = ecoHistory.temp.filter(p => p.time > cutoff);
-        // Auch in API-Cache schreiben – HA-Push liest von dort
-        setCached('eco-stats', { cpu, ram, cpu_temp: temp });
-        return;
+      const eco = parseEcoData(JSON.parse(text)?.data || {});
+      if (eco.cpu > 0 || eco.ram > 0 || eco.cpu_temp > 0) {
+        setCached('eco-stats', eco); // HA-Push liest von dort
+        return eco;
       }
     } catch {}
   }
+  return null;
+}
+
+async function collectEcoHistory(session) {
+  const eco = await fetchEcoStats(session, ['home', 'eco', 'ecoStat', 'overview']);
+  if (!eco) return;
+  const now = Date.now();
+  const cutoff = now - 3 * 60 * 60 * 1000; // 3 Stunden
+  ecoHistory.cpu.push({ time: now, value: eco.cpu });
+  ecoHistory.ram.push({ time: now, value: eco.ram });
+  ecoHistory.temp.push({ time: now, value: eco.cpu_temp });
+  ecoHistory.cpu  = ecoHistory.cpu.filter(p => p.time > cutoff);
+  ecoHistory.ram  = ecoHistory.ram.filter(p => p.time > cutoff);
+  ecoHistory.temp = ecoHistory.temp.filter(p => p.time > cutoff);
+}
+
+// GetAddonInfos (IGD, Fallback dslforum) – Live-Raten und Gesamt-Bytes seit Verbindungsaufbau
+async function getAddonInfos(session) {
+  let a = await soapRequest(session.host, 'urn:schemas-upnp-org:service:WANCommonInterfaceConfig:1', 'GetAddonInfos', session.username, session.password, session.controlUrls).catch(() => ({}));
+  if (!a?.NewByteSendRate && !a?.NewTotalBytesReceived && !a?.NewX_AVM_DE_TotalBytesReceived64) {
+    a = await soapRequest(session.host, 'urn:dslforum-org:service:WANCommonInterfaceConfig:1', 'GetAddonInfos', session.username, session.password, session.controlUrls).catch(() => ({}));
+  }
+  return a || {};
+}
+
+// Aktuelle Internet-Datenrate (Bytes/s) ermitteln – Kaskade:
+//  1. data.lua?page=netMon: dieselbe Quelle wie der Live-Graph der Box-Oberfläche
+//  2. TR-064 GetCommonLinkProperties → X_AVM-DE_Down/UpstreamCurrentUtilization: offizielle
+//     Liste der letzten Raten, funktioniert OHNE Web-Login (z. B. wenn data.lua scheitert)
+//  3. GetAddonInfos NewByteReceiveRate/NewByteSendRate
+//  4. Delta der TotalBytes-Counter zwischen zwei Abrufen (Cable-/5G-Boxen 6660/6690/6860)
+// Liefert zusätzlich den Verlauf (falls die Quelle einen hat) und die GetAddonInfos-
+// Antwort (Gesamt-Bytes), damit Aufrufer sie nicht erneut abfragen müssen.
+async function getLiveRates(session, key) {
+  let downBps = 0, upBps = 0, dsHistory = [], usHistory = [], addon = null;
+  try {
+    const webSid = await getCachedWebSid(session);
+    if (webSid) {
+      const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page: 'netMon', xhrId: 'all' });
+      const r = await fetch(`http://${session.host}/data.lua`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+      const text = await r.text();
+      if (text.trim().startsWith('{')) {
+        const group = JSON.parse(text)?.data?.sync_groups?.[0];
+        dsHistory = (group?.ds_bps_curr || []).map(Number);
+        usHistory = (group?.us_default_bps_curr || []).map(Number);
+        downBps = dsHistory[dsHistory.length - 1] || 0;
+        upBps   = usHistory[usHistory.length - 1] || 0;
+      }
+    }
+  } catch {}
+  if (!downBps && !upBps) {
+    try {
+      const link = await soapRequest(session.host, 'urn:dslforum-org:service:WANCommonInterfaceConfig:1', 'GetCommonLinkProperties', session.username, session.password, session.controlUrls);
+      const list = (v) => String(v || '').split(',').map(x => parseInt(x, 10)).filter(Number.isFinite);
+      const ds = list(link?.['NewX_AVM-DE_DownstreamCurrentUtilization']);
+      const us = list(link?.['NewX_AVM-DE_UpstreamCurrentUtilization']);
+      if (ds.length || us.length) {
+        dsHistory = ds; usHistory = us;
+        downBps = ds[ds.length - 1] || 0;
+        upBps   = us[us.length - 1] || 0;
+      }
+    } catch {}
+  }
+  if (!downBps && !upBps) {
+    addon = await getAddonInfos(session);
+    downBps = parseInt(addon.NewByteReceiveRate || '0', 10) || 0;
+    upBps   = parseInt(addon.NewByteSendRate    || '0', 10) || 0;
+    if (!downBps && !upBps) {
+      const totalDown = parseInt(addon.NewX_AVM_DE_TotalBytesReceived64 || addon.NewTotalBytesReceived || '0', 10) || 0;
+      const totalUp   = parseInt(addon.NewX_AVM_DE_TotalBytesSent64     || addon.NewTotalBytesSent     || '0', 10) || 0;
+      const prev = lastTotalBytes.get(key);
+      const now  = Date.now();
+      if (prev && totalDown >= prev.totalDown && totalUp >= prev.totalUp) {
+        const dt = (now - prev.ts) / 1000;
+        if (dt > 0 && dt < 600) {
+          downBps = Math.round((totalDown - prev.totalDown) / dt);
+          upBps   = Math.round((totalUp   - prev.totalUp)   / dt);
+        }
+      }
+      if (totalDown > 0 || totalUp > 0) lastTotalBytes.set(key, { totalDown, totalUp, ts: now });
+    }
+  }
+  return { downBps, upBps, dsHistory, usHistory, addon };
 }
 
 setInterval(async () => {
+  // Nur EINE Session pro Tick abfragen – bei mehreren offenen Sessions entstanden sonst
+  // doppelte Punkte im Traffic-Verlauf und doppelte Last auf der Box
   for (const [sid, session] of sessions) {
     // Idle-Skip: Wenn niemand das Portal aktiv benutzt UND keep_session_alive aus ist,
     // hören wir auf, die FRITZ!Box zu pollen – wichtig damit die HA-eigene
@@ -263,58 +435,7 @@ setInterval(async () => {
     // lückenlos bleibt. Der schwerere Eco-/Hosts-Teil bleibt im Idle ausgesetzt.
     if (idle && !trafficHistoryServer) continue;
     try {
-      // Primär: data.lua?page=netMon – dieselbe Quelle, die die Fritz!Box-UI für den Live-Graph
-      // nutzt. Liefert pro Sync-Gruppe eine Historie der letzten Sekunden als `ds_bps_curr` /
-      // `us_default_bps_curr` in Bytes/s. `GetAddonInfos` (SOAP) ist ein 1-Sekunden-Snapshot
-      // und verpasst Bursts – für den Live-Wert verwenden wir darum netMon.
-      let downBps = 0, upBps = 0;
-      try {
-        const webSid = await getCachedWebSid(session);
-        if (webSid) {
-          const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page: 'netMon', xhrId: 'all' });
-          const r = await fetch(`http://${session.host}/data.lua`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: params.toString(),
-          });
-          const text = await r.text();
-          if (text.trim().startsWith('{')) {
-            const group = JSON.parse(text)?.data?.sync_groups?.[0];
-            const ds = group?.ds_bps_curr || [];
-            const us = group?.us_default_bps_curr || [];
-            if (ds.length) downBps = Number(ds[ds.length - 1]) || 0;
-            if (us.length) upBps   = Number(us[us.length - 1]) || 0;
-          }
-        }
-      } catch {}
-      // Fallback: GetAddonInfos wenn netMon nichts lieferte. Cable-/5G-Boxen (6660/6690/6860
-      // 5G, …) füllen `sync_groups` nicht aus und lassen `NewByteReceiveRate`/`NewByteSendRate`
-      // ebenfalls leer/0 – als letzte Stufe rechnen wir die Rate aus dem Delta der monoton
-      // steigenden TotalBytes-Counter zwischen zwei Collector-Ticks.
-      if (downBps === 0 && upBps === 0) {
-        try {
-          let addonInfo = await soapRequest(session.host, 'urn:schemas-upnp-org:service:WANCommonInterfaceConfig:1', 'GetAddonInfos', session.username, session.password, session.controlUrls);
-          if (!addonInfo['NewByteSendRate'] && !addonInfo['NewTotalBytesReceived']) {
-            addonInfo = await soapRequest(session.host, 'urn:dslforum-org:service:WANCommonInterfaceConfig:1', 'GetAddonInfos', session.username, session.password, session.controlUrls);
-          }
-          downBps = parseInt(addonInfo['NewByteReceiveRate'] || '0', 10) || 0;
-          upBps   = parseInt(addonInfo['NewByteSendRate']    || '0', 10) || 0;
-          if (downBps === 0 && upBps === 0) {
-            const totalDown = parseInt(addonInfo['NewX_AVM_DE_TotalBytesReceived64'] || addonInfo['NewTotalBytesReceived'] || '0', 10) || 0;
-            const totalUp   = parseInt(addonInfo['NewX_AVM_DE_TotalBytesSent64']     || addonInfo['NewTotalBytesSent']     || '0', 10) || 0;
-            const prev = lastTotalBytes.get(sid);
-            const now  = Date.now();
-            if (prev && totalDown >= prev.totalDown && totalUp >= prev.totalUp) {
-              const dt = (now - prev.ts) / 1000;
-              if (dt > 0 && dt < 600) {
-                downBps = Math.round((totalDown - prev.totalDown) / dt);
-                upBps   = Math.round((totalUp   - prev.totalUp)   / dt);
-              }
-            }
-            if (totalDown > 0 || totalUp > 0) lastTotalBytes.set(sid, { totalDown, totalUp, ts: now });
-          }
-        } catch {}
-      }
+      const { downBps, upBps } = await getLiveRates(session, sid);
       const now = Date.now();
       trafficHistory.down.push({ time: now, value: downBps });
       trafficHistory.up.push({ time: now, value: upBps });
@@ -327,6 +448,7 @@ setInterval(async () => {
     } catch {}
     // Eco-/Hosts-Historie nur im Nicht-Idle-Betrieb (im Idle nur Traffic, s. o.)
     if (!idle) { try { await collectEcoHistory(session); } catch {} }
+    break;
   }
 }, 30000); // 30s-Tick (vorher 15s) – halbiert die FritzBox-Last des Background-Collectors,
            // ohne dass der Dashboard-Chart spürbar weniger Detail bietet (60 Punkte → 30 min Verlauf).
@@ -334,12 +456,19 @@ setInterval(async () => {
 // Hinweis: Die TTL wird beim *Read* übergeben (nicht beim Write). setCached's drittes
 // Argument wird hier ignoriert. Wer einen Eintrag länger als CACHE_TTL halten will,
 // muss `getCached(key, gewünschteTtl)` aufrufen.
+// Abgelaufene Einträge werden beim Lesen NICHT gelöscht: verschiedene Aufrufer lesen
+// denselben Schlüssel mit unterschiedlicher TTL (z. B. device-info: Endpoint 10 s,
+// Firmware-Check/MQTT 1 h). Vorher löschte der Leser mit der kürzesten TTL den Eintrag
+// für alle anderen. Aufgeräumt wird stattdessen periodisch (s. u.).
 function getCached(key, ttl = CACHE_TTL) {
   const entry = cache.get(key);
   if (entry && Date.now() - entry.ts < ttl) return entry.data;
-  cache.delete(key);
   return null;
 }
+setInterval(() => {
+  const cutoff = Date.now() - 2 * 3600 * 1000; // länger als die größte genutzte TTL (1 h)
+  for (const [key, entry] of cache) if (entry.ts < cutoff) cache.delete(key);
+}, 10 * 60 * 1000);
 
 function setCached(key, data) {
   cache.set(key, { data, ts: Date.now() });
@@ -349,7 +478,9 @@ function setCached(key, data) {
 
 function parseXml(xml) {
   const result = {};
-  const regex = /<(\w+)>([^<]*)<\/\1>/g;
+  // [\w-]: AVM-Felder enthalten Bindestriche (NewX_AVM-DE_…) – mit \w allein gingen
+  // u. a. HostListPath, MeshListPath, FrequencyBand und LastActivity verloren
+  const regex = /<([\w-]+)>([^<]*)<\/\1>/g;
   let match;
   while ((match = regex.exec(xml)) !== null) {
     result[match[1]] = match[2];
@@ -437,6 +568,12 @@ async function discoverControlUrls(host) {
     // IGD-Variante der WAN-Dienste – funktioniert ohne TR-064-Authentifizierung und
     // dient als letzter Fallback wenn die dslforum-Dienste scheitern (Issue #33)
     'urn:schemas-upnp-org:service:WANIPConnection:1': '/igdupnp/control/WANIPConn1',
+    // Welcher WAN-Dienst ist aktiv (PPP vs. IP)? – Issue #39
+    'urn:dslforum-org:service:Layer3Forwarding:1': '/upnp/control/layer3forwarding',
+    // DSL-Leitungswerte (Sync-Rate, Störabstand, Dämpfung)
+    'urn:dslforum-org:service:WANDSLInterfaceConfig:1': '/upnp/control/wandslifconfig1',
+    // Firmware-Update-Prüfung
+    'urn:dslforum-org:service:UserInterface:1': '/upnp/control/userif',
   };
   for (const [svc, url] of Object.entries(fallbacks)) {
     if (!controlUrls[svc]) controlUrls[svc] = url;
@@ -444,54 +581,66 @@ async function discoverControlUrls(host) {
   return controlUrls;
 }
 
+// MD5-Response nach AVM-Spezifikation („Session-ID", Technical Note): UTF-16LE über
+// "<challenge>-<passwort>", Zeichen mit Codepoint > 255 werden als "." kodiert
+// (sonst scheiterte der Login z. B. bei einem „€" im Passwort).
+function md5LoginResponse(challenge, password) {
+  const safe = Array.from(`${challenge}-${password}`).map(c => (c.codePointAt(0) > 255 ? '.' : c)).join('');
+  return `${challenge}-${createHash('md5').update(Buffer.from(safe, 'utf16le')).digest('hex')}`;
+}
+
+// PBKDF2-Response (FRITZ!OS 7.24+). Challenge = 2$<iter1>$<salt1>$<iter2>$<salt2>
+function pbkdf2LoginResponse(challenge, password) {
+  const [, iter1, salt1, iter2, salt2] = challenge.split('$');
+  const hash1 = pbkdf2Sync(Buffer.from(password, 'utf8'), Buffer.from(salt1, 'hex'), parseInt(iter1, 10), 32, 'sha256');
+  const hash2 = pbkdf2Sync(hash1, Buffer.from(salt2, 'hex'), parseInt(iter2, 10), 32, 'sha256');
+  return `${salt2}$${hash2.toString('hex')}`;
+}
+
+const isValidSid = (sid) => !!sid && /^[0-9a-f]{16}$/i.test(sid) && sid !== '0000000000000000';
+// Sperrzeit nach Fehlanmeldungen (BlockTime) – solange keine weiteren Versuche
+let webLoginBlockedUntil = 0;
+
 async function getWebSid(host, username, password) {
-  const loginUrl = `http://${host}/login_sid.lua`;
+  // Laut AVM-Spezifikation gehen GET (Challenge) UND POST (Response) an
+  // login_sid.lua?version=2 – ohne den Parameter wertet die Box die Antwort als MD5 aus,
+  // eine PBKDF2-Antwort schlägt dann fehl (Issue #31: FRITZ!OS 8.x, 5690 Pro / 7690).
+  const loginUrl = `http://${host}/login_sid.lua?version=2`;
+  if (Date.now() < webLoginBlockedUntil) return '';
   try {
-    // Issue #31/#33: `?version=2` anfragen – neuere Boxen (FRITZ!OS 7.24+, Pflicht auf
-    // 5690 Pro / 7690 mit FRITZ!OS 8.x) liefern dann eine PBKDF2-Challenge („2$…").
-    // Ältere Boxen ignorieren den Parameter und antworten mit der MD5-Challenge.
-    const resp = await fetch(`${loginUrl}?version=2`);
+    const resp = await fetch(loginUrl);
     const text = await resp.text();
+    const post = async (response) => {
+      const r = await fetch(loginUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ username, response }).toString(),
+      });
+      const xml = await r.text();
+      const sid = xml.match(/<SID>([^<]+)<\/SID>/)?.[1];
+      if (isValidSid(sid)) return sid;
+      // Falsche Zugangsdaten: die Box verlängert die Sperrzeit mit jedem Fehlversuch
+      const block = parseInt(xml.match(/<BlockTime>(\d+)<\/BlockTime>/)?.[1] || '0', 10);
+      if (block > 0) webLoginBlockedUntil = Date.now() + block * 1000;
+      console.log(`Web-Login fehlgeschlagen (Benutzer/Passwort oder fehlende Berechtigung?)${block ? ` – Box sperrt weitere Versuche für ${block} s` : ''}`);
+      return '';
+    };
 
-    // XML-Antwort (klassische FritzBox)
+    // XML-Antwort (alle aktuellen FRITZ!OS-Versionen)
     if (text.includes('<SID>') || text.includes('<Challenge>')) {
-      const sidMatch = text.match(/<SID>([^<]+)<\/SID>/);
-      if (sidMatch && sidMatch[1] && sidMatch[1] !== '0000000000000000') return sidMatch[1];
-      const challengeMatch = text.match(/<Challenge>([^<]+)<\/Challenge>/);
-      if (!challengeMatch) return '';
-      const challenge = challengeMatch[1];
-      let formData;
-      if (challenge.startsWith('2$')) {
-        // PBKDF2-Verfahren (AVM „Session-ID" Version 2):
-        // Challenge = 2$<iter1>$<salt1hex>$<iter2>$<salt2hex>
-        const [, iter1, salt1, iter2, salt2] = challenge.split('$');
-        const hash1 = pbkdf2Sync(Buffer.from(password, 'utf8'), Buffer.from(salt1, 'hex'), parseInt(iter1, 10), 32, 'sha256');
-        const hash2 = pbkdf2Sync(hash1, Buffer.from(salt2, 'hex'), parseInt(iter2, 10), 32, 'sha256');
-        formData = new URLSearchParams({ username, response: `${salt2}$${hash2.toString('hex')}` });
-      } else {
-        // Klassisches MD5-Challenge-Response-Verfahren
-        const challengeBuf = Buffer.from(challenge + '-' + password, 'utf16le');
-        const responseStr = createHash('md5').update(challengeBuf).digest('hex');
-        formData = new URLSearchParams({ username, response: challenge + '-' + responseStr });
-      }
-      const loginResp = await fetch(loginUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData.toString() });
-      const loginText = await loginResp.text();
-      const newSid = loginText.match(/<SID>([^<]+)<\/SID>/);
-      if (newSid && newSid[1] !== '0000000000000000') return newSid[1];
+      const sid = text.match(/<SID>([^<]+)<\/SID>/)?.[1];
+      if (isValidSid(sid)) return sid; // Box ohne Passwortschutz
+      const challenge = text.match(/<Challenge>([^<]+)<\/Challenge>/)?.[1];
+      if (!challenge) return '';
+      const block = parseInt(text.match(/<BlockTime>(\d+)<\/BlockTime>/)?.[1] || '0', 10);
+      if (block > 10) { webLoginBlockedUntil = Date.now() + block * 1000; return ''; }
+      if (block > 0) await new Promise(r => setTimeout(r, block * 1000));
+      return await post(challenge.startsWith('2$') ? pbkdf2LoginResponse(challenge, password) : md5LoginResponse(challenge, password));
     }
 
-    // Fritz!Box Cable: HTML-Antwort mit challenge in JS
-    const challengeMatch = text.match(/var challenge\s*=\s*['"]([^'"]+)['"]/);
-    if (challengeMatch) {
-      const challenge = challengeMatch[1];
-      const challengeBuf = Buffer.from(challenge + '-' + password, 'utf16le');
-      const responseStr = createHash('md5').update(challengeBuf).digest('hex');
-      const formData = new URLSearchParams({ username, response: challenge + '-' + responseStr });
-      const loginResp = await fetch(loginUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData.toString() });
-      const loginText = await loginResp.text();
-      const newSid = loginText.match(/<SID>([^<]+)<\/SID>/);
-      if (newSid && newSid[1] !== '0000000000000000') return newSid[1];
-    }
+    // Sehr alte FRITZ!OS-Versionen (z. B. ältere Cable-Firmware): Challenge im HTML/JS
+    const htmlChallenge = text.match(/var challenge\s*=\s*['"]([^'"]+)['"]/)?.[1];
+    if (htmlChallenge) return await post(md5LoginResponse(htmlChallenge, password));
 
     // Fallback: data.lua ohne SID testen
     try {
@@ -511,6 +660,15 @@ async function getWebSid(host, username, password) {
     console.error('getWebSid error:', err.message);
     return '';
   }
+}
+
+// Ist eine vorhandene SID noch gültig? (login_sid.lua?version=2&sid=… liefert dieselbe
+// SID zurück und verlängert sie – AVM empfiehlt eine SID pro Box statt ständig neuer)
+async function checkWebSid(host, sid) {
+  try {
+    const r = await fetch(`http://${host}/login_sid.lua?version=2&sid=${encodeURIComponent(sid)}`);
+    return (await r.text()).match(/<SID>([^<]+)<\/SID>/)?.[1] === sid;
+  } catch { return false; }
 }
 
 // ── AHA-HTTP: Geräteliste als XML parsen (SmartHome / DECT Smart Devices) ──
@@ -560,6 +718,7 @@ function parseAhaDeviceList(xml) {
       functionbitmask: parseInt(attrs.match(/functionbitmask="([^"]*)"/)?.[1] || '0', 10),
       productname: attrs.match(/productname="([^"]*)"/)?.[1] || '',
       manufacturer: attrs.match(/manufacturer="([^"]*)"/)?.[1] || '',
+      firmware: attrs.match(/fwversion="([^"]*)"/)?.[1] || '',
       present: get('present'),
       name: get('name'),
     };
@@ -581,13 +740,112 @@ function parseAhaDeviceList(xml) {
     if (hkrBlock) {
       device.tist  = parseInt(hkrBlock[1].match(/<tist>([^<]*)<\/tist>/)?.[1]   || '0', 10) || 0; // Ist-Temp
       device.tsoll = parseInt(hkrBlock[1].match(/<tsoll>([^<]*)<\/tsoll>/)?.[1] || '0', 10) || 0; // Soll-Temp
+      // AHA: 16–56 = 8–28 °C in 0,5-°C-Schritten; 253/254 = aus/an
+      if (device.tsoll >= 16 && device.tsoll <= 56) device.tsoll_celsius = device.tsoll / 2;
     }
+    const battery = parseInt(get('battery'), 10);
+    if (Number.isFinite(battery)) device.battery = battery;
+    if (get('batterylow') === '1') device.batteryLow = true;
+    const humidity = parseInt(body.match(/<rel_humidity>([^<]*)<\/rel_humidity>/)?.[1] ?? '', 10);
+    if (Number.isFinite(humidity)) device.humidity = humidity;
     devices.push(device);
   }
   return dedupSmartHomeDevices(devices);
 }
 
+// Einfacher Tag-Parser für AVM-Listen-XML (Host-Liste). parseXml() kann keine
+// Bindestriche in Tag-Namen (X_AVM-DE_…), daher hier eine eigene Variante.
+function parseXmlItems(xml, itemTag) {
+  const items = [];
+  const itemRe = new RegExp(`<${itemTag}>([\\s\\S]*?)<\\/${itemTag}>`, 'g');
+  let m;
+  while ((m = itemRe.exec(xml)) !== null) {
+    const obj = {};
+    const tagRe = /<([\w-]+)>([^<]*)<\/\1>/g;
+    let t;
+    while ((t = tagRe.exec(m[1])) !== null) obj[t[1]] = decodeXmlEntities(t[2]);
+    items.push(obj);
+  }
+  return items;
+}
+
+// Komplette Host-Liste in EINEM Request über die offizielle TR-064-Aktion
+// `Hosts:1#X_AVM-DE_GetHostListPath` (FRITZ!OS 7.10+). Die Box liefert einen Pfad zu
+// einer XML-Datei mit allen Hosts inkl. Zusatzinfos (Gast, VPN, Internetzugang,
+// Port, Geschwindigkeit, Update verfügbar …). Spart gegenüber dem Einzelabruf per
+// GetGenericHostEntry ~N SOAP-Requests – bei 90 Geräten ein großer Unterschied für
+// die FRITZ!Box-CPU. Gibt null zurück, wenn die Aktion nicht unterstützt wird.
+async function getHostsViaHostList(host, username, password, controlUrls) {
+  try {
+    const r = await soapRequest(host, 'urn:dslforum-org:service:Hosts:1', 'X_AVM-DE_GetHostListPath', username, password, controlUrls);
+    const path = r?.['NewX_AVM-DE_HostListPath'];
+    if (!path) return null;
+    const res = await fetch(`http://${host}:49000${path.startsWith('/') ? '' : '/'}${path}`);
+    if (!res.ok) return null;
+    const items = parseXmlItems(await res.text(), 'Item');
+    if (items.length === 0) return null;
+    const flag = (v) => v === '1' || v === 'true';
+    const hosts = [];
+    for (const e of items) {
+      const mac = String(e.MACAddress || '').replace(/-/g, ':').toLowerCase();
+      // VPN-Gegenstellen ohne MAC trotzdem aufnehmen – IP dient dann als Schlüssel
+      if (!mac && !e.IPAddress) continue;
+      const active = flag(e.Active);
+      if (active && mac) lastSeenMap.set(mac, Math.floor(Date.now() / 1000));
+      const lastActivity = e['X_AVM-DE_LastActivity'] || (lastSeenMap.has(mac) ? String(lastSeenMap.get(mac)) : '');
+      hosts.push({
+        mac,
+        ip: e.IPAddress || '',
+        active,
+        name: e.HostName || e['X_AVM-DE_FriendlyName'] || e.InterfaceType || '',
+        interface: e.InterfaceType || '',
+        addressSource: e.AddressSource || '',
+        lastActivity,
+        // Zusatzinfos aus der Host-Liste (nur hier verfügbar, nicht per GetGenericHostEntry)
+        guest:           flag(e['X_AVM-DE_Guest']),
+        vpn:             flag(e['X_AVM-DE_VPN']),
+        wanAccess:       e['X_AVM-DE_WANAccess'] || '',       // granted | denied | error
+        blocked:         flag(e['X_AVM-DE_Disallow']),
+        updateAvailable: flag(e['X_AVM-DE_UpdateAvailable']),
+        meshable:        flag(e['X_AVM-DE_IsMeshable']),
+        model:           e['X_AVM-DE_Model'] || '',
+        port:            e['X_AVM-DE_Port'] || '',
+        speed:           parseInt(e['X_AVM-DE_Speed'] || '0', 10) || 0, // Mbit/s
+        // Ab FRITZ!OS 8.x (Spezifikation 2024–2026): Geräteklasse, Echtzeit-Priorität,
+        // Zugangsprofil; editHide = Box erlaubt hier keine Sperre/Priorität/Profiländerung
+        deviceClass:     e['X_AVM-DE_DeviceClassUser'] || e['X_AVM-DE_DeviceClass'] || '',
+        priority:        flag(e['X_AVM-DE_Priority']),
+        filterProfile:   e['X_AVM-DE_FilterProfileID'] || '',
+        editHide:        flag(e['X_AVM-DE_HostFilterEditHide']),
+        url:             e['X_AVM-DE_URL'] || '', // Weboberfläche (nur Mesh-Geräte)
+      });
+    }
+    debugLog(`Hosts: ${hosts.length} Einträge über X_AVM-DE_GetHostListPath (1 Request)`);
+    return hosts;
+  } catch (err) {
+    debugLog(`Hosts: GetHostListPath nicht verfügbar (${err.message}) – Einzelabruf`);
+    return null;
+  }
+}
+
+// Gleichzeitige Abrufe der Host-Liste zusammenfassen (z. B. /hosts + /ip-stats + Mesh
+// beim Seitenaufbau) und das Rohergebnis 10 s vorhalten – sonst holt jeder Aufrufer
+// die komplette Liste erneut von der Box.
+let hostsInflight = null;
 async function getHostsViaSoap(host, username, password, controlUrls) {
+  const cached = getCached('hosts-raw', 10000);
+  if (cached) return cached;
+  if (!hostsInflight) {
+    hostsInflight = fetchHostsFromBox(host, username, password, controlUrls)
+      .then(h => { setCached('hosts-raw', h); trackNewHosts(h); return h; })
+      .finally(() => { hostsInflight = null; });
+  }
+  return hostsInflight;
+}
+
+async function fetchHostsFromBox(host, username, password, controlUrls) {
+  const fromList = await getHostsViaHostList(host, username, password, controlUrls);
+  if (fromList) return fromList;
   const countRes = await soapRequest(host, 'urn:dslforum-org:service:Hosts:1', 'GetHostNumberOfEntries', username, password, controlUrls);
   const count = parseInt(countRes?.NewHostNumberOfEntries || '0', 10) || 0;
   // Alle Hosts parallel abrufen (statt sequentiell) – deutlich schneller bei >10 Geräten.
@@ -668,6 +926,7 @@ async function fetchNetDevMap(session) {
 // Firmwares (insbesondere 7530) liefern auch im netDev-Map keine zuverlässigen
 // `static_dhcp`-Felder. Deshalb hier eine eigene Quelle als Vereinigung mit den
 // netDev-Heuristiken in /api/fritz/hosts.
+let staticDhcpSoapUnsupported = false;
 async function fetchStaticDhcpMacs(session) {
   const cached = getCached('static-dhcp-macs', 15000);
   if (cached) return cached;
@@ -713,19 +972,19 @@ async function fetchStaticDhcpMacs(session) {
   }
   // Quelle 2 (SOAP): generischer Loop über GetGenericLANHostStaticDHCPEntry, falls
   // data.lua keine Reservierungen geliefert hat. Wenig elegant, aber zuverlässig.
-  if (macs.size === 0) {
-    try {
-      for (let i = 0; i < 200; i++) {
-        try {
-          const e = await soapRequest(session.host, 'urn:dslforum-org:service:LANHostConfigManagement:1', 'GetGenericLANHostStaticDHCPEntry', session.username, session.password, session.controlUrls, { NewIndex: String(i) });
-          const enabled = e?.NewEnabled === '1' || e?.NewEnabled === 'true' || e?.NewEnabled === true;
-          if (enabled) addMac(e.NewMACAddress);
-        } catch (err) {
-          if (String(err?.message || '').includes('SpecifiedArrayIndexInvalid')) break;
-          break; // andere Fehler ⇒ Endpoint nicht verfügbar, raus
-        }
+  // Die Aktion steht nicht in der AVM-Spezifikation und fehlt auf den meisten Boxen –
+  // nach dem ersten „Invalid Action" nicht jede Minute erneut probieren.
+  if (macs.size === 0 && !staticDhcpSoapUnsupported) {
+    for (let i = 0; i < 200; i++) {
+      try {
+        const e = await soapRequest(session.host, 'urn:dslforum-org:service:LANHostConfigManagement:1', 'GetGenericLANHostStaticDHCPEntry', session.username, session.password, session.controlUrls, { NewIndex: String(i) });
+        const enabled = e?.NewEnabled === '1' || e?.NewEnabled === 'true' || e?.NewEnabled === true;
+        if (enabled) addMac(e.NewMACAddress);
+      } catch (err) {
+        if (i === 0 && /401|Invalid Action/i.test(String(err?.message))) staticDhcpSoapUnsupported = true;
+        break; // Listenende oder Endpoint nicht verfügbar
       }
-    } catch {}
+    }
   }
   setCached('static-dhcp-macs', macs);
   return macs;
@@ -808,7 +1067,14 @@ function formatConnDetail(d) {
 
 // ── Endpoints ──
 
+// Nach Änderungen an Geräten (Löschen, Umbenennen, Sperren, Reservierung) alle
+// abgeleiteten Host-Caches verwerfen, damit die nächste Abfrage frisch ist
+function invalidateHosts() {
+  for (const k of ['hosts', 'hosts-raw', 'netdev-map', 'static-dhcp-macs', 'ip-stats', 'mesh-official', 'mesh-topology', 'mesh-hosts-fallback']) cache.delete(k);
+}
+
 app.get('/api/fritz/auto-session', async (req, res) => {
+  if (!process.env.FRITZBOX_HOST || !process.env.FRITZBOX_USER || !process.env.FRITZBOX_PASSWORD) loadCredentialOptions();
   const host = process.env.FRITZBOX_HOST;
   const username = process.env.FRITZBOX_USER;
   const password = process.env.FRITZBOX_PASSWORD;
@@ -881,48 +1147,147 @@ app.get('/api/fritz/device-info', async (req, res) => {
   }
 });
 
+// Geräteliste inkl. Verbindungsdetails und Erkennung fester IPs, 60 s gecacht.
+// Wird vom /hosts-Endpoint UND vom HA-Push genutzt – vorher füllte nur der Browser
+// diesen Cache, bei geschlossenem Portal blieben „Geräte online"/„Freie IPs" stehen.
+async function getEnrichedHosts(session) {
+  const cached = getCached('hosts', 60000);
+  if (cached) return cached;
+  // SOAP-Hostliste + netDev + DHCP-Reservierungen parallel holen. netDev liefert
+  // bessere WLAN/LAN-Klassifizierung und Port-/Geschwindigkeitsdetails; die
+  // Reservierungs-Liste füllt die Lücke, wenn netDev kein static_dhcp-Flag liefert
+  // (insbesondere 7530-Firmware).
+  const [rawHosts, netDevMap, staticMacs] = await Promise.all([
+    getHostsViaSoap(session.host, session.username, session.password, session.controlUrls),
+    fetchNetDevMap(session),
+    fetchStaticDhcpMacs(session),
+  ]);
+  // Kopien: der Rohcache (hosts-raw) darf durch Anreicherung/Korrekturen nicht verändert werden
+  const hosts = rawHosts.map(h => ({ ...h }));
+  for (const h of hosts) {
+    const dev = netDevMap.get(h.mac);
+    if (dev) {
+      const conn = formatConnDetail(dev);
+      // interface-Feld so setzen, dass der Frontend-isWlan()-Check korrekt greift
+      h.interface = conn.type === 'WLAN' ? '802.11' : 'Ethernet';
+      h.connType = conn.type;       // 'LAN' | 'WLAN'
+      h.connDetail = conn.detail;   // '2' / '2,4 GHz' / '5 GHz' …
+      h.connSpeed = conn.speed;     // '1 Gbit/s' / '58 Mbit/s' …
+      h.connDisplay = conn.display; // 'LAN 2 → 1 Gbit/s'
+    } else if (h.interface) {
+      // Kein netDev (z. B. Web-Login fehlgeschlagen): Verbindung aus der TR-064-Host-Liste
+      // ableiten – InterfaceType + X_AVM-DE_Port/Speed (Issue #37: WLAN als LAN angezeigt)
+      const wlan = /802\.11|wlan|wifi/i.test(h.interface);
+      h.connType = wlan ? 'WLAN' : 'LAN';
+      h.connDetail = !wlan && h.port && h.port !== '0' ? String(h.port) : '';
+      h.connSpeed = h.speed ? (h.speed >= 1000 ? `${+(h.speed / 1000).toFixed(1)} Gbit/s` : `${h.speed} Mbit/s`) : '';
+      h.connDisplay = [h.connType + (h.connDetail ? ' ' + h.connDetail : ''), h.connSpeed].filter(Boolean).join(' → ');
+    }
+    // Feste IP über die Vereinigung mehrerer Quellen ableiten:
+    //  - netDev-Felder (best-effort, Firmware-abhängig)
+    //  - explizite DHCP-Reservierungs-Liste (data.lua netSet bzw. SOAP)
+    const fromNetDev = dev && (
+      dev.static_dhcp === true || dev.static_dhcp === 1 || dev.static_dhcp === '1' ||
+      dev.ipv4?.static_dhcp === true || dev.ipv4?.static_dhcp === 1 || dev.ipv4?.static_dhcp === '1' ||
+      dev.dhcp_static === true || dev.dhcp_static === 1 || dev.dhcp_static === '1' ||
+      dev.is_static === true || dev.fixed === true || dev.fixedip === true ||
+      (typeof dev.dhcp === 'string' && dev.dhcp === '2')
+    );
+    const fromList = staticMacs.has(h.mac);
+    if (fromNetDev || fromList) h.addressSource = 'Static';
+    // netDev liefert je nach Firmware keinen Port/keine Geschwindigkeit → aus der
+    // TR-064-Host-Liste ergänzen (vorher stand dann nur „LAN" ohne Details)
+    if (h.connType === 'LAN' && !h.connDetail && h.port && h.port !== '0') h.connDetail = String(h.port);
+    if (!h.connSpeed && h.speed) h.connSpeed = h.speed >= 1000 ? `${+(h.speed / 1000).toFixed(1)} Gbit/s` : `${h.speed} Mbit/s`;
+    if (h.connType && (!h.connDisplay || h.connDisplay === h.connType)) {
+      h.connDisplay = [h.connType + (h.connDetail ? ' ' + h.connDetail : ''), h.connSpeed].filter(Boolean).join(' → ');
+    }
+  }
+  applyTopology(hosts);
+  setCached('hosts', hosts);
+  return hosts;
+}
+
+// ── Geräte-Zuordnung: Zugangspunkte erkennen + Benutzer-Korrekturen ──────────
+// Die FRITZ!Box sieht Geräte hinter Fremd-Routern/Access Points (z. B. Xiaomi, TP-Link
+// im AP-Modus) nur als LAN-Geräte an dem Port, an dem der Router hängt – ob sie dort per
+// WLAN oder Kabel verbunden sind, kann sie nicht wissen. Wir erkennen solche Zugangspunkte
+// (Name + mehrere Geräte am selben LAN-Port) und hängen die Geräte des Ports darunter.
+// Alles lässt sich pro Gerät korrigieren; die Korrekturen liegen in DATA_DIR und
+// überstehen damit Add-on-Updates.
+const OVERRIDES_FILE = join(DATA_DIR, 'fritz-portal-devices.json');
+let deviceOverrides = {};
+try {
+  if (existsSync(OVERRIDES_FILE)) deviceOverrides = JSON.parse(readFileSync(OVERRIDES_FILE, 'utf-8')).devices || {};
+} catch {}
+function saveDeviceOverrides() {
+  try { writeFileSync(OVERRIDES_FILE, JSON.stringify({ devices: deviceOverrides }, null, 1)); }
+  catch (e) { console.error('Geräte-Zuordnungen speichern fehlgeschlagen:', e.message); }
+}
+
+const INFRA_NAME_RE = /router|repeater|access.?point|\bap\b|mesh|extender|switch|deco|orbi|eero|unifi|powerline|fritz!/i;
+const NOT_INFRA_RE  = /plug|steckdose|shelly|socket|lampe|bulb|leuchte/i;
+
+function applyTopology(hosts) {
+  const byMac = new Map(hosts.filter(h => h.mac).map(h => [h.mac, h]));
+  const portOf = (h) => (h.connType === 'LAN' || /ethernet/i.test(h.interface || '')) ? parseInt(h.port, 10) || 0 : 0;
+  const perPort = new Map();
+  for (const h of hosts) {
+    const p = portOf(h);
+    if (h.active && p) perPort.set(p, (perPort.get(p) || 0) + 1);
+  }
+  // 1) Zugangspunkte bestimmen: Benutzerangabe > Name + geteilter Port > AVM-Mesh-fähig
+  for (const h of hosts) {
+    const ov = deviceOverrides[h.mac] || {};
+    const name = h.name || '';
+    const auto = (INFRA_NAME_RE.test(name) && !NOT_INFRA_RE.test(name) && (perPort.get(portOf(h)) || 0) >= 3) || !!h.meshable;
+    h.isInfraAuto = auto;
+    h.isInfra = ov.infra === true || (ov.infra !== false && auto);
+  }
+  // 2) Port → Zugangspunkt (nur kabelgebundene Zugangspunkte direkt an der Box).
+  // Automatisch erkannte Router behalten ihren Port; ein zusätzlich von Hand markierter
+  // Zugangspunkt am selben Port gilt als nachgeschaltet (hängt hinter dem Router) –
+  // vorher übernahm einfach der erste Eintrag der Liste alle Geräte des Ports.
+  const apByPort = new Map();
+  for (const pass of [true, false]) {
+    for (const h of hosts) {
+      const p = portOf(h);
+      if (h.isInfra && !!h.isInfraAuto === pass && p && !apByPort.has(p)) apByPort.set(p, h);
+    }
+  }
+  // 3) Pro Gerät: Zuordnung und Verbindungsart (Korrektur > Vorgabe des Zugangspunkts > erkannt)
+  for (const h of hosts) {
+    const ov = deviceOverrides[h.mac] || {};
+    h.connAuto = h.connType || (/802\.11|wlan|wifi/i.test(h.interface || '') ? 'WLAN' : 'LAN');
+    let via = null;
+    if (ov.parent && ov.parent !== 'box') via = byMac.get(ov.parent) || null;
+    else if (!ov.parent) {
+      const ap = apByPort.get(portOf(h));
+      if (ap && ap.mac !== h.mac) { via = ap; h.viaAuto = true; }
+    }
+    if (via && via.mac === h.mac) via = null;
+    const viaOv = via ? (deviceOverrides[via.mac] || {}) : {};
+    const conn = ov.conn || (via && viaOv.clientConn) || h.connAuto;
+    h.viaMac = via?.mac || '';
+    h.viaName = via?.name || '';
+    h.connOverride = ov.conn || '';
+    if (via || conn !== h.connAuto) {
+      // Port/Geschwindigkeit gehören dann zur Leitung der Box zum Zugangspunkt – nicht
+      // zum Gerät selbst; deshalb nur Verbindungsart + Zugangspunkt anzeigen
+      h.connType = conn;
+      h.connDetail = '';
+      h.connSpeed = '';
+      h.connDisplay = via ? `${conn} · ${via.name}` : conn;
+    }
+  }
+}
+
 app.get('/api/fritz/hosts', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
-  const cached = getCached('hosts', 60000); // Hosts 60s cachen – ändert sich selten
-  if (cached) return res.json(cached);
   try {
-    // SOAP-Hostliste + netDev + DHCP-Reservierungen parallel holen. netDev liefert
-    // bessere WLAN/LAN-Klassifizierung und Port-/Geschwindigkeitsdetails; die
-    // Reservierungs-Liste füllt die Lücke, wenn netDev kein static_dhcp-Flag liefert
-    // (insbesondere 7530-Firmware).
-    const [hosts, netDevMap, staticMacs] = await Promise.all([
-      getHostsViaSoap(session.host, session.username, session.password, session.controlUrls),
-      fetchNetDevMap(session),
-      fetchStaticDhcpMacs(session),
-    ]);
-    for (const h of hosts) {
-      const dev = netDevMap.get(h.mac);
-      if (dev) {
-        const conn = formatConnDetail(dev);
-        // interface-Feld so setzen, dass der Frontend-isWlan()-Check korrekt greift
-        h.interface = conn.type === 'WLAN' ? '802.11' : 'Ethernet';
-        h.connType = conn.type;       // 'LAN' | 'WLAN'
-        h.connDetail = conn.detail;   // '2' / '2,4 GHz' / '5 GHz' …
-        h.connSpeed = conn.speed;     // '1 Gbit/s' / '58 Mbit/s' …
-        h.connDisplay = conn.display; // 'LAN 2 → 1 Gbit/s'
-      }
-      // Feste IP über die Vereinigung mehrerer Quellen ableiten:
-      //  - netDev-Felder (best-effort, Firmware-abhängig)
-      //  - explizite DHCP-Reservierungs-Liste (data.lua netSet bzw. SOAP)
-      const fromNetDev = dev && (
-        dev.static_dhcp === true || dev.static_dhcp === 1 || dev.static_dhcp === '1' ||
-        dev.ipv4?.static_dhcp === true || dev.ipv4?.static_dhcp === 1 || dev.ipv4?.static_dhcp === '1' ||
-        dev.dhcp_static === true || dev.dhcp_static === 1 || dev.dhcp_static === '1' ||
-        dev.is_static === true || dev.fixed === true || dev.fixedip === true ||
-        (typeof dev.dhcp === 'string' && dev.dhcp === '2')
-      );
-      const fromList = staticMacs.has(h.mac);
-      if (fromNetDev || fromList) h.addressSource = 'Static';
-    }
-    setCached('hosts', hosts);
-    return res.json(hosts);
+    return res.json(await getEnrichedHosts(session));
   } catch (err) {
     console.error('Hosts error:', err.message);
     return res.json([]);
@@ -934,9 +1299,9 @@ app.get('/api/fritz/eco-stats', async (req, res) => {
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
   // Längere TTL als der CACHE_TTL-Default (10 s): Der Background-Collector tickt alle
-  // 15 s; mit 30 s deckt jeder eingehende Request einen Tick ab und der On-Demand-Pfad
+  // 30 s; mit 35 s deckt jeder eingehende Request einen Tick ab und der On-Demand-Pfad
   // wird zur reinen Notlösung, falls der Collector noch nie gelaufen ist.
-  const cached = getCached('eco-stats', 30000);
+  const cached = getCached('eco-stats', 35000);
   if (cached) return res.json({ ...cached, ...computeLoadAvg() });
   // Letzter Strohhalm: wenn der On-Demand-Pfad gleich 0/0/0 zurückgeben würde,
   // bevorzugen wir den jüngsten Eintrag aus dem ecoHistory-Buffer (wird vom
@@ -953,46 +1318,8 @@ app.get('/api/fritz/eco-stats', async (req, res) => {
     };
   };
   try {
-    const webSid = await getCachedWebSid(session);
-    if (!webSid) return res.json({ ...(lastFromHistory() || { cpu: 0, ram: 0, cpu_temp: 0 }), ...computeLoadAvg() });
-
-    const pages = ['home', 'eco', 'ecoStat', 'overview', 'system', 'sysStat'];
-    for (const page of pages) {
-      try {
-        const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
-        const r = await fetch(`http://${session.host}/data.lua`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: params.toString(),
-        });
-        const text = await r.text();
-        if (text.trim().startsWith('{')) {
-          const data = JSON.parse(text);
-          const d = data?.data || {};
-          // Standard-Pfade (7590, 6591)
-          const cpuSeries  = d.cpuutil?.series?.[0]  || d.cpuUtilization?.series?.[0]  || [];
-          const ramSeries  = d.ramusage?.series?.[2]  || d.ramusage?.series?.[0] || d.ramUsage?.series?.[0] || [];
-          const tempSeries = d.cputemp?.series?.[0]   || d.cpuTemp?.series?.[0]  || [];
-          let cpu      = cpuSeries.length  > 0 ? parseInt(cpuSeries[cpuSeries.length - 1],   10) : 0;
-          let ram      = ramSeries.length  > 0 ? Math.round(ramSeries[ramSeries.length - 1])    : 0;
-          let cpu_temp = tempSeries.length > 0 ? parseInt(tempSeries[tempSeries.length - 1], 10) : 0;
-          // Direktwert-Fallback (7530 und ältere Modelle)
-          if (cpu      === 0) cpu      = parseInt(d.cpu      || d.cpuload  || d.cpu_util  || d.cpuUtil  || d.stat?.cpu  || '0', 10) || 0;
-          if (ram      === 0) ram      = parseInt(d.ram      || d.ramutil  || d.ram_util  || d.ramUtil  || d.memory     || d.stat?.ram || d.memUsage || '0', 10) || 0;
-          if (cpu_temp === 0) cpu_temp = parseInt(d.temp     || d.cpu_temp || d.cputemp   || d.cpuTemp  || d.temperature || d.stat?.temp || '0', 10) || 0;
-          // 7530: Werte können in d.data.stat oder als direkte Zahlen liegen
-          if (cpu === 0 && typeof d.cpuUtil === 'number')      cpu      = d.cpuUtil;
-          if (ram === 0 && typeof d.ramUtil === 'number')      ram      = d.ramUtil;
-          if (cpu_temp === 0 && typeof d.temperature === 'number') cpu_temp = d.temperature;
-          if (cpu > 0 || ram > 0 || cpu_temp > 0) {
-            const result = { cpu, ram, cpu_temp };
-            setCached('eco-stats', result);
-            return res.json({ ...result, ...computeLoadAvg() });
-          }
-        }
-      } catch {}
-    }
-    return res.json({ ...(lastFromHistory() || { cpu: 0, ram: 0, cpu_temp: 0 }), ...computeLoadAvg() });
+    const eco = await fetchEcoStats(session);
+    return res.json({ ...(eco || lastFromHistory() || { cpu: 0, ram: 0, cpu_temp: 0 }), ...computeLoadAvg() });
   } catch (err) {
     console.error('EcoStats error:', err.message);
     return res.json({ ...(lastFromHistory() || { cpu: 0, ram: 0, cpu_temp: 0 }), ...computeLoadAvg() });
@@ -1020,57 +1347,7 @@ app.get('/api/fritz/network-stats', async (req, res) => {
   const cached = getCached('network-stats', 35000);
   if (cached) return res.json(cached);
 
-  let downBps = 0, upBps = 0, dsHistory = [], usHistory = [];
-  try {
-    const webSid = await getCachedWebSid(session);
-    if (webSid) {
-      const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page: 'netMon', xhrId: 'all' });
-      const r = await fetch(`http://${session.host}/data.lua`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: params.toString(),
-      });
-      const text = await r.text();
-      if (text.trim().startsWith('{')) {
-        const data = JSON.parse(text);
-        const syncGroups = data?.data?.sync_groups || [];
-        if (syncGroups[0]) {
-          const group = syncGroups[0];
-          dsHistory = group.ds_bps_curr || [];
-          usHistory = group.us_default_bps_curr || [];
-          if (dsHistory.length > 0) downBps = dsHistory[dsHistory.length - 1] || 0;
-          if (usHistory.length > 0) upBps = usHistory[usHistory.length - 1] || 0;
-        }
-      }
-    }
-  } catch (e) { console.error('NetworkMonitor error:', e.message); }
-
-  // Fallback: GetAddonInfos für Live-Speeds. Letzte Stufe (Cable-/5G-Boxen wie 6660/6690/
-  // 6860 5G): Rate aus Delta der TotalBytes-Counter zwischen Aufrufen ableiten.
-  if (downBps === 0 && upBps === 0) {
-    try {
-      let addonInfo = await soapRequest(session.host, 'urn:schemas-upnp-org:service:WANCommonInterfaceConfig:1', 'GetAddonInfos', session.username, session.password, session.controlUrls);
-      if (!addonInfo['NewByteSendRate'] && !addonInfo['NewTotalBytesReceived']) {
-        addonInfo = await soapRequest(session.host, 'urn:dslforum-org:service:WANCommonInterfaceConfig:1', 'GetAddonInfos', session.username, session.password, session.controlUrls);
-      }
-      downBps = parseInt(addonInfo['NewByteReceiveRate'] || '0', 10) || 0;
-      upBps   = parseInt(addonInfo['NewByteSendRate']    || '0', 10) || 0;
-      if (downBps === 0 && upBps === 0) {
-        const totalDownNow = parseInt(addonInfo['NewX_AVM_DE_TotalBytesReceived64'] || addonInfo['NewTotalBytesReceived'] || '0', 10) || 0;
-        const totalUpNow   = parseInt(addonInfo['NewX_AVM_DE_TotalBytesSent64']     || addonInfo['NewTotalBytesSent']     || '0', 10) || 0;
-        const prev = lastTotalBytes.get(sid);
-        const now  = Date.now();
-        if (prev && totalDownNow >= prev.totalDown && totalUpNow >= prev.totalUp) {
-          const dt = (now - prev.ts) / 1000;
-          if (dt > 0 && dt < 600) {
-            downBps = Math.round((totalDownNow - prev.totalDown) / dt);
-            upBps   = Math.round((totalUpNow   - prev.totalUp)   / dt);
-          }
-        }
-        if (totalDownNow > 0 || totalUpNow > 0) lastTotalBytes.set(sid, { totalDown: totalDownNow, totalUp: totalUpNow, ts: now });
-      }
-    } catch (e) { console.error('AddonInfos fallback error:', e.message); }
-  }
+  let { downBps, upBps, dsHistory, usHistory, addon } = await getLiveRates(session, sid);
 
   // Server-side history for Cable models
   if (dsHistory.length === 0 && trafficHistory.down.length > 0) {
@@ -1079,15 +1356,10 @@ app.get('/api/fritz/network-stats', async (req, res) => {
     usHistory = trafficHistory.up.filter(p => now - p.time <= 30 * 60 * 1000).map(p => p.value);
   }
 
-  let totalDown = 0, totalUp = 0;
-  try {
-    let addonInfo = await soapRequest(session.host, 'urn:schemas-upnp-org:service:WANCommonInterfaceConfig:1', 'GetAddonInfos', session.username, session.password, session.controlUrls);
-    if (!addonInfo['NewTotalBytesReceived'] && !addonInfo['NewX_AVM_DE_TotalBytesReceived64']) {
-      addonInfo = await soapRequest(session.host, 'urn:dslforum-org:service:WANCommonInterfaceConfig:1', 'GetAddonInfos', session.username, session.password, session.controlUrls);
-    }
-    totalDown = parseInt(addonInfo['NewX_AVM_DE_TotalBytesReceived64'] || addonInfo['NewTotalBytesReceived'] || '0', 10) || 0;
-    totalUp = parseInt(addonInfo['NewX_AVM_DE_TotalBytesSent64'] || addonInfo['NewTotalBytesSent'] || '0', 10) || 0;
-  } catch (e) { console.error('AddonInfos error:', e.message); }
+  // Gesamt-Bytes: GetAddonInfos nur abfragen, wenn getLiveRates es nicht schon getan hat
+  if (!addon) addon = await getAddonInfos(session);
+  const totalDown = parseInt(addon.NewX_AVM_DE_TotalBytesReceived64 || addon.NewTotalBytesReceived || '0', 10) || 0;
+  const totalUp   = parseInt(addon.NewX_AVM_DE_TotalBytesSent64     || addon.NewTotalBytesSent     || '0', 10) || 0;
 
   // Serverseitiger 30-min-Verlauf mit echten Timestamps – das Frontend nutzt ihn
   // (wenn ausreichend Punkte vorhanden) zum sofortigen, lückenlosen Initial-Fill des
@@ -1103,22 +1375,6 @@ app.get('/api/fritz/network-stats', async (req, res) => {
   return res.json(result);
 });
 
-app.get('/api/fritz/device-stats', async (req, res) => {
-  const sid = req.headers['x-fritz-sid'];
-  const mac = req.query.mac;
-  const session = sessions.get(sid);
-  if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
-  try {
-    const hosts = await getHostsViaSoap(session.host, session.username, session.password, session.controlUrls);
-    const device = hosts.find(h => h.mac === mac);
-    if (!device) return res.status(404).json({ error: 'Gerät nicht gefunden' });
-    return res.json({ device, downBytes: 0, upBytes: 0 });
-  } catch (err) {
-    console.error('DeviceStats error:', err.message);
-    return res.json({ device: null, downBytes: 0, upBytes: 0 });
-  }
-});
-
 app.post('/api/fritz/reboot', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   const session = sessions.get(sid);
@@ -1132,12 +1388,245 @@ app.post('/api/fritz/reboot', async (req, res) => {
   }
 });
 
-app.post('/api/fritz/logout', (req, res) => {
-  const sid = req.headers['x-fritz-sid'];
-  if (sid !== AUTO_SID) {
-    sessions.delete(sid);
+// Firmware-Update der FRITZ!Box prüfen (UserInterface:1#GetInfo). Die Box prüft selbst
+// regelmäßig bei AVM – wir lesen nur ihr Ergebnis. 1 h gecacht; auch vom HA-Push genutzt.
+async function getFirmwareStatus(session) {
+  const cached = getCached('firmware-status', 3600000);
+  if (cached) return cached;
+  const r = await soapRequest(session.host, 'urn:dslforum-org:service:UserInterface:1', 'GetInfo', session.username, session.password, session.controlUrls);
+  let di = getCached('device-info', 3600000);
+  if (!di) {
+    try { di = await getDeviceInfoViaSoap(session.host, session.username, session.password, session.controlUrls); setCached('device-info', di); } catch {}
   }
-  return res.json({ success: true });
+  const result = {
+    updateAvailable: r?.NewUpgradeAvailable === '1' || r?.NewUpgradeAvailable === 'true',
+    newVersion:      r?.['NewX_AVM-DE_Version'] || '',
+    infoUrl:         r?.['NewX_AVM-DE_InfoURL'] || '',
+    buildType:       r?.['NewX_AVM-DE_BuildType'] || '',
+    currentVersion:  di?.NewSoftwareVersion || '',
+  };
+  setCached('firmware-status', result);
+  return result;
+}
+
+app.get('/api/fritz/firmware', async (req, res) => {
+  const sid = req.headers['x-fritz-sid'];
+  const session = sessions.get(sid);
+  if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  try {
+    return res.json(await getFirmwareStatus(session));
+  } catch (err) {
+    debugLog(`Firmware-Check nicht verfügbar: ${err.message}`);
+    return res.json({ updateAvailable: false, unavailable: true });
+  }
+});
+
+// Wake-on-LAN über die FRITZ!Box (Hosts:1#X_AVM-DE_WakeOnLANByMACAddress) – die Box
+// schickt das Magic Packet selbst ins Heimnetz, funktioniert also auch aus dem HA-Container.
+// Geräte-Zuordnung korrigieren: Verbindungsart (LAN/WLAN), Zugangspunkt („box" oder
+// MAC eines Zugangspunkts), „ist Zugangspunkt" und Standard-Verbindungsart für dessen
+// Geräte. null/'auto' setzt das jeweilige Feld auf automatische Erkennung zurück.
+app.get('/api/fritz/device/overrides', (req, res) => {
+  if (!sessions.get(req.headers['x-fritz-sid'])) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  return res.json({ devices: deviceOverrides });
+});
+
+app.post('/api/fritz/device/override', (req, res) => {
+  if (!sessions.get(req.headers['x-fritz-sid'])) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  const { mac, ...changes } = req.body || {};
+  const isMac = (v) => /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/.test(String(v || ''));
+  if (!isMac(mac)) return res.status(400).json({ error: 'Ungültige MAC-Adresse' });
+  const ov = { ...(deviceOverrides[mac] || {}) };
+  const valid = {
+    conn:       v => v === 'LAN' || v === 'WLAN',
+    clientConn: v => v === 'LAN' || v === 'WLAN',
+    parent:     v => v === 'box' || (isMac(v) && v !== mac),
+    infra:      v => typeof v === 'boolean',
+  };
+  for (const [key, value] of Object.entries(changes)) {
+    if (!valid[key]) continue;
+    if (value === null || value === 'auto') delete ov[key];
+    else if (valid[key](value)) ov[key] = value;
+    else return res.status(400).json({ error: `Ungültiger Wert für ${key}` });
+  }
+  if (Object.keys(ov).length) deviceOverrides[mac] = ov; else delete deviceOverrides[mac];
+  saveDeviceOverrides();
+  // Nur abgeleitete Daten neu berechnen – die Rohdaten der Box bleiben gültig
+  for (const k of ['hosts', 'ip-stats', 'mesh-topology', 'mesh-hosts-fallback']) cache.delete(k);
+  return res.json({ success: true, override: ov });
+});
+
+// ── Zugangsprofile (Kindersicherung, X_AVM-DE_HostFilter, Spezifikation 2025) ──
+const HOSTFILTER = 'urn:dslforum-org:service:X_AVM-DE_HostFilter:1';
+
+// Alle Zugangsprofile der Box (Name, Typ). Die Liste kommt als XML-String, je nach
+// Firmware evtl. als Pfad zu einer XML-Datei. 5 min gecacht.
+async function getFilterProfiles(session) {
+  const cached = getCached('filter-profiles', 300000);
+  if (cached) return cached;
+  const r = await soapRequest(session.host, HOSTFILTER, 'GetFilterProfiles', session.username, session.password, session.controlUrls);
+  let xml = decodeXmlEntities(r?.NewFilterProfileList || '');
+  if (/^(\/|https?:)/.test(xml.trim())) {
+    const url = xml.startsWith('/') ? `http://${session.host}:49000${xml.trim()}` : xml.trim();
+    xml = await (await fetch(url)).text();
+  }
+  const profiles = parseXmlItems(xml, 'FilterProfile').map(p => ({
+    id: p.FilterProfileID || '', name: p.Name || p.FilterProfileID || '', type: p.FilterProfileType || '',
+  })).filter(p => p.id);
+  setCached('filter-profiles', profiles);
+  return profiles;
+}
+
+app.get('/api/fritz/filter-profiles', async (req, res) => {
+  const session = sessions.get(req.headers['x-fritz-sid']);
+  if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  try { return res.json({ supported: true, profiles: await getFilterProfiles(session) }); }
+  catch (err) { debugLog('Zugangsprofile nicht verfügbar:', err.message); return res.json({ supported: false, profiles: [] }); }
+});
+
+const isIPv4 = (v) => /^(\d{1,3}\.){3}\d{1,3}$/.test(String(v || ''));
+
+// Zugangsprofil + Online-Zeit eines Geräts (GetHostEntryByIP); Zeiten in Minuten
+app.get('/api/fritz/device/filter', async (req, res) => {
+  const session = sessions.get(req.headers['x-fritz-sid']);
+  if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  if (!isIPv4(req.query.ip)) return res.json({ supported: false });
+  try {
+    const r = await soapRequest(session.host, HOSTFILTER, 'GetHostEntryByIP', session.username, session.password, session.controlUrls, { NewIPv4Address: req.query.ip });
+    const n = (v) => parseInt(v || '0', 10) || 0;
+    return res.json({
+      supported: true, profileId: r?.NewFilterProfileID || '',
+      timeUsed: n(r?.NewTimeUsed), timeMax: n(r?.NewTimeMax), ticketValid: r?.NewTicketValid === '1',
+      ticketsInAdvance: n(r?.NewTicketsInAdvance), wanAccess: r?.NewWANAccess || '',
+    });
+  } catch (err) {
+    debugLog('GetHostEntryByIP:', err.message);
+    return res.json({ supported: false });
+  }
+});
+
+app.post('/api/fritz/device/filter', async (req, res) => {
+  const session = sessions.get(req.headers['x-fritz-sid']);
+  if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  const { ip, profileId } = req.body || {};
+  if (!isIPv4(ip) || !/^[\w-]{1,64}$/.test(String(profileId || ''))) return res.status(400).json({ error: 'Ungültige Angaben' });
+  try {
+    await soapRequest(session.host, HOSTFILTER, 'AddHostEntryToFilterProfile', session.username, session.password, session.controlUrls, { NewIPv4Address: ip, NewFilterProfileID: profileId });
+    invalidateHosts();
+    return res.json({ success: true });
+  } catch (err) {
+    return res.json({ success: false, error: /880/.test(err.message) ? 'Für dieses Gerät kann das Profil nicht geändert werden' : err.message });
+  }
+});
+
+// Zusatz-Surfzeit („Ticket") – nur für Profile mit Zeitbudget/Zeitplan
+app.post('/api/fritz/device/ticket', async (req, res) => {
+  const session = sessions.get(req.headers['x-fritz-sid']);
+  if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  const { ip } = req.body || {};
+  if (!isIPv4(ip)) return res.status(400).json({ error: 'Ungültige IP-Adresse' });
+  try {
+    const r = await soapRequest(session.host, HOSTFILTER, 'AddTicketTimeToHostEntryByIP', session.username, session.password, session.controlUrls, { NewIPv4Address: ip });
+    return res.json({ success: true, timeUsed: parseInt(r?.NewTimeUsed || '0', 10) || 0, timeMax: parseInt(r?.NewTimeMax || '0', 10) || 0 });
+  } catch (err) {
+    return res.json({ success: false, error: /880/.test(err.message) ? 'Für dieses Gerät ist kein Ticket möglich' : err.message });
+  }
+});
+
+// Echtzeit-Priorisierung eines Geräts (Hosts:1#X_AVM-DE_SetPrioritizationByIP) –
+// entspricht „Priorisierung → Echtzeitanwendungen" in der FRITZ!Box-Oberfläche
+app.post('/api/fritz/device/priority', async (req, res) => {
+  const sid = req.headers['x-fritz-sid'];
+  const session = sessions.get(sid);
+  if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  const { ip, enabled } = req.body || {};
+  if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(String(ip || ''))) return res.status(400).json({ error: 'Ungültige IP-Adresse' });
+  try {
+    await soapRequest(session.host, 'urn:dslforum-org:service:Hosts:1', 'X_AVM-DE_SetPrioritizationByIP', session.username, session.password, session.controlUrls, { NewIPAddress: ip, 'NewX_AVM-DE_Priority': enabled ? '1' : '0' });
+    invalidateHosts();
+    return res.json({ success: true });
+  } catch (err) {
+    return res.json({ success: false, error: err.message });
+  }
+});
+
+// Automatisches Wake-on-LAN: Die Box weckt das Gerät, sobald aus dem Internet darauf
+// zugegriffen wird (Hosts:1#X_AVM-DE_Get/SetAutoWakeOnLANByMACAddress)
+app.get('/api/fritz/device/autowol', async (req, res) => {
+  const sid = req.headers['x-fritz-sid'];
+  const session = sessions.get(sid);
+  if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  try {
+    const r = await soapRequest(session.host, 'urn:dslforum-org:service:Hosts:1', 'X_AVM-DE_GetAutoWakeOnLANByMACAddress', session.username, session.password, session.controlUrls, { NewMACAddress: String(req.query.mac || '') });
+    return res.json({ supported: true, enabled: r?.NewAutoWOLEnabled === '1' });
+  } catch {
+    return res.json({ supported: false, enabled: false });
+  }
+});
+
+app.post('/api/fritz/device/autowol', async (req, res) => {
+  const sid = req.headers['x-fritz-sid'];
+  const session = sessions.get(sid);
+  if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  const { mac, enabled } = req.body || {};
+  try {
+    await soapRequest(session.host, 'urn:dslforum-org:service:Hosts:1', 'X_AVM-DE_SetAutoWakeOnLANByMACAddress', session.username, session.password, session.controlUrls, { NewMACAddress: String(mac || ''), NewAutoWOLEnabled: enabled ? '1' : '0' });
+    return res.json({ success: true });
+  } catch (err) {
+    return res.json({ success: false, error: err.message });
+  }
+});
+
+// Ereignisprotokoll der FRITZ!Box (DeviceInfo:1#X_AVM-DE_GetDeviceLogPath, Fallback
+// GetDeviceLog). Filter laut Spec: all, sys, net, fon, wlan, usb. 30 s gecacht.
+const DEVICE_LOG_FILTERS = ['all', 'sys', 'net', 'fon', 'wlan', 'usb'];
+app.get('/api/fritz/device-log', async (req, res) => {
+  const sid = req.headers['x-fritz-sid'];
+  const session = sessions.get(sid);
+  if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  const filter = DEVICE_LOG_FILTERS.includes(req.query.filter) ? req.query.filter : 'all';
+  const cached = getCached(`device-log-${filter}`, 30000);
+  if (cached) return res.json(cached);
+  const DI = 'urn:dslforum-org:service:DeviceInfo:1';
+  let events = [];
+  try {
+    const r = await soapRequest(session.host, DI, 'X_AVM-DE_GetDeviceLogPath', session.username, session.password, session.controlUrls);
+    const path = r?.NewDeviceLogPath;
+    if (path) {
+      const url = `http://${session.host}:49000${path.startsWith('/') ? '' : '/'}${path}${path.includes('?') ? '&' : '?'}filter=${filter}`;
+      const xml = await (await fetch(url)).text();
+      events = parseXmlItems(xml, 'Event').map(e => ({ id: e.id, group: e.group, date: e.date, time: e.time, msg: e.msg }));
+    }
+  } catch {}
+  if (events.length === 0 && filter === 'all') {
+    // Ältere Firmwares: Protokoll als Fließtext, eine Zeile pro Ereignis („dd.mm.yy hh:mm:ss Text")
+    try {
+      const r = await soapRequest(session.host, DI, 'GetDeviceLog', session.username, session.password, session.controlUrls);
+      events = String(r?.NewDeviceLog || '').split('\n').filter(Boolean).map(line => {
+        const m = line.match(/^(\d{2}\.\d{2}\.\d{2})\s+(\d{2}:\d{2}:\d{2})\s+(.*)$/);
+        return m ? { date: m[1], time: m[2], msg: m[3], group: '' } : { date: '', time: '', msg: line, group: '' };
+      });
+    } catch {}
+  }
+  const result = { filter, events: events.slice(0, 300) };
+  setCached(`device-log-${filter}`, result);
+  return res.json(result);
+});
+
+app.post('/api/fritz/device/wol', async (req, res) => {
+  const sid = req.headers['x-fritz-sid'];
+  const session = sessions.get(sid);
+  if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  const mac = String(req.body?.mac || '').trim().toUpperCase();
+  if (!/^[0-9A-F]{2}(:[0-9A-F]{2}){5}$/.test(mac)) return res.status(400).json({ error: 'Ungültige MAC-Adresse' });
+  try {
+    await soapRequest(session.host, 'urn:dslforum-org:service:Hosts:1', 'X_AVM-DE_WakeOnLANByMACAddress', session.username, session.password, session.controlUrls, { NewMACAddress: mac });
+    console.log(`Wake-on-LAN an ${mac} gesendet`);
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Wake-on-LAN error:', err.message);
+    return res.json({ success: false, error: err.message });
+  }
 });
 
 // ============ DHCP EDIT ============
@@ -1160,6 +1649,8 @@ app.post('/api/fritz/network/dhcp', async (req, res) => {
       NewDomainName: current.NewDomainName || '',
       NewIPRouters: current.NewIPRouters || '',
     });
+    cache.delete('lan-info');
+    cache.delete('ip-stats');
     return res.json({ success: true });
   } catch (err) {
     console.error('DHCP update error:', err.message);
@@ -1207,9 +1698,19 @@ app.get('/api/fritz/device/static-dhcp', async (req, res) => {
   try {
     const result = await soapRequest(session.host, 'urn:dslforum-org:service:LANHostConfigManagement:1', 'GetSpecificStaticDHCPEntry', session.username, session.password, session.controlUrls, { NewMACAddress: mac });
     return res.json({ exists: true, ip: result.NewIPAddress || '', hostname: result.NewHostName || '' });
-  } catch {
-    return res.json({ exists: false, ip: '', hostname: '' });
-  }
+  } catch {}
+  // Issue #40: GetSpecificStaticDHCPEntry ist in der AVM-Spezifikation nicht enthalten
+  // und schlägt auf den meisten Boxen fehl – die Detailseite zeigte deshalb nie
+  // „fest zugewiesen". Fallback: Reservierungs-Erkennung aus der Geräteliste
+  // (netDev-Flags + Reservierungsliste der Weboberfläche).
+  try {
+    const macs = await fetchStaticDhcpMacs(session);
+    const host = (getCached('hosts', 300000) || []).find(h => h.mac === mac);
+    if (macs.has(String(mac).toLowerCase()) || host?.addressSource === 'Static') {
+      return res.json({ exists: true, ip: host?.ip || '', hostname: host?.name || '' });
+    }
+  } catch {}
+  return res.json({ exists: false, ip: '', hostname: '' });
 });
 
 app.post('/api/fritz/device/static-dhcp', async (req, res) => {
@@ -1226,9 +1727,11 @@ app.post('/api/fritz/device/static-dhcp', async (req, res) => {
       }
     } catch {}
     await soapRequest(session.host, 'urn:dslforum-org:service:LANHostConfigManagement:1', 'AddStaticDHCPEntry', session.username, session.password, session.controlUrls, { NewIPAddress: ip, NewMACAddress: mac, NewHostName: hostname || '' });
+    invalidateHosts();
     return res.json({ success: true });
   } catch (soapErr) {
-    console.log('Static DHCP SOAP fehlgeschlagen, versuche data.lua:', soapErr.message);
+    // Erwartbar: die SOAP-Aktion fehlt auf den meisten Firmwares → data.lua
+    debugLog('Static DHCP SOAP nicht verfügbar, nutze data.lua:', soapErr.message);
   }
   // Versuch 2: data.lua Fallback
   try {
@@ -1246,6 +1749,7 @@ app.post('/api/fritz/device/static-dhcp', async (req, res) => {
     });
     const text = await r.text();
     if (r.ok && !text.includes('"error"')) {
+      invalidateHosts();
       console.log('Static DHCP: data.lua Fallback erfolgreich');
       return res.json({ success: true, _source: 'data.lua' });
     }
@@ -1265,9 +1769,10 @@ app.delete('/api/fritz/device/static-dhcp', async (req, res) => {
   try {
     const existing = await soapRequest(session.host, 'urn:dslforum-org:service:LANHostConfigManagement:1', 'GetSpecificStaticDHCPEntry', session.username, session.password, session.controlUrls, { NewMACAddress: mac });
     await soapRequest(session.host, 'urn:dslforum-org:service:LANHostConfigManagement:1', 'DeleteStaticDHCPEntry', session.username, session.password, session.controlUrls, { NewIPAddress: existing.NewIPAddress, NewMACAddress: mac });
+    invalidateHosts();
     return res.json({ success: true });
   } catch (soapErr) {
-    console.log('Static DHCP delete SOAP fehlgeschlagen, versuche data.lua:', soapErr.message);
+    debugLog('Static DHCP delete SOAP nicht verfügbar, nutze data.lua:', soapErr.message);
   }
   // Versuch 2: data.lua Fallback
   try {
@@ -1284,6 +1789,7 @@ app.delete('/api/fritz/device/static-dhcp', async (req, res) => {
       body: params.toString(),
     });
     if (r.ok) {
+      invalidateHosts();
       console.log('Static DHCP delete: data.lua Fallback erfolgreich');
       return res.json({ success: true, _source: 'data.lua' });
     }
@@ -1300,10 +1806,11 @@ app.post('/api/fritz/device/block', async (req, res) => {
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
   const { mac, blocked } = req.body;
   try {
-    const hosts = await getHostsViaSoap(session.host, session.username, session.password, session.controlUrls);
+    const hosts = getCached('hosts', 60000) || await getHostsViaSoap(session.host, session.username, session.password, session.controlUrls);
     const host = hosts.find(h => h.mac === mac);
     if (!host?.ip) return res.json({ success: false, error: 'IP-Adresse des Geräts nicht gefunden' });
     await soapRequest(session.host, 'urn:dslforum-org:service:X_AVM-DE_HostFilter:1', 'DisallowWANAccessByIP', session.username, session.password, session.controlUrls, { NewIPv4Address: host.ip, NewDisallow: blocked ? '1' : '0' });
+    invalidateHosts();
     return res.json({ success: true });
   } catch (err) {
     console.error('Block device error:', err.message);
@@ -1333,7 +1840,7 @@ app.delete('/api/fritz/device', async (req, res) => {
   // Versuch 1: TR-064. Wichtig: Parametername ist `NewMacAddress` (nicht `NewMACAddress`)
   try {
     await soapRequest(session.host, 'urn:dslforum-org:service:Hosts:1', 'X_AVM-DE_DeleteHost', session.username, session.password, session.controlUrls, { NewMacAddress: mac });
-    cache.delete('hosts');
+    invalidateHosts();
     cache.delete('netdev-map');
     lastSeenMap.delete(mac);
     return res.json({ success: true, _source: 'soap' });
@@ -1356,7 +1863,7 @@ app.delete('/api/fritz/device', async (req, res) => {
     });
     const text = await r.text();
     if (r.ok && !text.includes('"error"')) {
-      cache.delete('hosts');
+      invalidateHosts();
       cache.delete('netdev-map');
       lastSeenMap.delete(mac);
       return res.json({ success: true, _source: 'data.lua' });
@@ -1372,33 +1879,38 @@ app.post('/api/fritz/device/update', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
-  const { mac, name, ip } = req.body;
-  const errors = [];
-  if (name) {
-    try {
-      const sanitized = name.replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/Ä/g, 'Ae').replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue').replace(/ß/g, 'ss').replace(/[^A-Za-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 63);
-      if (!sanitized) throw new Error('Name enthält keine gültigen Zeichen');
-      await soapRequest(session.host, 'urn:dslforum-org:service:Hosts:1', 'X_AVM-DE_SetHostNameByMACAddress', session.username, session.password, session.controlUrls, { NewMACAddress: mac, NewHostName: sanitized });
-    } catch (err) { errors.push(`Name: ${err.message}`); }
+  const { mac, name } = req.body || {};
+  if (!mac || !name) return res.json({ success: false, error: 'mac und name erforderlich' });
+  try {
+    // Hostnamen erlauben nur A–Z, a–z, 0–9 und Bindestrich (X_AVM-DE_HostnameAllowedChars)
+    const sanitized = name.replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/Ä/g, 'Ae').replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue').replace(/ß/g, 'ss').replace(/[^A-Za-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 63);
+    if (!sanitized) throw new Error('Name enthält keine gültigen Zeichen');
+    await soapRequest(session.host, 'urn:dslforum-org:service:Hosts:1', 'X_AVM-DE_SetHostNameByMACAddress', session.username, session.password, session.controlUrls, { NewMACAddress: mac, NewHostName: sanitized });
+    invalidateHosts();
+    return res.json({ success: true });
+  } catch (err) {
+    return res.json({ success: false, error: err.message });
   }
-  if (ip) {
-    try {
-      await soapRequest(session.host, 'urn:dslforum-org:service:LANHostConfigManagement:1', 'AddStaticDHCPEntry', session.username, session.password, session.controlUrls, { NewIPAddress: ip, NewHostName: name || '', NewMACAddress: mac });
-    } catch (err) { errors.push(`IP: ${err.message}`); }
-  }
-  if (errors.length > 0) return res.json({ success: false, error: errors.join('; ') });
-  return res.json({ success: true });
 });
 
 // ============ NETZWERK ============
+
+// LAN-/DHCP-Konfiguration (LANHostConfigManagement#GetInfo) – wird von /network/lan,
+// /network/dhcp und /ip-stats gebraucht, die das Frontend parallel aufruft. 60 s gecacht.
+async function getLanInfo(session) {
+  const cached = getCached('lan-info', 60000);
+  if (cached) return cached;
+  const r = await soapRequest(session.host, 'urn:dslforum-org:service:LANHostConfigManagement:1', 'GetInfo', session.username, session.password, session.controlUrls);
+  setCached('lan-info', r);
+  return r;
+}
 
 app.get('/api/fritz/network/lan', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
   try {
-    const result = await soapRequest(session.host, 'urn:dslforum-org:service:LANHostConfigManagement:1', 'GetInfo', session.username, session.password, session.controlUrls);
-    return res.json(result);
+    return res.json(await getLanInfo(session));
   } catch {
     // Fallback für Modelle ohne LANHostConfigManagement (z. B. 7530 ältere Firmware)
     try {
@@ -1424,22 +1936,117 @@ app.get('/api/fritz/network/lan', async (req, res) => {
   }
 });
 
+// Anzeigename der Anschlussart (WANCommonInterfaceConfig#GetCommonLinkProperties)
+// Werte laut AVM-Spezifikation WANCommonInterfaceConfig (v22, 2026-02)
+const WAN_ACCESS_LABELS = {
+  'DSL': 'DSL', 'Ethernet': 'Ethernet', 'X_AVM-DE_Fiber': 'Glasfaser',
+  'X_AVM-DE_Cable': 'Kabel', 'X_AVM-DE_LTE': 'Mobilfunk (LTE/5G)', 'X_AVM-DE_UMTS': 'Mobilfunk (UMTS)',
+};
+
+// WAN-Status zusammentragen: welcher Verbindungsdienst aktiv ist, externe IPv4/IPv6,
+// Anschlussart (DSL/Glasfaser/Kabel/Mobilfunk – Issue #33: DSL vs. LTE-Backup),
+// Layer-1-Raten und bei DSL die Leitungswerte. 60 s gecacht; genutzt vom
+// /network/wan-Endpoint und vom HA-Sensor-Push. Null, wenn kein WAN-Dienst antwortet.
+async function getWanStatus(session) {
+  const cached = getCached('wan-status', 60000);
+  if (cached) return cached;
+  const soap = (svc, action) => soapRequest(session.host, svc, action, session.username, session.password, session.controlUrls);
+  const PPP = 'urn:dslforum-org:service:WANPPPConnection:1';
+  const IP  = 'urn:dslforum-org:service:WANIPConnection:1';
+  const IGD = 'urn:schemas-upnp-org:service:WANIPConnection:1';
+
+  // Issue #39: Auf DSL-Boxen (7530) existieren PPP- UND IP-Dienst; der zuerst probierte
+  // IP-Dienst meldete „Connecting" ohne IP. Layer3Forwarding nennt den aktiven Dienst.
+  let order = [IP, PPP, IGD];
+  try {
+    const def = await soap('urn:dslforum-org:service:Layer3Forwarding:1', 'GetDefaultConnectionService');
+    if (/WANPPPConnection/i.test(def?.NewDefaultConnectionService || '')) order = [PPP, IP, IGD];
+  } catch {}
+
+  let result = null;
+  let fallback = null;
+  for (const svc of order) {
+    try {
+      const [ip, status] = await Promise.all([soap(svc, 'GetExternalIPAddress'), soap(svc, 'GetStatusInfo')]);
+      const entry = { ...ip, ...status, _wanService: svc, NewConnectionType: svc === PPP ? 'PPPoE' : 'IP' };
+      // Bevorzugt den Dienst, der tatsächlich verbunden ist
+      if (status?.NewConnectionStatus === 'Connected') { result = entry; break; }
+      if (!fallback) fallback = entry;
+    } catch {}
+  }
+  result = result || fallback;
+  if (!result) return null;
+
+  try {
+    const v6 = await soap(IP, 'X_AVM-DE_GetExternalIPv6Address');
+    if (v6?.NewExternalIPv6Address) result.ipv6 = v6.NewExternalIPv6Address;
+  } catch {}
+  const WCIC = 'urn:dslforum-org:service:WANCommonInterfaceConfig:1';
+  try {
+    const link = await soap(WCIC, 'GetCommonLinkProperties');
+    result.accessType      = link?.NewWANAccessType || '';
+    result.accessTypeLabel = WAN_ACCESS_LABELS[result.accessType] || (result.accessType === 'unknown' ? '' : result.accessType);
+    result.linkStatus      = link?.NewPhysicalLinkStatus || '';
+    result.upstreamMax     = parseInt(link?.NewLayer1UpstreamMaxBitRate   || '0', 10) || 0; // bit/s
+    result.downstreamMax   = parseInt(link?.NewLayer1DownstreamMaxBitRate || '0', 10) || 0;
+  } catch {}
+  // Sync-/Brutto-/Tarif-Raten für ALLE Anschlussarten (nicht nur DSL) – neu in der
+  // AVM-Spezifikation 2026-02; ältere Firmwares kennen die Aktion nicht
+  try {
+    const a = await soap(WCIC, 'X_AVM-DE_GetAddonInfos');
+    const n = (v) => parseInt(v || '0', 10) || 0;
+    const rates = {
+      syncDown: n(a?.['NewX_AVM-DE_SyncDownstream']),     syncUp: n(a?.['NewX_AVM-DE_SyncUpstream']),
+      tariffDown: n(a?.['NewX_AVM-DE_TariffDataRateDownstream']), tariffUp: n(a?.['NewX_AVM-DE_TariffDataRateUpstream']),
+    };
+    if (Object.values(rates).some(Boolean)) result.rates = rates; // bit/s
+    if (!result.accessType && a?.['NewX_AVM-DE_WANAccessType']) {
+      result.accessType = a['NewX_AVM-DE_WANAccessType'];
+      result.accessTypeLabel = WAN_ACCESS_LABELS[result.accessType] || '';
+    }
+  } catch {}
+  try {
+    const p = await soap(WCIC, 'X_AVM-DE_GetActiveProvider');
+    if (p?.['NewX_AVM-DE_Provider']) result.provider = p['NewX_AVM-DE_Provider'];
+  } catch {}
+  if (!result.accessType || result.accessType === 'DSL') {
+    try {
+      const d = await soap('urn:dslforum-org:service:WANDSLInterfaceConfig:1', 'GetInfo');
+      if (d && d.NewDownstreamCurrRate !== undefined) {
+        // Raten in kbit/s, Störabstand/Dämpfung in 0,1 dB
+        const tenth = (v) => (v === undefined || v === '' ? null : +(parseInt(v, 10) / 10).toFixed(1));
+        result.dsl = {
+          status:        d.NewStatus || '',
+          downCurr:      parseInt(d.NewDownstreamCurrRate || '0', 10) || 0,
+          upCurr:        parseInt(d.NewUpstreamCurrRate   || '0', 10) || 0,
+          downMax:       parseInt(d.NewDownstreamMaxRate  || '0', 10) || 0,
+          upMax:         parseInt(d.NewUpstreamMaxRate    || '0', 10) || 0,
+          snrDown:       tenth(d.NewDownstreamNoiseMargin),
+          snrUp:         tenth(d.NewUpstreamNoiseMargin),
+          attDown:       tenth(d.NewDownstreamAttenuation),
+          attUp:         tenth(d.NewUpstreamAttenuation),
+        };
+        // Fehlerzähler seit dem letzten Sync – hilfreich bei instabilen Leitungen
+        try {
+          const st = await soap('urn:dslforum-org:service:WANDSLInterfaceConfig:1', 'GetStatisticsTotal');
+          const n = (v) => (v === undefined || v === '' ? null : parseInt(v, 10) || 0);
+          result.dsl.crcErrors = n(st?.NewCRCErrors);
+          result.dsl.fecErrors = n(st?.NewFECErrors);
+          result.dsl.erroredSecs = n(st?.NewErroredSecs);
+        } catch {}
+      }
+    } catch {}
+  }
+  setCached('wan-status', result);
+  return result;
+}
+
 app.get('/api/fritz/network/wan', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
-  // WANIPConnection:1 (DHCP/Kabel-Modelle); Fallback: WANPPPConnection:1 (DSL/PPPoE wie 7530);
-  // letzter Versuch: IGD-Variante (ohne TR-064-Auth) – hilft auf Boxen, deren
-  // dslforum-WAN-Dienste nicht antworten (Issue #33: 7690/5690 Pro)
-  for (const svc of ['urn:dslforum-org:service:WANIPConnection:1', 'urn:dslforum-org:service:WANPPPConnection:1', 'urn:schemas-upnp-org:service:WANIPConnection:1']) {
-    try {
-      const [ip, status] = await Promise.all([
-        soapRequest(session.host, svc, 'GetExternalIPAddress', session.username, session.password, session.controlUrls),
-        soapRequest(session.host, svc, 'GetStatusInfo',        session.username, session.password, session.controlUrls),
-      ]);
-      return res.json({ ...ip, ...status, _wanService: svc });
-    } catch {}
-  }
+  const wan = await getWanStatus(session);
+  if (wan) return res.json(wan);
   // Fallback via data.lua (z.B. Fritz!Box 6490 ohne vollständigen TR-064-Zugriff)
   try {
     const webSid = await getCachedWebSid(session);
@@ -1608,8 +2215,7 @@ app.get('/api/fritz/network/dhcp', async (req, res) => {
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
   try {
-    const result = await soapRequest(session.host, 'urn:dslforum-org:service:LANHostConfigManagement:1', 'GetInfo', session.username, session.password, session.controlUrls);
-    return res.json(result);
+    return res.json(await getLanInfo(session));
   } catch {
     // Fallback via data.lua (z. B. 7530 ältere Firmware)
     try {
@@ -1636,60 +2242,261 @@ app.get('/api/fritz/network/dhcp', async (req, res) => {
 
 // ============ IP STATS ============
 
-app.get('/api/fritz/ip-stats', async (req, res) => {
-  const sid = req.headers['x-fritz-sid'];
-  const session = sessions.get(sid);
-  if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
-  const cached = getCached('ip-stats', 30000); // 30 Sekunden cachen
-  if (cached) return res.json(cached);
-  function ipToInt(ip) {
-    const parts = (ip || '').split('.');
-    if (parts.length !== 4) return 0;
-    return ((parseInt(parts[0], 10) << 24) | (parseInt(parts[1], 10) << 16) | (parseInt(parts[2], 10) << 8) | parseInt(parts[3], 10)) >>> 0;
-  }
-  async function calcStats(minAddress, maxAddress) {
-    const hosts = await getHostsViaSoap(session.host, session.username, session.password, session.controlUrls);
+function ipToInt(ip) {
+  const parts = (ip || '').split('.');
+  if (parts.length !== 4) return 0;
+  return ((parseInt(parts[0], 10) << 24) | (parseInt(parts[1], 10) << 16) | (parseInt(parts[2], 10) << 8) | parseInt(parts[3], 10)) >>> 0;
+}
+
+// Belegung des DHCP-Bereichs (gesamt/vergeben/frei), 30 s gecacht – vom Endpoint und
+// vom HA-Push („Freie IP-Adressen") genutzt
+async function getIpStats(session) {
+  const cached = getCached('ip-stats', 30000);
+  if (cached) return cached;
+  const calcStats = async (minAddress, maxAddress) => {
+    const hosts = await getEnrichedHosts(session).catch(() => []);
     const minInt = ipToInt(minAddress);
     const maxInt = ipToInt(maxAddress);
     const total = (minInt && maxInt && maxInt >= minInt) ? maxInt - minInt + 1 : 0;
     const used = hosts.filter(h => { if (!h.ip) return false; const ipInt = ipToInt(h.ip); return ipInt >= minInt && ipInt <= maxInt; }).length;
-    const free = Math.max(0, total - used);
-    return { total, used, free, minAddress, maxAddress };
-  }
+    return { total, used, free: Math.max(0, total - used), minAddress, maxAddress };
+  };
+  let range = null;
   try {
-    const dhcp = await soapRequest(session.host, 'urn:dslforum-org:service:LANHostConfigManagement:1', 'GetInfo', session.username, session.password, session.controlUrls);
-    const result = await calcStats(dhcp.NewMinAddress || '', dhcp.NewMaxAddress || '');
-    setCached('ip-stats', result);
-    return res.json(result);
+    const dhcp = await getLanInfo(session);
+    range = [dhcp.NewMinAddress || '', dhcp.NewMaxAddress || ''];
   } catch (err) {
-    console.error('IP-Stats error:', err.message);
+    debugLog('IP-Stats: LANHostConfigManagement nicht verfügbar:', err.message);
     // Fallback via data.lua für ältere Modelle (z.B. 6490) ohne TR-064-Zugriff
-    try {
-      const webSid = await getCachedWebSid(session);
-      if (webSid) {
-        for (const page of ['lanExpert', 'lan', 'home']) {
-          try {
-            const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
-            const r = await fetch(`http://${session.host}/data.lua`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() });
-            const text = await r.text();
-            if (!text.trim().startsWith('{')) continue;
-            const d = JSON.parse(text)?.data || {};
-            const minAddr = d.dhcp_start || d.dhcpStart || d.NewMinAddress || '';
-            const maxAddr = d.dhcp_end   || d.dhcpEnd   || d.NewMaxAddress || '';
-            if (minAddr && maxAddr) {
-              const result = await calcStats(minAddr, maxAddr).catch(() => ({ total: 0, used: 0, free: 0, minAddress: minAddr, maxAddress: maxAddr }));
-              setCached('ip-stats', result);
-              return res.json(result);
-            }
-          } catch {}
-        }
-      }
-    } catch {}
-    return res.json({ total: 0, used: 0, free: 0, minAddress: '', maxAddress: '' });
+    const webSid = await getCachedWebSid(session);
+    for (const page of webSid ? ['lanExpert', 'lan', 'home'] : []) {
+      try {
+        const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
+        const r = await fetch(`http://${session.host}/data.lua`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() });
+        const text = await r.text();
+        if (!text.trim().startsWith('{')) continue;
+        const d = JSON.parse(text)?.data || {};
+        const minAddr = d.dhcp_start || d.dhcpStart || d.NewMinAddress || '';
+        const maxAddr = d.dhcp_end   || d.dhcpEnd   || d.NewMaxAddress || '';
+        if (minAddr && maxAddr) { range = [minAddr, maxAddr]; break; }
+      } catch {}
+    }
   }
+  if (!range) return { total: 0, used: 0, free: 0, minAddress: '', maxAddress: '' };
+  const result = await calcStats(range[0], range[1]);
+  setCached('ip-stats', result);
+  return result;
+}
+
+app.get('/api/fritz/ip-stats', async (req, res) => {
+  const sid = req.headers['x-fritz-sid'];
+  const session = sessions.get(sid);
+  if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  return res.json(await getIpStats(session));
 });
 
 // ============ MESH ============
+
+// ── Offizielle Mesh-Topologie (TR-064 Hosts:1#X_AVM-DE_GetMeshListPath) ──
+// Die Box liefert einen Pfad zu einer JSON-Datei mit allen Mesh-Knoten, ihren
+// Schnittstellen (AP:2G/5G/6G, LAN-Ports) und den Verbindungen dazwischen inkl.
+// Linkrate und Signalqualität. Das ist dieselbe Quelle wie die Mesh-Übersicht der
+// FRITZ!Box-Oberfläche – funktioniert ohne Web-Login (data.lua) und unabhängig vom
+// Modell (Issues #35/#37/#38/#39: Repeater-Hierarchie fehlte, alles hing am Master).
+async function fetchMeshList(session) {
+  const r = await soapRequest(session.host, 'urn:dslforum-org:service:Hosts:1', 'X_AVM-DE_GetMeshListPath', session.username, session.password, session.controlUrls);
+  const path = r?.['NewX_AVM-DE_MeshListPath'];
+  if (!path) return null;
+  const res = await fetch(`http://${session.host}:49000${path.startsWith('/') ? '' : '/'}${path}`);
+  if (!res.ok) return null;
+  const json = await res.json();
+  return Array.isArray(json?.nodes) && json.nodes.length > 0 ? json : null;
+}
+
+// Frequenzband einer Mesh-Schnittstelle: aus dem Namen ("AP:5G:0") oder dem Kanal
+function meshIfaceBand(iface) {
+  const name = String(iface?.name || '').toUpperCase();
+  if (name.includes(':2G')) return '2,4 GHz';
+  if (name.includes(':5G')) return '5 GHz';
+  if (name.includes(':6G')) return '6 GHz';
+  const ch = parseInt(iface?.current_channel, 10);
+  if (ch >= 1 && ch <= 14) return '2,4 GHz';
+  if (ch >= 32 && ch <= 177) return '5 GHz';
+  return '';
+}
+
+function formatMbit(mbit) {
+  if (!mbit) return '';
+  return mbit >= 1000 ? `${+(mbit / 1000).toFixed(1)} Gbit/s` : `${Math.round(mbit)} Mbit/s`;
+}
+
+// Baut aus der Mesh-Liste das Frontend-Format { nodes, links } auf. Eltern-Kind-
+// Beziehungen per Breitensuche ab dem Master: Repeater hängen am Master, Clients am
+// Repeater, über den sie tatsächlich verbunden sind. Nur Knoten mit aktiver
+// Verbindung (state CONNECTED) – Offline-Geräte zeigt die Geräteliste.
+function buildMeshFromMeshList(json, hosts) {
+  const nodesByUid = new Map();
+  const ifaceByUid = new Map(); // Schnittstellen-UID → { node, iface }
+  for (const n of json.nodes) {
+    nodesByUid.set(n.uid, n);
+    for (const i of n.node_interfaces || []) ifaceByUid.set(i.uid, { node: n, iface: i });
+  }
+  // Verbindungen sammeln (jede taucht an beiden Enden auf → per UID deduplizieren)
+  const adj = new Map();
+  const seen = new Set();
+  for (const n of json.nodes) {
+    for (const i of n.node_interfaces || []) {
+      for (const l of i.node_links || []) {
+        if (seen.has(l.uid) || String(l.state || '').toUpperCase() !== 'CONNECTED') continue;
+        seen.add(l.uid);
+        for (const [a, b] of [[l.node_1_uid, l.node_2_uid], [l.node_2_uid, l.node_1_uid]]) {
+          if (!adj.has(a)) adj.set(a, []);
+          adj.get(a).push({ peer: b, link: l });
+        }
+      }
+    }
+  }
+
+  // Laut AVM-FAQ sind Schleifen möglich (PLC-Bus, Dual-Band-Verbindungen) und zwei
+  // Knoten können mehrfach verbunden sein → schnellste Verbindung zuerst, damit die
+  // Breitensuche sie als Eltern-Kind-Link wählt
+  const rateOf = (l) => Math.max(+l.cur_data_rate_rx || 0, +l.cur_data_rate_tx || 0);
+  for (const list of adj.values()) list.sort((a, b) => rateOf(b.link) - rateOf(a.link));
+
+  const master = json.nodes.find(n => String(n.mesh_role).toLowerCase() === 'master') || json.nodes[0];
+  const hostByMac = new Map((hosts || []).filter(h => h.mac).map(h => [h.mac, h]));
+  const macsOf = (n) => [n.device_mac_address, ...(n.node_interfaces || []).map(i => i.mac_address)]
+    .filter(Boolean).map(m => String(m).toLowerCase());
+  const hostOf = (n) => { for (const m of macsOf(n)) { const h = hostByMac.get(m); if (h) return h; } return null; };
+
+  const outNodes = [];
+  const outLinks = [];
+  const visited = new Set([master.uid]);
+  const queue = [master.uid];
+  const toNode = (n, linkInfo) => {
+    const h = hostOf(n);
+    const isMaster = n.uid === master.uid;
+    const meshed = !!n.is_meshed;
+    const role = isMaster ? 'master' : (meshed || String(n.mesh_role).toLowerCase() === 'slave') ? 'satellite' : 'client';
+    const node = {
+      uid: n.uid,
+      name: n.device_name || h?.name || n.device_mac_address || 'Gerät',
+      mac: String(n.device_mac_address || h?.mac || '').toLowerCase(),
+      ip: h?.ip || '',
+      role,
+      is_meshed: meshed,
+      model: n.device_model || h?.model || '',
+      firmware: meshed ? (n.device_firmware_version || '') : '',
+      updateAvailable: !!h?.updateAvailable,
+      guest: !!h?.guest,
+      url: meshed && !isMaster ? (h?.url || '') : '',
+      interfaces: [{ type: linkInfo?.type || 'LAN', name: '' }],
+    };
+    if (linkInfo) {
+      node.connType = linkInfo.type;
+      node.connDetail = linkInfo.band;
+      node.connSpeed = formatMbit(linkInfo.rate);
+      node.connDisplay = [linkInfo.type + (linkInfo.band ? ' ' + linkInfo.band : ''), node.connSpeed].filter(Boolean).join(' → ');
+      node.linkRate = linkInfo.rate;
+      node.signal = linkInfo.signal;
+      node.band = linkInfo.band;
+    }
+    return node;
+  };
+
+  outNodes.push(toNode(master, null));
+  while (queue.length) {
+    const parentUid = queue.shift();
+    for (const { peer, link } of adj.get(parentUid) || []) {
+      if (visited.has(peer) || !nodesByUid.has(peer)) continue;
+      visited.add(peer);
+      queue.push(peer);
+      const lt = String(link.type || '').toUpperCase();
+      const type = lt === 'WLAN' ? 'WLAN' : lt === 'PLC' ? 'PLC' : 'LAN'; // PLC = Powerline
+      const rate = rateOf(link) / 1000; // kbit/s → Mbit/s
+      // Band vom Access-Point-seitigen Interface (das des Elternknotens)
+      const parentIfaceUid = link.node_1_uid === parentUid ? link.node_interface_1_uid : link.node_interface_2_uid;
+      const band = type === 'WLAN' ? meshIfaceBand(ifaceByUid.get(parentIfaceUid)?.iface) : '';
+      // RCPI → dBm (IEEE 802.11k: dBm = RCPI/2 − 110); 255 = unbekannt
+      const rcpi = +link.rx_rcpi;
+      const signal = type === 'WLAN' && rcpi > 0 && rcpi < 255 ? Math.round(rcpi / 2 - 110) : null;
+      outNodes.push(toNode(nodesByUid.get(peer), { type, band, rate, signal }));
+      outLinks.push({ from: parentUid, to: peer, type, speed: rate });
+    }
+  }
+  // meshTotal: alle Mesh-fähigen FRITZ!-Geräte inkl. getrennter → „2 von 3 online"
+  const meshTotal = json.nodes.filter(n => n.is_meshed).length;
+  return { nodes: outNodes, links: outLinks, meshTotal, _source: 'meshlist' };
+}
+
+// Mesh-Topologie über die offizielle Schnittstelle, 30 s gecacht. Wird vom
+// /api/fritz/mesh-Endpoint und vom HA-Sensor-Push (Mesh-Geräte) genutzt.
+async function getOfficialMesh(session) {
+  const cached = getCached('mesh-official', 30000);
+  if (cached) return cached;
+  try {
+    const json = await fetchMeshList(session);
+    if (!json) return null;
+    const hosts = getCached('hosts', 300000)
+      || await getHostsViaSoap(session.host, session.username, session.password, session.controlUrls).catch(() => []);
+    const result = buildMeshFromMeshList(json, hosts);
+    // Die Box selbst steht nicht in ihrer eigenen Host-Liste → IP aus der Session
+    const master = result.nodes.find(n => n.role === 'master');
+    if (master && !master.ip) master.ip = String(session.host || '').replace(/^https?:\/\//, '').split(':')[0];
+    const sat = result.nodes.filter(n => n.role === 'satellite').length;
+    console.log(`Mesh: offizielle Mesh-Liste – ${result.nodes.length} Knoten, davon ${sat} Mesh-Repeater`);
+    setCached('mesh-official', result);
+    return result;
+  } catch (err) {
+    console.log(`Mesh: GetMeshListPath nicht verfügbar (${err.message}) – Fallback auf Weboberfläche`);
+    return null;
+  }
+}
+
+// Zugangspunkte und Benutzer-Korrekturen (applyTopology) auf eine Mesh-Topologie
+// übertragen – für alle Quellen (offizielle Mesh-Liste, Weboberfläche, Host-Liste).
+// Platzierungen der FRITZ!-Mesh-Liste (z. B. unter einem FRITZ!Repeater) werden nur
+// durch eine ausdrückliche Benutzerangabe überschrieben.
+function applyTopologyToMesh(mesh, hosts) {
+  if (!mesh?.nodes?.length) return mesh;
+  const hostByMac = new Map(hosts.filter(h => h.mac).map(h => [h.mac, h]));
+  const master = mesh.nodes.find(n => n.role === 'master') || mesh.nodes[0];
+  const nodeByMac = new Map(mesh.nodes.filter(n => n.mac).map(n => [String(n.mac).toLowerCase(), n]));
+  const linkTo = new Map(mesh.links.map(l => [l.to, l]));
+  for (const n of mesh.nodes) {
+    if (n === master) continue;
+    const h = hostByMac.get(String(n.mac || '').toLowerCase());
+    if (!h) continue;
+    const ov = deviceOverrides[h.mac] || {};
+    if (h.isInfra && n.role === 'client') n.infra = true;
+    let link = linkTo.get(n.uid);
+    const target = h.viaMac ? nodeByMac.get(h.viaMac) : ov.parent === 'box' ? master : null;
+    const placedByAvm = link && link.from !== master.uid && mesh._source === 'meshlist';
+    if (target && target !== n && (!placedByAvm || ov.parent)) {
+      if (link) link.from = target.uid;
+      else { link = { from: target.uid, to: n.uid, type: h.connType, speed: 0 }; mesh.links.push(link); linkTo.set(n.uid, link); }
+    }
+    if (h.viaMac || h.connType !== h.connAuto) {
+      if (link) { link.type = h.connType; link.speed = 0; }
+      Object.assign(n, {
+        interfaces: [{ type: h.connType, name: '' }], connType: h.connType, connDisplay: h.connDisplay,
+        connDetail: '', connSpeed: '', band: '', linkRate: 0, signal: null,
+      });
+    }
+  }
+  // Zyklen (z. B. A → B und B → A per Korrektur) auflösen: die Schleife an genau einer
+  // Stelle trennen (dieser Knoten kommt an die Box) – Geräte darunter bleiben, wo sie sind
+  for (const n of mesh.nodes) {
+    const seen = new Set([n.uid]);
+    let cur = linkTo.get(n.uid);
+    while (cur && cur.from !== master.uid) {
+      if (seen.has(cur.from)) { cur.from = master.uid; break; }
+      seen.add(cur.from);
+      cur = linkTo.get(cur.from);
+    }
+  }
+  return mesh;
+}
 
 app.get('/api/fritz/mesh', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
@@ -1697,10 +2504,13 @@ app.get('/api/fritz/mesh', async (req, res) => {
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
 
   const isWlanIface = (t) => { const s = (t || '').toLowerCase(); return s.includes('wlan') || s.includes('802.11') || s.includes('wireless') || s.includes('wifi'); };
+  // Zugangspunkte/Korrekturen auf eine Kopie anwenden (gecachte Rohdaten bleiben unverändert)
+  const enriched = await getEnrichedHosts(session).catch(() => []);
+  const withTopology = (m) => applyTopologyToMesh(structuredClone(m), enriched);
 
   async function buildMeshFromHosts() {
     try {
-      const hosts = await getHostsViaSoap(session.host, session.username, session.password, session.controlUrls);
+      const hosts = enriched.length ? enriched : await getHostsViaSoap(session.host, session.username, session.password, session.controlUrls);
       if (!hosts || hosts.length === 0) return null;
       let masterName = 'FRITZ!Box';
       const di = getCached('device-info');
@@ -1715,7 +2525,8 @@ app.get('/api/fritz/mesh', async (req, res) => {
         role: 'client',
         is_meshed: false,
         model: '',
-        interfaces: [{ type: h.interface || 'LAN', name: '' }],
+        interfaces: [{ type: h.connType || h.interface || 'LAN', name: '' }],
+        connDisplay: h.connDisplay || '',
       }));
       const links = clientNodes.map(c => ({
         from: 'master', to: c.uid,
@@ -1736,8 +2547,9 @@ app.get('/api/fritz/mesh', async (req, res) => {
     if (cached) return res.json(cached);
     const result = await buildMeshFromHosts();
     if (result) {
-      setCached('mesh-hosts-fallback', result, 30000);
-      return res.json(result);
+      const out = withTopology(result);
+      setCached('mesh-hosts-fallback', out);
+      return res.json(out);
     }
     return res.json({ nodes: [], links: [] });
   }
@@ -1745,8 +2557,21 @@ app.get('/api/fritz/mesh', async (req, res) => {
   const cached = getCached('mesh-topology', 30000);
   if (cached) return res.json(cached);
 
+  // Primär: offizielle Mesh-Liste (TR-064). Die Weboberflächen-Kaskade unten bleibt
+  // als Fallback für Boxen/Firmwares ohne X_AVM-DE_GetMeshListPath.
+  const official = await getOfficialMesh(session);
+  if (official && official.nodes.length > 1) {
+    const out = withTopology(official);
+    setCached('mesh-topology', out);
+    return res.json(out);
+  }
+
   const webSid = await getCachedWebSid(session);
-  if (!webSid) { console.log('Mesh: kein webSid verfügbar'); return res.json({ nodes: [], links: [] }); }
+  if (!webSid) {
+    console.log('Mesh: kein webSid verfügbar – Host-Liste als Fallback');
+    const fb = await buildMeshFromHosts();
+    return res.json(fb ? withTopology(fb) : { nodes: [], links: [] });
+  }
 
   // timeoutFetch: Holt den Rate-Limiter-Slot ZUERST und startet den Abort-Timer dann.
   // So wird die Queue-Wartezeit nicht vom Timeout-Budget abgezogen – wichtig seit 1.3.9
@@ -1919,15 +2744,17 @@ app.get('/api/fritz/mesh', async (req, res) => {
       found.links = [...(found.links || []), ...newLinks];
       console.log(`Mesh: Kein Master im Response – FRITZ!Box als Master injiziert (${newLinks.length} Waisen verbunden)`);
     }
-    setCached('mesh-topology', found, 30000);
-    return res.json(found);
+    const out = withTopology(found);
+    setCached('mesh-topology', out);
+    return res.json(out);
   }
 
   // Letzter Fallback: Pseudo-Mesh aus Host-Liste
   const hostFallback = await buildMeshFromHosts();
   if (hostFallback) {
-    setCached('mesh-topology', hostFallback, 30000);
-    return res.json(hostFallback);
+    const out = withTopology(hostFallback);
+    setCached('mesh-topology', out);
+    return res.json(out);
   }
 
   // Negativ-Ergebnis ebenfalls cachen (60s) – verhindert wiederholte Timeouts bei jedem Seitenaufruf
@@ -2086,12 +2913,77 @@ function looksLikePhone(d) {
 // Liefert die rohe SmartHome-Geräteliste (AHA-XML, mit data.lua-Fallback) und cached
 // das Ergebnis serverseitig. Wird sowohl von /api/fritz/smartHome als auch von
 // /api/fritz/dect (zur Filterung) verwendet.
+// FRITZ! Smart Home REST API (FRITZ!OS 8.20+, Spezifikation 1.0.0 für 8.50):
+// GET /api/v0/smarthome/overview mit Header „Authorization: AVM-SID <sid>". Liefert
+// Geräte inkl. Zigbee, Akkustand, Firmware und Update-Hinweis; die Messwerte stecken
+// in den Units (Interfaces). Wir bilden auf das AHA-Format ab, das Frontend & DECT-
+// Filter bereits kennen (temperature in 0,1 °C, power in mW, energy in Wh).
+function mapSmartHomeRest(overview) {
+  const unitsByDevice = new Map();
+  for (const u of overview?.units || []) {
+    if (!u.deviceUid) continue;
+    if (!unitsByDevice.has(u.deviceUid)) unitsByDevice.set(u.deviceUid, []);
+    unitsByDevice.get(u.deviceUid).push(u);
+  }
+  return (overview?.devices || []).map(d => {
+    const dev = {
+      identifier: d.ain || d.UID || '',
+      name: d.name || d.productName || '',
+      productname: d.productName || '',
+      manufacturer: d.manufacturer || '',
+      present: d.isConnected ? '1' : '0',
+      category: d.productCategory || '',
+      zigbee: !!d.isZigbeeDevice,
+      firmware: d.firmwareVersion || '',
+      updateAvailable: !!d.isUpdateAvailable,
+      battery: Number.isFinite(d.batteryValue) ? d.batteryValue : null,
+      batteryLow: !!d.isBatteryLow,
+      _source: 'rest',
+    };
+    for (const u of unitsByDevice.get(d.UID) || []) {
+      const i = u.interfaces || {};
+      if (Number.isFinite(i.temperatureInterface?.celsius)) dev.temperature = Math.round(i.temperatureInterface.celsius * 10);
+      if (Number.isFinite(i.humidityInterface?.relativeHumidity)) dev.humidity = i.humidityInterface.relativeHumidity;
+      if (typeof i.onOffInterface?.active === 'boolean') dev.switch_state = i.onOffInterface.active ? '1' : '0';
+      if (Number.isFinite(i.multimeterInterface?.power)) dev.power = i.multimeterInterface.power;
+      if (Number.isFinite(i.multimeterInterface?.energy)) dev.energy = i.multimeterInterface.energy;
+      const sp = i.thermostatInterface?.setPointTemperature;
+      if (Number.isFinite(sp)) dev.tsoll_celsius = sp;
+      if (Number.isFinite(i.levelControlInterface?.level)) dev.level = i.levelControlInterface.level;
+      // Jüngster Messwert-/Alarm-Zeitstempel (Unix-Sekunden) → „zuletzt aktiv" im Dashboard
+      const times = [i.temperatureInterface?.lastInfoTime, i.humidityInterface?.lastInfoTime,
+        i.multimeterInterface?.lastInfoTimePower, i.alertInterface?.lastAlertTime].filter(Number.isFinite);
+      if (times.length) dev.lastChange = Math.max(dev.lastChange || 0, ...times);
+    }
+    return dev;
+  });
+}
+
+async function fetchSmartHomeRest(session, webSid) {
+  if (!isValidSid(webSid)) return null;
+  try {
+    const r = await fetch(`http://${session.host}/api/v0/smarthome/overview`, {
+      headers: { 'Authorization': `AVM-SID ${webSid}`, 'Accept': 'application/json' },
+    });
+    if (!r.ok) return null; // 404 auf FRITZ!OS < 8.20
+    const devices = mapSmartHomeRest(await r.json());
+    debugLog(`SmartHome: ${devices.length} Geräte über die Smart-Home-REST-API`);
+    return devices;
+  } catch { return null; }
+}
+
 async function fetchSmartHomeDevices(session) {
   const cached = getCached('smartHome', 60000); // 60s TTL – Smart-Home-Status ändert sich langsam
   if (cached) return cached;
   const webSid = await getCachedWebSid(session);
   if (!webSid) return [];
-  // Primär: AHA-HTTP XML Interface (offizielle Schnittstelle für SmartHome-Geräte)
+  // Primär (FRITZ!OS 8.20+): Smart-Home-REST-API – kennt auch Zigbee-Geräte
+  const rest = await fetchSmartHomeRest(session, webSid);
+  if (rest && rest.length > 0) {
+    setCached('smartHome', rest);
+    return rest;
+  }
+  // Danach: AHA-HTTP XML Interface (offizielle Schnittstelle bis FRITZ!OS 8.1x)
   try {
     const ahaUrl = `http://${session.host}/webservices/homeautoswitch.lua?switchcmd=getdevicelistinfos&sid=${webSid}`;
     const r = await fetch(ahaUrl);
@@ -2153,153 +3045,126 @@ app.get('/api/fritz/smartHome', async (req, res) => {
   }
 });
 
+// DECT-Geräteliste über TR-064. Primär X_AVM-DE_Dect#GetDectListPath (eine XML-Datei,
+// FRITZ!OS 7.39+), sonst Einzelabruf per GetGenericDectEntry. Felder laut AVM-Spec:
+// Id, Active, Name, Model, UpdateAvailable. Die Id trennt sauber: 1–6 = Telefone
+// (Mobilteile), ab 16 = DECT-ULE-Geräte (Smart-Home-Aktoren wie DECT 200/301).
+async function fetchDectEntries(session) {
+  const DECT = 'urn:dslforum-org:service:X_AVM-DE_Dect:1';
+  const soap = (action, params) => soapRequest(session.host, DECT, action, session.username, session.password, session.controlUrls, params);
+  try {
+    const r = await soap('GetDectListPath');
+    const path = r?.NewDectListPath;
+    if (path) {
+      const res = await fetch(`http://${session.host}:49000${path.startsWith('/') ? '' : '/'}${path}`);
+      if (res.ok) {
+        const items = parseXmlItems(await res.text(), 'Item');
+        if (items.length) return items.map(e => ({ id: parseInt(e.Id, 10), name: e.Name || '', model: e.Model || '', active: e.Active === '1', updateAvailable: e.UpdateAvailable === '1' }));
+      }
+    }
+  } catch {}
+  const list = [];
+  try {
+    const countRes = await soap('GetNumberOfDectEntries');
+    const count = parseInt(countRes?.NewNumberOfEntries || '0', 10) || 0;
+    for (let i = 0; i < count; i++) {
+      try {
+        const e = await soap('GetGenericDectEntry', { NewIndex: String(i) });
+        list.push({ id: parseInt(e.NewID, 10), name: e.NewName || '', model: e.NewModel || '', active: e.NewActive === '1', updateAvailable: e.NewUpdateAvailable === '1' });
+      } catch {}
+    }
+  } catch {}
+  return list;
+}
+
 app.get('/api/fritz/dect', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
-  // 60s Cache – DECT-Status (registriert/aktiv/Akku) ändert sich selten und der
-  // SOAP-Sweep über alle Handsets ist auf älteren Boxen langsam.
+  // 60s Cache – DECT-Status ändert sich selten
   const cached = getCached('dect', 60000);
   if (cached) return res.json(cached);
   try {
-    // SOAP-Aufrufe einzeln kapseln – ein Fehler darf den data.lua-Fallback nicht blockieren
-    let baseInfo = {};
-    try {
-      baseInfo = await soapRequest(session.host, 'urn:dslforum-org:service:X_AVM-DE_Dect:1', 'GetDECTInfo', session.username, session.password, session.controlUrls);
-    } catch (e) { console.log('DECT GetDECTInfo SOAP fehlgeschlagen (Fallback folgt):', e.message); }
+    const entries = await fetchDectEntries(session);
+    // Mit Id lässt sich eindeutig klassifizieren – ohne Namens-Heuristik
+    const hasIds = entries.some(e => Number.isFinite(e.id));
+    let handsets = entries
+      .filter(e => !hasIds || (e.id >= 1 && e.id <= 15))
+      .map(e => ({
+        name: e.name || `Mobilteil ${e.id || ''}`.trim(),
+        model: e.model, id: String(e.id ?? ''), updateAvailable: e.updateAvailable,
+        // registered: steht in der Liste; active: eingeschaltet und erreichbar
+        registered: true, active: e.active, connected: false, battery: '',
+      }));
 
-    let count = 0;
-    try {
-      const countRes = await soapRequest(session.host, 'urn:dslforum-org:service:X_AVM-DE_Dect:1', 'GetNumberOfDectEntries', session.username, session.password, session.controlUrls);
-      count = parseInt(countRes?.NewNumberOfEntries || '0', 10) || 0;
-    } catch {}
-
-    const handsets = [];
-    for (let i = 0; i < count; i++) {
-      try {
-        const entry = await soapRequest(session.host, 'urn:dslforum-org:service:X_AVM-DE_Dect:1', 'GetGenericDectEntry', session.username, session.password, session.controlUrls, { NewIndex: String(i) });
-        const name = entry.NewDeviceName || entry.NewName || '';
-        // Drei Zustände pro Handset:
-        // - registered: steht in der Entry-Liste → immer true (sonst wäre das Gerät abgemeldet)
-        // - active:    NewActive === '1'  → Telefon ist EIN und erreichbar (Standby zählt)
-        // - connected: NewConnected === '1' → Telefon ist in einem aktiven Gespräch
-        handsets.push({
-          name: name || `Handset ${i + 1}`,
-          model: entry.NewManufacturerOUI || '',
-          id: entry.NewIntId || entry.NewId || String(i),
-          registered: true,
-          active: entry.NewActive === '1',
-          connected: entry.NewConnected === '1',
-          battery: entry.NewBatteryChargeStat || entry.NewBattery || '',
-        });
-      } catch {}
-    }
-    const soapOk = baseInfo && (baseInfo.NewDECTActive !== undefined || baseInfo.NewDECTBaseName !== undefined);
-    if (!soapOk || handsets.length === 0) {
-      const webSid = await getCachedWebSid(session);
-      if (webSid) {
-        // Verschiedene data.lua-Seiten durchprobieren: 'dect' listet angemeldete Handsets,
-        // 'dectReg' zeigt Registrierungsstatus, 'dectSet' enthält Basiseinstellungen
-        for (const page of ['dect', 'dectReg', 'dectSet']) {
-          try {
-            const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
-            const r = await fetch(`http://${session.host}/data.lua`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-              body: params.toString(),
-            });
-            const text = await r.text();
-            if (!text.trim().startsWith('{')) continue;
-            const d = JSON.parse(text);
-            const dectData = d?.data?.dect || d?.data || {};
-            if (!soapOk) {
-              baseInfo.NewDECTActive = dectData.active === true || dectData.active === '1' ? '1' : '0';
-              baseInfo.NewDECTBaseName = dectData.name || dectData.base_name || dectData.basename || '';
-              baseInfo.NewDECTPowerActive = dectData.ecomode === true || dectData.ecomode === '1' ? '1' : '0';
-            }
+    // Basisstation (DECT an/aus, Name, Eco) und Akkustand gibt es nur über data.lua –
+    // GetDECTInfo ist keine TR-064-Aktion (schlug auf allen Boxen fehl)
+    const baseInfo = {};
+    const webSid = await getCachedWebSid(session);
+    if (webSid) {
+      for (const page of ['dect', 'dectReg', 'dectSet']) {
+        try {
+          const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
+          const r = await fetch(`http://${session.host}/data.lua`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: params.toString(),
+          });
+          const text = await r.text();
+          if (!text.trim().startsWith('{')) continue;
+          const d = JSON.parse(text);
+          const dectData = d?.data?.dect || d?.data || {};
+          if (dectData.active !== undefined) baseInfo.NewDECTActive = dectData.active === true || dectData.active === '1' ? '1' : '0';
+          if (dectData.name || dectData.base_name || dectData.basename) baseInfo.NewDECTBaseName = dectData.name || dectData.base_name || dectData.basename;
+          if (dectData.ecomode !== undefined) baseInfo.NewDECTPowerActive = dectData.ecomode === true || dectData.ecomode === '1' ? '1' : '0';
+          // Nur `handsets`/`mobiles` sind Telefone – `devices` sind DECT-Aktoren
+          const webList = [d?.data?.handsets, dectData.handsets, d?.data?.mobiles, dectData.mobiles].find(l => Array.isArray(l) && l.length);
+          if (webList) {
+            const fromWeb = webList.map(h => ({
+              name: h.name || h.device_name || h.devicename || h.displayname || 'Mobilteil',
+              model: h.model || h.product || h.productname || '',
+              id: String(h.id || h.intern_id || h.index || ''),
+              registered: true,
+              active: h.active === '1' || h.active === true || h.connected === '1' || h.connected === true
+                || h.registered === '1' || h.state === 'connected' || h.state === 'active',
+              connected: h.incall === '1' || h.incall === true || h.state === 'incall',
+              battery: String(h.battery || h.akku || h.batterycharge || ''),
+            }));
             if (handsets.length === 0) {
-              // Wichtig: nur `handsets`/`mobiles` als Telefone werten – `devices` ist
-              // die Liste der DECT-Smart-Home-Aktoren in der FRITZ!Box-UI und gehört
-              // NICHT in die Telefonie-Anzeige (vorher wurden die hier irrtümlich
-              // mit reingemischt).
-              const candidates = [
-                d?.data?.handsets, dectData.handsets,
-                d?.data?.mobiles,  dectData.mobiles,
-              ];
-              for (const list of candidates) {
-                if (Array.isArray(list) && list.length > 0) {
-                  for (const h of list) {
-                    const name = h.name || h.device_name || h.devicename || h.displayname || '';
-                    // data.lua-Fallback: wenn das Handset in der Liste steht, ist es registriert.
-                    // Aktiv = aktuell eingeschaltet/erreichbar; inCall = gerade im Gespräch.
-                    const active = h.active === '1' || h.active === true
-                      || h.connect === '1' || h.connected === '1' || h.connected === true
-                      || h.registered === '1' || h.state === 'connected' || h.state === 'active';
-                    handsets.push({
-                      name: name || 'Handset',
-                      model: h.model || h.product || h.productname || '',
-                      id: String(h.id || h.intern_id || h.index || ''),
-                      registered: true,
-                      active,
-                      connected: h.incall === '1' || h.incall === true || h.state === 'incall',
-                      battery: String(h.battery || h.akku || h.batterycharge || ''),
-                    });
-                  }
-                  break;
-                }
+              handsets = fromWeb;
+            } else {
+              // TR-064 liefert keinen Akkustand/Gesprächsstatus → aus der Weboberfläche ergänzen
+              const byName = new Map(fromWeb.map(h => [normDectName(h.name), h]));
+              for (const h of handsets) {
+                const w = byName.get(normDectName(h.name));
+                if (w) { h.battery = w.battery; h.connected = w.connected; }
               }
             }
-            if (handsets.length > 0) break;
-          } catch {}
-        }
+            break;
+          }
+        } catch {}
       }
     }
-    if (handsets.length > 0 && baseInfo.NewDECTActive !== '1') baseInfo.NewDECTActive = '1';
 
-    // Smart-Home-Geräte aus der DECT-Liste herausfiltern. AVM listet im SOAP
-    // `GetGenericDectEntry` ALLE DECT-registrierten Geräte – also auch
-    // Heizkörperregler (DECT 301), Schaltsteckdosen (DECT 200), Comet-Thermostate
-    // usw. Auf der Telefonie-Seite wollen wir aber nur echte Telefone sehen.
-    //
-    // Zwei Quellen werden gegen die SOAP-Liste gehalten:
-    //   1. AHA-SmartHome (homeautoswitch.lua) – autoritativ für AVM/HAN-FUN-SH
-    //   2. data.lua?page=dect → `devices`-Array – sieht auch DECT-Aktoren, die
-    //      AHA aus Firmware-Gründen nicht ausliefert (z. B. RolloTron auf
-    //      älteren 7530er, manche Fremd-HAN-FUN-Geräte). Liefert zusätzlich
-    //      eine positive `handsets`-Liste, die wir bei Mehrdeutigkeit als
-    //      „ist definitiv ein Telefon"-Whitelist nutzen.
-    // Namen-Match läuft über `normDectName` (akzent-strip + alnum-only) damit
-    // Schreibweisen-Drift zwischen den Quellen kein Problem ist.
-    try {
+    // Ohne Ids (nur data.lua-Daten): Aktoren über AHA-Liste/Modell/Heuristik aussortieren
+    if (!hasIds && handsets.length) {
       const [shDevices, classification] = await Promise.all([
         fetchSmartHomeDevices(session).catch(() => []),
         fetchDectClassification(session).catch(() => ({ phoneNames: new Set(), actorNames: new Set() })),
       ]);
-      const actorNames = new Set([
-        ...shDevices.map(d => normDectName(d.name)),
-        ...Array.from(classification.actorNames || []),
-      ].filter(Boolean));
+      const actorNames = new Set([...shDevices.map(d => normDectName(d.name)), ...(classification.actorNames || [])].filter(Boolean));
       const phoneNames = classification.phoneNames || new Set();
-      const filtered = handsets.filter(h => {
+      handsets = handsets.filter(h => {
         const n = normDectName(h.name);
-        // Definitiv Telefon (data.lua-handsets-Whitelist): immer behalten
         if (n && phoneNames.has(n)) return true;
-        // Definitiv Aktor (AHA oder data.lua-devices): rauswerfen
         if (n && actorNames.has(n)) return false;
-        // Fallback: defensive Heuristik – sieht es wie ein Telefon aus?
-        // Telefone haben keine SH-Funktionsbits (functionbitmask kennen wir hier
-        // nicht), aber productname/Name-Patterns greifen für FRITZ!Fon/MT-D etc.
-        if (looksLikePhone({ name: h.name, productname: h.model })) return true;
-        // Letzte Reserve: wenn weder AHA noch data.lua eine Klassifizierung haben,
-        // behalten – sonst würden ohne Cache am ersten Aufruf alle Geräte verschwinden.
-        if (actorNames.size === 0 && phoneNames.size === 0) return true;
-        return false;
+        if (/dect\s*\d{3}|smart\s*(energy|thermo|control|gateway)|rollotron|comet|blind/i.test(h.model || '')) return false;
+        // Issue #34: nicht eindeutig klassifizierbare Einträge behalten
+        return true;
       });
-      const result = { ...baseInfo, handsets: filtered };
-      setCached('dect', result);
-      return res.json(result);
-    } catch {}
+    }
 
+    if (handsets.length > 0 && baseInfo.NewDECTActive === undefined) baseInfo.NewDECTActive = '1';
     const result = { ...baseInfo, handsets };
     setCached('dect', result);
     return res.json(result);
@@ -2321,7 +3186,9 @@ async function fetchCallList(session) {
   }
   const callListUrl = result?.NewCallListURL || result?.['NewX_AVM-DE_CallListURL'];
   if (!callListUrl) return null;
-  const callRes = await fetch(callListUrl);
+  // Standard sind bis zu 999 Einträge – 250 reichen für Liste & Sensoren und entlasten
+  // die Box (die Liste wird bei aktiven Telefonie-Sensoren minütlich geholt)
+  const callRes = await fetch(`${callListUrl}${callListUrl.includes('?') ? '&' : '?'}max=250`);
   const xml = await callRes.text();
   const calls = [];
   const regex = /<Call>([\s\S]*?)<\/Call>/g;
@@ -2344,7 +3211,11 @@ async function fetchCallList(session) {
     const isIncoming = type === '1' || type === '2' || type === '9' || type === '10';
     // number (Altfeld) zeigt weiterhin die Gegenstelle – für Rückwärtskompatibilität
     const number = isIncoming ? caller : called;
-    calls.push({ date, name, number, from: caller, to: called, device, type, duration });
+    // Issue #41: AVM liefert <Duration> als „h:mm" (Stunden:Minuten), nicht „m:ss" –
+    // „0:05" sind 5 Minuten. Zusätzlich als Minutenwert für Anzeige & HA-Sensoren.
+    const dm = duration.match(/^(\d+):(\d{1,2})$/);
+    const durationMin = dm ? parseInt(dm[1], 10) * 60 + parseInt(dm[2], 10) : null;
+    calls.push({ date, name, number, from: caller, to: called, device, type, duration, durationMin });
   }
   setCached('calls', calls);
   return calls;
@@ -2483,10 +3354,7 @@ async function collectTrafficCounters(session) {
 
   // 2. Fallback: FritzBox Gesamt-Traffic aus SOAP (Cable)
   try {
-    let addonInfo = await soapRequest(session.host, 'urn:schemas-upnp-org:service:WANCommonInterfaceConfig:1', 'GetAddonInfos', session.username, session.password, session.controlUrls);
-    if (!addonInfo['NewTotalBytesReceived'] && !addonInfo['NewX_AVM_DE_TotalBytesReceived64']) {
-      addonInfo = await soapRequest(session.host, 'urn:dslforum-org:service:WANCommonInterfaceConfig:1', 'GetAddonInfos', session.username, session.password, session.controlUrls);
-    }
+    const addonInfo = await getAddonInfos(session);
     const totalDown = parseInt(addonInfo['NewX_AVM_DE_TotalBytesReceived64'] || addonInfo['NewTotalBytesReceived'] || '0', 10) || 0;
     const totalUp = parseInt(addonInfo['NewX_AVM_DE_TotalBytesSent64'] || addonInfo['NewTotalBytesSent'] || '0', 10) || 0;
     const currentDown = parseInt(addonInfo['NewByteReceiveRate'] || '0', 10) || 0;
@@ -2506,35 +3374,59 @@ async function collectTrafficCounters(session) {
   }
 }
 
+// Diagnose für die Traffic-Seite: welche Quelle liefert Zählerwerte? (Der Button „Diagnose"
+// rief diesen Endpoint schon länger auf – er existierte aber nicht.)
+app.get('/api/fritz/traffic-raw', async (req, res) => {
+  const session = sessions.get(req.headers['x-fritz-sid']);
+  if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  const gb = (b) => `${(b / 1073741824).toFixed(2)} GB`;
+  const out = {};
+  const webSid = await getCachedWebSid(session);
+  if (!webSid) out['data.lua netCnt'] = 'kein Web-Login möglich';
+  else {
+    try {
+      const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page: 'netCnt', xhrId: 'all' });
+      const r = await fetch(`http://${session.host}/data.lua`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() });
+      const text = await r.text();
+      out['data.lua netCnt'] = text.trim().startsWith('{')
+        ? `HTTP ${r.status}, JSON-Felder: ${Object.keys(JSON.parse(text)?.data || {}).slice(0, 12).join(', ') || '—'}`
+        : `HTTP ${r.status}, ${text.length} Zeichen ${text.includes('const data') ? '(HTML mit Daten)' : '(keine Daten)'}`;
+    } catch (e) { out['data.lua netCnt'] = `Fehler: ${e.message}`; }
+  }
+  try {
+    const a = await getAddonInfos(session);
+    const down = parseInt(a.NewX_AVM_DE_TotalBytesReceived64 || a.NewTotalBytesReceived || '0', 10) || 0;
+    const up   = parseInt(a.NewX_AVM_DE_TotalBytesSent64     || a.NewTotalBytesSent     || '0', 10) || 0;
+    out['TR-064 GetAddonInfos'] = down || up ? `seit Verbindungsaufbau ↓ ${gb(down)} / ↑ ${gb(up)}` : 'keine Werte';
+  } catch (e) { out['TR-064 GetAddonInfos'] = `Fehler: ${e.message}`; }
+  return res.json(out);
+});
+
 app.get('/api/fritz/traffic-counters', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
 
-  const cached = getCached('traffic-counters');
+  // Tages-/Monatszähler ändern sich langsam – 60 s reichen (vorher 10 s Default)
+  const cached = getCached('traffic-counters', 60000);
   if (cached) return res.json(cached);
 
   return res.json(await collectTrafficCounters(session));
 });
 
 // Version endpoint
-app.get('/api/fritz/version', async (req, res) => {
-  try {
-    const pkgPath = join(__dirname, '..', 'package.json');
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-    return res.json({ version: pkg.version });
-  } catch {
-    return res.json({ version: '1.1.2' });
-  }
-});
+// Im Docker-Image liegt nur server/package.json (die Root-package.json wird nicht
+// kopiert) – vorher lieferte der Endpoint dort immer den Fallback „1.1.2"
+app.get('/api/fritz/version', (req, res) => res.json({ version: APP_VERSION }));
 
 // ============ HA SENSOR PUSH ============
 
 const HA_TOKEN = process.env.SUPERVISOR_TOKEN || process.env.HASSIO_TOKEN || '';
-const HA_API   = 'http://supervisor/core/api';
+// Überschreibbar für Tests bzw. Docker-Standalone mit Long-Lived-Token (HA_API_URL)
+const HA_API   = process.env.HA_API_URL || 'http://supervisor/core/api';
 
 // Laufzeit-Einstellungen (aus /data/fritz-portal.json überschreibbar)
-const SETTINGS_FILE = '/data/fritz-portal.json';
+const SETTINGS_FILE = join(DATA_DIR, 'fritz-portal.json');
 let haSensorsEnabled     = process.env.HA_SENSORS === 'true';
 let haFastIntervalSec    = Math.max(10,  parseInt(process.env.HA_SENSORS_INTERVAL          || '60',  10));
 let haTrafficIntervalSec = Math.max(30,  parseInt(process.env.HA_SENSORS_TRAFFIC_INTERVAL  || '300', 10));
@@ -2548,6 +3440,9 @@ let keepSessionAlive     = process.env.KEEP_SESSION_ALIVE === 'true';
 // durchgehend (auch bei geschlossenem Portal), damit das Dashboard-Chart beim
 // Zurückkehren die kompletten 30 min zeigt – kostet etwas mehr FritzBox-Last.
 let trafficHistoryServer = process.env.TRAFFIC_HISTORY_SERVER === 'true';
+// Optionale Dashboard-Boxen „Letzte Anrufe" und „SmartHome" (Standard: an)
+let dashboardCalls     = true;
+let dashboardSmartHome = true;
 
 try {
   if (existsSync(SETTINGS_FILE)) {
@@ -2558,6 +3453,8 @@ try {
     if (s.ha_phone_sensors !== undefined)       haPhoneSensorsEnabled = !!s.ha_phone_sensors;
     if (s.keep_session_alive !== undefined)     keepSessionAlive     = !!s.keep_session_alive;
     if (s.traffic_history_server !== undefined) trafficHistoryServer = !!s.traffic_history_server;
+    if (s.dashboard_calls !== undefined)        dashboardCalls       = !!s.dashboard_calls;
+    if (s.dashboard_smarthome !== undefined)    dashboardSmartHome   = !!s.dashboard_smarthome;
   }
 } catch {}
 
@@ -2625,6 +3522,8 @@ async function publishMqttDiscovery() {
   const ok = await publishMqtt('fritzportal/status', 'online', true);
   if (!ok) { mqttAvailable = false; console.log('MQTT Discovery: Broker nicht erreichbar – REST-API Fallback aktivieren falls Sensoren gewünscht'); return; }
   mqttAvailable = true;
+  // Lazy-Entitäten beim nächsten Push neu registrieren (z. B. nach Broker-Neustart)
+  lazyDiscovered.clear();
   console.log('MQTT Discovery: Broker erreichbar – registriere Sensoren...');
   const device = fritzboxDevice();
   let registered = 0;
@@ -2698,27 +3597,6 @@ async function publishWlanDiscovery(states) {
   }
   wlanDiscoveryPublished = true;
   console.log(`MQTT Discovery: ${wlanDiscoveredIdx.size} WLAN-Schalter registriert`);
-}
-
-async function removeMqttDiscovery() {
-  for (const s of MQTT_SENSORS) {
-    await publishMqtt(`homeassistant/sensor/fritzportal_${s.id}/config`, '', true);
-  }
-  for (const t of MQTT_TRAFFIC_SENSORS) {
-    for (const dir of ['received', 'sent']) {
-      await publishMqtt(`homeassistant/sensor/fritzportal_traffic_${t.suffix}_${dir}/config`, '', true);
-    }
-  }
-  for (const s of MQTT_PHONE_SENSORS) {
-    await publishMqtt(`homeassistant/sensor/fritzportal_${s.id}/config`, '', true);
-  }
-  for (const idx of wlanDiscoveredIdx) {
-    await publishMqtt(`homeassistant/switch/fritzportal_wlan_${idx}/config`, '', true);
-  }
-  wlanDiscoveredIdx.clear();
-  wlanDiscoveryPublished = false;
-  mqttAvailable = false;
-  console.log('MQTT Discovery: Konfigurationen entfernt');
 }
 
 // ── Echte MQTT-Broker-Verbindung – ausschließlich zum Empfangen der Schaltbefehle.
@@ -2796,8 +3674,11 @@ async function setState(entityId, state, attributes = {}) {
 async function pushFastSensorsToHA() {
   if (!HA_TOKEN) return;
   const eco     = getCached('eco-stats',     120000) || {};
-  const hosts   = getCached('hosts',          60000) || [];
-  const ipStats = getCached('ip-stats',       60000) || {};
+  // Hosts/IP-Belegung aktiv nachladen (60 s/30 s gecacht) – nicht nur lesen, was der
+  // Browser zufällig zuletzt abgefragt hat
+  const session = [...sessions.values()][0];
+  const hosts   = (session && await getEnrichedHosts(session).catch(() => null)) || getCached('hosts', 300000) || [];
+  const ipStats = (session && await getIpStats(session).catch(() => null)) || getCached('ip-stats', 300000) || {};
   const net     = getCached('network-stats', 120000) || {};
 
   // Nur aktualisieren wenn Wert > 0 – verhindert dass abgelaufener Cache als "0" gesendet wird
@@ -2816,7 +3697,12 @@ async function pushFastSensorsToHA() {
     lastKnownFast.activeHosts = activeHosts
       .slice()
       .sort((a, b) => (parseInt(b.lastActivity || '0', 10) || 0) - (parseInt(a.lastActivity || '0', 10) || 0))
-      .map(h => ({ name: h.name || h.ip || h.mac, ip: h.ip || '', type: h.connType || (h.interface?.includes('802.11') ? 'WLAN' : 'LAN') }));
+      .map(h => ({
+        name: h.name || h.ip || h.mac, ip: h.ip || '', mac: h.mac || '',
+        type: h.connType || (h.interface?.includes('802.11') ? 'WLAN' : 'LAN'),
+        // Ab v1.4.7 für die Dashboard-Card: Verbindungsdetail + Gast-Kennzeichen
+        conn: h.connDisplay || '', guest: !!h.guest,
+      }));
   }
   const hostAttrs = { count: lastKnownFast.online, active_hosts: lastKnownFast.activeHosts || [] };
 
@@ -2875,6 +3761,112 @@ async function pushFastSensorsToHA() {
   }
 }
 
+// ── Netzwerk-/Infrastruktur-Entitäten (ab v1.4.7) ──
+// Werden „lazy" registriert: die MQTT-Discovery-Config wird erst publiziert, wenn die
+// Box für die Entität tatsächlich Daten liefert. So bekommen z. B. Kabel-/Glasfaser-
+// Kunden keine dauerhaft leeren DSL-Sensoren.
+const NET_ENTITIES = {
+  wan_connected:   { component: 'binary_sensor', id: 'wan_connected',   name: 'Internetverbindung', icon: 'mdi:web', device_class: 'connectivity', json_attributes: true },
+  wan_access_type: { component: 'sensor', id: 'wan_access_type', name: 'Anschlussart',      icon: 'mdi:router-network' },
+  external_ip:     { component: 'sensor', id: 'external_ip',     name: 'Externe IP',        icon: 'mdi:ip-network-outline' },
+  dsl_downstream:  { component: 'sensor', id: 'dsl_downstream',  name: 'DSL-Sync Download', icon: 'mdi:download-network', unit: 'Mbit/s', device_class: 'data_rate', state_class: 'measurement' },
+  dsl_upstream:    { component: 'sensor', id: 'dsl_upstream',    name: 'DSL-Sync Upload',   icon: 'mdi:upload-network',   unit: 'Mbit/s', device_class: 'data_rate', state_class: 'measurement' },
+  mesh_devices:    { component: 'sensor', id: 'mesh_devices',    name: 'Mesh-Geräte online', icon: 'mdi:access-point-network', state_class: 'measurement', json_attributes: true },
+  firmware_update: { component: 'binary_sensor', id: 'firmware_update', name: 'Firmware-Update', icon: 'mdi:package-up', device_class: 'update', json_attributes: true },
+};
+const lazyDiscovered = new Set();
+
+async function ensureMqttEntity(def) {
+  const key = `${def.component}/${def.id}`;
+  if (lazyDiscovered.has(key)) return;
+  const config = {
+    name: def.name, unique_id: `fritzportal_${def.id}`, object_id: `fritzportal_${def.id}`,
+    state_topic: `fritzportal/${def.id}/state`,
+    json_attributes_topic: def.json_attributes ? `fritzportal/${def.id}/attributes` : undefined,
+    icon: def.icon, unit_of_measurement: def.unit, device_class: def.device_class, state_class: def.state_class,
+    ...(def.component === 'binary_sensor' ? { payload_on: 'ON', payload_off: 'OFF' } : {}),
+    device: fritzboxDevice(),
+  };
+  if (await publishMqtt(`homeassistant/${def.component}/fritzportal_${def.id}/config`, config, true)) lazyDiscovered.add(key);
+}
+
+// Wert einer Netzwerk-Entität an HA senden (MQTT und/oder REST-Fallback).
+// Für binary_sensor ist `value` ein Boolean.
+async function pushNetEntity(def, value, attributes = {}) {
+  const isBinary = def.component === 'binary_sensor';
+  if (mqttAvailable) {
+    await ensureMqttEntity(def);
+    await publishMqtt(`fritzportal/${def.id}/state`, isBinary ? (value ? 'ON' : 'OFF') : value);
+    if (def.json_attributes) await publishMqtt(`fritzportal/${def.id}/attributes`, attributes, true);
+  }
+  if (haSensorsEnabled) {
+    await setState(`${def.component}.fritzportal_${def.id}`, isBinary ? (value ? 'on' : 'off') : value, {
+      friendly_name: `FRITZ!Portal ${def.name}`, icon: def.icon,
+      unit_of_measurement: def.unit, device_class: def.device_class, state_class: def.state_class,
+      unique_id: `fritzportal_rest_${def.id}`,
+      ...attributes,
+    });
+  }
+}
+
+let lastExternalIp = '';
+
+// WAN-Status im schnellen Intervall – Verbindungsabbrüche sollen zeitnah in HA ankommen
+// (Issue #33: „Sensor DSL up/down für Skripte", „DSL oder LTE?")
+async function pushWanSensorsToHA() {
+  if (!HA_TOKEN) return;
+  const session = [...sessions.values()][0];
+  if (!session) return;
+  let wan;
+  try { wan = await getWanStatus(session); } catch { return; }
+  if (!wan) return;
+  const connected = wan.NewConnectionStatus === 'Connected';
+  // Wechsel der externen IPv4 als HA-Event (z. B. für DynDNS-/Benachrichtigungs-Automationen)
+  const ip = wan.NewExternalIPAddress || '';
+  if (ip && lastExternalIp && ip !== lastExternalIp) {
+    console.log(`Externe IP geändert: ${lastExternalIp} → ${ip}`);
+    fireHaEvent('fritzportal_external_ip_changed', { old_ip: lastExternalIp, new_ip: ip });
+  }
+  if (ip) lastExternalIp = ip;
+  await pushNetEntity(NET_ENTITIES.wan_connected, connected, {
+    status: wan.NewConnectionStatus || '', access_type: wan.accessTypeLabel || '', provider: wan.provider || '',
+    external_ip: wan.NewExternalIPAddress || '', external_ipv6: wan.ipv6 || '',
+    uptime_s: parseInt(wan.NewUptime || '0', 10) || 0,
+  });
+  if (wan.accessTypeLabel) await pushNetEntity(NET_ENTITIES.wan_access_type, wan.accessTypeLabel);
+  if (wan.NewExternalIPAddress) await pushNetEntity(NET_ENTITIES.external_ip, wan.NewExternalIPAddress);
+  if (wan.dsl && wan.dsl.downCurr > 0) {
+    await pushNetEntity(NET_ENTITIES.dsl_downstream, +(wan.dsl.downCurr / 1000).toFixed(1));
+    await pushNetEntity(NET_ENTITIES.dsl_upstream,   +(wan.dsl.upCurr   / 1000).toFixed(1));
+  }
+}
+
+// Mesh + Firmware im langsamen (Traffic-)Intervall – ändern sich selten
+async function pushInfraSensorsToHA() {
+  if (!HA_TOKEN) return;
+  const session = [...sessions.values()][0];
+  if (!session) return;
+  const mesh = await getOfficialMesh(session).catch(() => null);
+  if (mesh) {
+    const infra = mesh.nodes.filter(n => n.role === 'master' || n.role === 'satellite');
+    const clientsOf = (uid) => mesh.links.filter(l => l.from === uid).length;
+    await pushNetEntity(NET_ENTITIES.mesh_devices, infra.length, {
+      total: mesh.meshTotal || infra.length,
+      clients: mesh.nodes.length - infra.length,
+      devices: infra.map(n => ({
+        name: n.name, model: n.model, role: n.role, ip: n.ip, firmware: n.firmware || '',
+        link: n.connDisplay || '', clients: clientsOf(n.uid), update_available: !!n.updateAvailable,
+      })),
+    });
+  }
+  try {
+    const fw = await getFirmwareStatus(session);
+    await pushNetEntity(NET_ENTITIES.firmware_update, fw.updateAvailable, {
+      installed_version: fw.currentVersion || '', latest_version: fw.newVersion || '', release_url: fw.infoUrl || '',
+    });
+  } catch {}
+}
+
 // ── Telefonie-Sensoren: letzter Anruf / letzter verpasster / letzter eingehender ──
 // Zustand = Name der Gegenstelle (Fallback: Nummer), Details als Attribute.
 // Anruf-Typen (AVM): 1 = eingehend angenommen, 2 = verpasst, 3 = ausgehend,
@@ -2894,6 +3886,7 @@ function callToSensorPayload(call) {
       name:      call.name || '',
       date:      call.date || '',
       duration:  call.duration || '',
+      duration_minutes: call.durationMin ?? null,
       type:      CALL_TYPE_LABELS[call.type] || call.type || '',
       device:    call.device || '',
       from:      call.from || '',
@@ -3009,11 +4002,90 @@ function startHaTimers() {
   console.log(`HA Sensor Push gestartet: MQTT Discovery${restInfo} (Systemsensoren: ${haFastIntervalSec}s, Traffic: ${haTrafficIntervalSec}s)`);
   // Telefonie-Sensoren laufen im Fast-Intervall mit – fetchCallList cached 60s,
   // die FRITZ!Box wird also höchstens einmal pro Minute nach der Anrufliste gefragt.
-  haFastTimer    = setInterval(() => { pushFastSensorsToHA().catch(() => {}); pushPhoneSensorsToHA().catch(() => {}); }, haFastIntervalSec * 1000);
-  haTrafficTimer = setInterval(() => { pushTrafficSensorsToHA().catch(() => {}); }, haTrafficIntervalSec * 1000);
+  haFastTimer    = setInterval(() => {
+    pushFastSensorsToHA().catch(() => {});
+    pushPhoneSensorsToHA().catch(() => {});
+    pushWanSensorsToHA().catch(() => {});
+  }, haFastIntervalSec * 1000);
+  haTrafficTimer = setInterval(() => {
+    pushTrafficSensorsToHA().catch(() => {});
+    pushInfraSensorsToHA().catch(() => {});
+  }, haTrafficIntervalSec * 1000);
+  // Mesh/Firmware einmal kurz nach dem Start, nicht erst nach dem ersten Traffic-Intervall
+  setTimeout(() => { pushInfraSensorsToHA().catch(() => {}); }, 45000);
 }
 
 startHaTimers();
+
+// ── Dashboard-Card automatisch installieren ────────────────────────────────
+// 1. Card-Datei nach <HA-config>/www/fritz-portal/ kopieren (→ /local/fritz-portal/…)
+// 2. Als Lovelace-Ressource registrieren (WebSocket-API über den Supervisor-Proxy).
+//    Klappt nur im Storage-Modus von Lovelace; im YAML-Modus geben wir einen Hinweis aus.
+// Abschaltbar über die Add-on-Option dashboard_card: false.
+const CARD_RESOURCE_URL = `/local/fritz-portal/fritz-portal-card.js?v=${APP_VERSION}`;
+
+// Führt eine Folge von WebSocket-Kommandos gegen die HA-Core-API aus. Jedes Kommando
+// ist eine Funktion (bisherigeErgebnisse) => message. Ergebnis: Array der Antworten.
+function haWebSocketCall(messages) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket('ws://supervisor/core/websocket');
+    const results = [];
+    let id = 0;
+    const timer = setTimeout(() => { ws.terminate(); reject(new Error('Timeout')); }, 15000);
+    const done = (err, val) => { clearTimeout(timer); try { ws.close(); } catch {} err ? reject(err) : resolve(val); };
+    const sendNext = () => {
+      const build = messages[results.length];
+      if (!build) return done(null, results);
+      ws.send(JSON.stringify({ id: ++id, ...build(results) }));
+    };
+    ws.on('message', (raw) => {
+      let m; try { m = JSON.parse(String(raw)); } catch { return; }
+      if (m.type === 'auth_required') ws.send(JSON.stringify({ type: 'auth', access_token: HA_TOKEN }));
+      else if (m.type === 'auth_ok') sendNext();
+      else if (m.type === 'auth_invalid') done(new Error('auth_invalid'));
+      else if (m.type === 'result' && m.id === id) {
+        if (!m.success) return done(new Error(m.error?.message || 'WS-Fehler'));
+        results.push(m.result); sendNext();
+      }
+    });
+    ws.on('error', (e) => done(e));
+  });
+}
+
+async function installDashboardCard() {
+  if (process.env.DASHBOARD_CARD === 'false') return;
+  if (!existsSync(CARD_FILE)) return;
+  const configDir = ['/homeassistant', '/config'].find(d => existsSync(d));
+  if (!configDir) return; // kein HA-Config-Mapping (z. B. Docker-Standalone)
+  try {
+    const target = join(configDir, 'www', 'fritz-portal');
+    mkdirSync(target, { recursive: true });
+    const src = readFileSync(CARD_FILE);
+    const dest = join(target, 'fritz-portal-card.js');
+    if (!existsSync(dest) || !readFileSync(dest).equals(src)) {
+      writeFileSync(dest, src);
+      console.log(`Dashboard-Card: nach ${dest} kopiert`);
+    }
+  } catch (e) {
+    console.log('Dashboard-Card: Kopieren fehlgeschlagen:', e.message);
+    return;
+  }
+  if (!HA_TOKEN) return;
+  try {
+    const [resources] = await haWebSocketCall([() => ({ type: 'lovelace/resources' })]);
+    const existing = (resources || []).find(r => String(r.url || '').includes('fritz-portal-card.js'));
+    if (existing?.url === CARD_RESOURCE_URL) return;
+    await haWebSocketCall([() => existing
+      ? { type: 'lovelace/resources/update', resource_id: existing.id, res_type: 'module', url: CARD_RESOURCE_URL }
+      : { type: 'lovelace/resources/create', res_type: 'module', url: CARD_RESOURCE_URL }]);
+    console.log(`Dashboard-Card: Lovelace-Ressource ${existing ? 'aktualisiert' : 'registriert'} (${CARD_RESOURCE_URL})`);
+  } catch (e) {
+    console.log(`Dashboard-Card: automatische Registrierung nicht möglich (${e.message}). ` +
+      `Bitte manuell als Ressource eintragen: ${CARD_RESOURCE_URL} (Typ: JavaScript-Modul)`);
+  }
+}
+
+installDashboardCard().catch(() => {});
 
 // ── Keep-Session-Alive ─────────────────────────────────────────────────────
 // Erstellt beim Add-on-Start automatisch die AUTO_SID-Session, sobald die
@@ -3046,6 +4118,32 @@ ensureKeepAliveSession().catch(() => {});
 // Zusätzlich periodisch nachprüfen, falls die Box beim ersten Versuch nicht erreichbar war
 setInterval(() => { ensureKeepAliveSession().catch(() => {}); }, 60000);
 
+function saveSettings() {
+  try {
+    writeFileSync(SETTINGS_FILE, JSON.stringify({
+      ha_sensors:                  haSensorsEnabled,
+      ha_sensors_interval:         haFastIntervalSec,
+      ha_sensors_traffic_interval: haTrafficIntervalSec,
+      ha_phone_sensors:            haPhoneSensorsEnabled,
+      debug_logging:               debugLogging,
+      keep_session_alive:          keepSessionAlive,
+      traffic_history_server:      trafficHistoryServer,
+      dashboard_calls:             dashboardCalls,
+      dashboard_smarthome:         dashboardSmartHome,
+    }));
+  } catch (e) { console.error('Settings speichern fehlgeschlagen:', e.message); }
+}
+
+// Reine Anzeige-Einstellungen des Dashboards – ohne Neustart der HA-Timer
+app.post('/api/fritz/dashboard-settings', (req, res) => {
+  if (!sessions.get(req.headers['x-fritz-sid'])) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  const { dashboard_calls, dashboard_smarthome } = req.body || {};
+  if (dashboard_calls !== undefined)     dashboardCalls     = !!dashboard_calls;
+  if (dashboard_smarthome !== undefined) dashboardSmartHome = !!dashboard_smarthome;
+  saveSettings();
+  return res.json({ success: true, dashboard_calls: dashboardCalls, dashboard_smarthome: dashboardSmartHome });
+});
+
 app.get('/api/fritz/ha-settings', (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   if (!sessions.get(sid)) return res.status(401).json({ error: 'Nicht eingeloggt' });
@@ -3059,6 +4157,8 @@ app.get('/api/fritz/ha-settings', (req, res) => {
     debug_logging:               debugLogging,
     keep_session_alive:          keepSessionAlive,
     traffic_history_server:      trafficHistoryServer,
+    dashboard_calls:             dashboardCalls,
+    dashboard_smarthome:         dashboardSmartHome,
   });
 });
 
@@ -3095,17 +4195,7 @@ app.post('/api/fritz/ha-settings', async (req, res) => {
     // sonst bliebe der Background-Collector bis zum nächsten Browser-Aufruf untätig.
     if (keepSessionAlive && !wasOn) ensureKeepAliveSession().catch(() => {});
   }
-  try {
-    writeFileSync(SETTINGS_FILE, JSON.stringify({
-      ha_sensors:                  haSensorsEnabled,
-      ha_sensors_interval:         haFastIntervalSec,
-      ha_sensors_traffic_interval: haTrafficIntervalSec,
-      ha_phone_sensors:            haPhoneSensorsEnabled,
-      debug_logging:               debugLogging,
-      keep_session_alive:          keepSessionAlive,
-      traffic_history_server:      trafficHistoryServer,
-    }));
-  } catch (e) { console.error('Settings speichern fehlgeschlagen:', e.message); }
+  saveSettings();
   // Sync to HA Add-on config (requires hassio_api: true)
   try {
     const infoRes = await fetch('http://supervisor/addons/self/info', {
@@ -3128,4 +4218,10 @@ app.post('/api/fritz/ha-settings', async (req, res) => {
 const PORT = 3003;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`FritzBox Proxy Server läuft auf http://0.0.0.0:${PORT}`);
+}).on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} ist bereits belegt – läuft FRITZ!Portal schon (z. B. in einem anderen Terminal)? Den anderen Prozess beenden (Strg+C) und erneut starten.`);
+    process.exit(1);
+  }
+  throw err;
 });

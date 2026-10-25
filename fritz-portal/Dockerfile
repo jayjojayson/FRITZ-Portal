@@ -31,6 +31,9 @@ COPY server/index.js ./server/index.js
 COPY --from=server-deps /app/server/node_modules ./server/node_modules
 COPY server/package.json ./server/package.json
 
+# Lovelace-Dashboard-Card (wird beim Start nach /config/www/fritz-portal/ kopiert)
+COPY card ./card
+
 COPY run.sh /run.sh
 RUN chmod +x /run.sh
 

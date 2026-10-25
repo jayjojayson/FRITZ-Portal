@@ -1118,10 +1118,29 @@ textarea {
 }
 
 @media (max-width: 1100px) {
-  .dashboard-main-grid {
+  .dashboard-main-grid,
+  .dashboard-extra-grid {
     grid-template-columns: 1fr !important;
   }
 }
+
+/* Anklickbare Listenzeilen (Dashboard, Mesh) */
+.dash-row { transition: background 0.12s; }
+.dash-row:hover,
+.dash-row:focus-visible { background: var(--bg-elevated); outline: none; }
+
+.dash-link {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.dash-link:hover { color: var(--text-primary); border-color: var(--border-hot); }
 
 @media (max-width: 600px) {
   .dashboard-traffic-row {

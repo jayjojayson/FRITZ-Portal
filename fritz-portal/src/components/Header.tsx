@@ -1,5 +1,5 @@
 import { useTheme } from '../hooks/useTheme';
-import { useI18n } from '../lib/i18n';
+import { useI18n, type Lang } from '../lib/i18n';
 import logoUrl from '../logo.png';
 
 type Page = 'dashboard' | 'devices' | 'device-detail' | 'network' | 'traffic' | 'telefonie' | 'smarthome' | 'system';
@@ -7,7 +7,6 @@ type Page = 'dashboard' | 'devices' | 'device-detail' | 'network' | 'traffic' | 
 interface HeaderProps {
   currentPage: Page;
   onNavigate: (page: Page) => void;
-  version?: string;
 }
 
 const navItems: { page: Page; label: string }[] = [
@@ -20,7 +19,10 @@ const navItems: { page: Page; label: string }[] = [
   { page: 'system',    label: 'System' },
 ];
 
-export default function Header({ currentPage, onNavigate, version = '1.4.6' }: HeaderProps) {
+// Sprachwechsel reihum DE → EN → IT (Italienisch von @Mistergatti, PR #36)
+const NEXT_LANG: Record<Lang, Lang> = { de: 'en', en: 'it', it: 'de' };
+
+export default function Header({ currentPage, onNavigate }: HeaderProps) {
   const { theme, toggleTheme } = useTheme();
   const { lang, setLang, t } = useI18n();
   const isDark = theme === 'dark';
@@ -29,7 +31,7 @@ export default function Header({ currentPage, onNavigate, version = '1.4.6' }: H
     <header className="header">
       <div className="header-brand">
         <img src={logoUrl} alt="FRITZ!Portal" className="header-logo" />
-        <span className="header-version">v{version}</span>
+        <span className="header-version">v{__APP_VERSION__}</span>
       </div>
 
       <nav className="header-nav">
@@ -50,7 +52,7 @@ export default function Header({ currentPage, onNavigate, version = '1.4.6' }: H
       <div className="header-actions">
         <button
           className="header-pill"
-          onClick={() => setLang(lang === 'de' ? 'en' : 'de')}
+          onClick={() => setLang(NEXT_LANG[lang] ?? 'de')}
           title={t('Sprache')}
         >
           {lang.toUpperCase()}

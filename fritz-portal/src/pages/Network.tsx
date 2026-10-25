@@ -1,15 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { apiFetch } from '../lib/apiFetch';
 import { getApiCache, setApiCache } from '../App';
 import { useT } from '../lib/i18n';
 
 interface NetworkProps {
   sid: string;
+  onSelectDevice?: (mac: string) => void;
 }
 
 type NetworkTab = 'overview' | 'lan' | 'wan' | 'wlan' | 'dhcp';
 
-export default function Network({ sid }: NetworkProps) {
+export default function Network({ sid, onSelectDevice }: NetworkProps) {
   const t = useT();
   const [tab, setTab] = useState<NetworkTab>('overview');
   const [lanInfo, setLanInfo] = useState<any>(getApiCache('network-lan'));
@@ -115,7 +116,7 @@ export default function Network({ sid }: NetworkProps) {
         ))}
       </div>
 
-      {tab === 'overview' && <NetworkOverview lanInfo={lanInfo} wanInfo={wanInfo} wlanInfo={wlanInfo} meshData={meshData} meshLoading={meshLoading} sid={sid} />}
+      {tab === 'overview' && <NetworkOverview lanInfo={lanInfo} wanInfo={wanInfo} wlanInfo={wlanInfo} meshData={meshData} meshLoading={meshLoading} sid={sid} onSelectDevice={onSelectDevice} />}
       {tab === 'lan' && <LANSettings lanInfo={lanInfo} />}
       {tab === 'wan' && <WANSettings wanInfo={wanInfo} />}
       {tab === 'wlan' && <WLANSettings wlanInfo={wlanInfo} sid={sid} />}
@@ -124,9 +125,9 @@ export default function Network({ sid }: NetworkProps) {
   );
 }
 
-function NetworkOverview({ lanInfo, wanInfo, wlanInfo, meshData, meshLoading, sid }: {
+function NetworkOverview({ lanInfo, wanInfo, wlanInfo, meshData, meshLoading, sid, onSelectDevice }: {
   lanInfo: any; wanInfo: any; wlanInfo: any[];
-  meshData: any; meshLoading: boolean; sid: string;
+  meshData: any; meshLoading: boolean; sid: string; onSelectDevice?: (mac: string) => void;
 }) {
   const t = useT();
   return (
@@ -148,8 +149,12 @@ function NetworkOverview({ lanInfo, wanInfo, wlanInfo, meshData, meshLoading, si
           <div className="card-body">
             <table><tbody>
               <tr><td style={{ fontWeight: 500, color: 'var(--text-secondary)', width: 180 }}>{t('Externe IP')}</td><td>{wanInfo?.NewExternalIPAddress || '-'}</td></tr>
-              <tr><td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('Verbindung')}</td><td>{wanInfo?.NewConnectionStatus || '-'}</td></tr>
-              <tr><td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('Typ')}</td><td>{wanInfo?.NewConnectionType || '-'}</td></tr>
+              <tr><td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('Verbindung')}</td><td><WanStatus status={wanInfo?.NewConnectionStatus} /></td></tr>
+              <tr><td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('Anschluss')}</td><td>{wanInfo?.accessTypeLabel ? t(wanInfo.accessTypeLabel) : (wanInfo?.NewConnectionType || '-')}</td></tr>
+              {wanInfo?.dsl?.downCurr > 0 && (
+                <tr><td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('DSL-Sync')}</td>
+                  <td>↓ {fmtKbit(wanInfo.dsl.downCurr)} / ↑ {fmtKbit(wanInfo.dsl.upCurr)}</td></tr>
+              )}
             </tbody></table>
           </div>
         </div>
@@ -168,7 +173,7 @@ function NetworkOverview({ lanInfo, wanInfo, wlanInfo, meshData, meshLoading, si
         </div>
       </div>
 
-      <MeshTopology meshData={meshData} loading={meshLoading} sid={sid} />
+      <MeshTopology meshData={meshData} loading={meshLoading} sid={sid} onSelectDevice={onSelectDevice} />
     </div>
   );
 }
@@ -187,6 +192,15 @@ interface MeshNode {
   connDetail?: string;
   connSpeed?: string;
   connDisplay?: string;
+  // Nur bei offizieller Mesh-Liste (_source === 'meshlist')
+  band?: string;
+  linkRate?: number;
+  signal?: number | null;
+  firmware?: string;
+  updateAvailable?: boolean;
+  guest?: boolean;
+  url?: string;
+  infra?: boolean; // vom Server erkannter/vom Benutzer gesetzter Zugangspunkt (z. B. Fremd-Router)
 }
 
 interface MeshLink {
@@ -201,16 +215,50 @@ const isWlanType = (type: string) => {
   return t.includes('wlan') || t.includes('802') || t.includes('wifi') || t.includes('wireless');
 };
 
+// Namens-Heuristik für Infrastruktur – nur noch für die Host-Liste/Fallback-Daten.
+// Bei der offiziellen Mesh-Liste entscheidet die Mesh-Rolle (Issue #37: eine
+// Steckdose namens „Router Plug" wurde als Infrastruktur markiert).
 const isInfraDevice = (name: string) => {
   const n = name.toLowerCase();
-  return n.includes('router') || n.includes('repeater') || n.includes('fritz');
+  if (/plug|steckdose|shelly|socket|lampe|bulb/.test(n)) return false;
+  return /^fritz!|repeater|\bmesh\b|access ?point|powerline/.test(n);
 };
 
-function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: boolean; sid: string }) {
+function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: any; loading: boolean; sid: string; onSelectDevice?: (mac: string) => void }) {
   const t = useT();
   const [tooltip, setTooltip] = useState<{ node: MeshNode; x: number; y: number } | null>(null);
   const [hoveredUid, setHoveredUid] = useState<string | null>(null);
   const [showNames, setShowNames] = useState(false);
+  // Zoom/Verschieben der Netzwerk-Ansicht (viewBox-Koordinaten): Mausrad zoomt um den
+  // Mauszeiger, Ziehen auf freier Fläche verschiebt
+  const [view, setView] = useState({ k: 1, x: 0, y: 0 });
+  const [zoomSvg, setZoomSvg] = useState<SVGSVGElement | null>(null);
+  const viewBoxRef = useRef({ w: 1, h: 1 });
+  const dragRef = useRef<{ x: number; y: number; vx: number; vy: number } | null>(null);
+  // Maßstab Bildschirm ↔ viewBox inkl. Rand: die Grafik ist in der Höhe begrenzt, das
+  // SVG skaliert daher mit min(Breite, Höhe) und zentriert den Inhalt (preserveAspectRatio)
+  const svgScale = (el: SVGSVGElement) => {
+    const r = el.getBoundingClientRect();
+    const { w, h } = viewBoxRef.current;
+    const k = Math.min(r.width / w, r.height / h) || 1;
+    return { k, left: r.left + (r.width - w * k) / 2, top: r.top + (r.height - h * k) / 2 };
+  };
+  useEffect(() => {
+    if (!zoomSvg) return;
+    // Eigener Listener mit passive:false – nur so lässt sich das Scrollen der Seite unterbinden
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const sc = svgScale(zoomSvg);
+      const px = (e.clientX - sc.left) / sc.k;
+      const py = (e.clientY - sc.top) / sc.k;
+      setView(v => {
+        const k = Math.min(8, Math.max(0.4, v.k * Math.exp(-e.deltaY * 0.0015)));
+        return { k, x: px - (px - v.x) * (k / v.k), y: py - (py - v.y) * (k / v.k) };
+      });
+    };
+    zoomSvg.addEventListener('wheel', onWheel, { passive: false });
+    return () => zoomSvg.removeEventListener('wheel', onWheel);
+  }, [zoomSvg]);
   const isOriginallyHosts = meshData?._source === 'hosts-fallback';
   const [viewMode, setViewMode] = useState<'mesh' | 'hosts'>(isOriginallyHosts ? 'hosts' : 'mesh');
   const [hostsData, setHostsData] = useState<any>(null);
@@ -236,7 +284,7 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
   if (loading) {
     return (
       <div className="card">
-        <div className="card-header"><h3>Netzwerk-Topologie</h3></div>
+        <div className="card-header"><h3>{t('Netzwerk-Topologie')}</h3></div>
         <div className="card-body" style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
           <div className="spinner" />
         </div>
@@ -329,11 +377,19 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
     );
   }
 
+  // Offizielle Mesh-Liste (TR-064): Rollen sind verlässlich, keine Namens-Heuristik nötig
+  const isOfficial = currentData?._source === 'meshlist';
   const roleMeta = (node: MeshNode) => {
     if (node.role === 'master') return { label: 'Fritz!Box', color: '#06b6d4' };
-    if (node.role === 'satellite' || isInfraDevice(node.name)) return { label: 'Infrastruktur', color: '#f59e0b' };
+    if (node.role === 'satellite') return { label: 'Mesh-Repeater', color: '#f59e0b' };
+    if (node.infra) return { label: 'Zugangspunkt', color: '#f59e0b' };
+    if (!isOfficial && isInfraDevice(node.name)) return { label: 'Infrastruktur', color: '#f59e0b' };
     return { label: 'Client', color: 'var(--text-primary)' };
   };
+  const kv = (label: string, value: ReactNode, mono = false) => (
+    <><span style={{ color: 'var(--text-secondary)' }}>{t(label)}</span>
+      <span style={mono ? { fontFamily: 'monospace', fontSize: 12 } : undefined}>{value}</span></>
+  );
   const tooltipEl = tooltip && (
     <div style={{
       position: 'fixed', left: tooltip.x + 20, top: tooltip.y - 10,
@@ -349,61 +405,148 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
         {tooltip.node.ip && <><span style={{ color: 'var(--text-secondary)' }}>{t('IP')}</span><span style={{ fontFamily: 'monospace', fontSize: 12 }}>{tooltip.node.ip}</span></>}
         {tooltip.node.model && <><span style={{ color: 'var(--text-secondary)' }}>{t('Modell')}</span><span>{tooltip.node.model}</span></>}
         {tooltip.node.interfaces?.[0]?.type && <><span style={{ color: 'var(--text-secondary)' }}>{t('Verbindung')}</span><span>{isWlanType(tooltip.node.interfaces[0].type) ? t('WLAN') : t('LAN')}</span></>}
+        {tooltip.node.band && kv('Funkband', tooltip.node.band)}
+        {!!tooltip.node.linkRate && kv('Linkrate', tooltip.node.connSpeed || `${Math.round(tooltip.node.linkRate)} Mbit/s`)}
+        {typeof tooltip.node.signal === 'number' && kv('Signal', (
+          <span style={{ color: tooltip.node.signal >= -65 ? '#22c55e' : tooltip.node.signal >= -75 ? '#f59e0b' : '#ef4444' }}>
+            {tooltip.node.signal} dBm
+          </span>
+        ))}
+        {tooltip.node.firmware && kv('Firmware', tooltip.node.firmware, true)}
+        {tooltip.node.updateAvailable && kv('Update', <span style={{ color: '#f59e0b' }}>{t('verfügbar')}</span>)}
+        {tooltip.node.guest && kv('Netz', <span style={{ color: '#f59e0b' }}>{t('Gastnetz')}</span>)}
       </div>
+      {(tooltip.node.url || (tooltip.node.mac && tooltip.node.role !== 'master')) && (
+        <div style={{ marginTop: 8, fontSize: 11, color: 'var(--accent)' }}>
+          {tooltip.node.url ? t('Klicken: Weboberfläche öffnen') : t('Klicken: Gerätedetails & Zuordnung')}
+        </div>
+      )}
     </div>
   );
 
-  // ── Radiales Star-Layout (Netzwerk-Ansicht) ──
+  // ── Cluster-Ansicht (Netzwerk): ein Kreis pro Zugangspunkt ──
+  // FRITZ!Box in der Mitte; jeder Zugangspunkt (FRITZ!-Repeater, eigene Router/Access
+  // Points) bildet einen eigenen Kreis mit den Geräten, die an ihm hängen.
   if (showHostsView) {
     const masterNode = nodes.find(n => n.role === 'master') || nodes[0];
-    const clientNodes = nodes.filter(n => n.uid !== masterNode.uid);
-    const totalClients = clientNodes.length;
-
-    // Knotengröße je nach Anzahl
-    const nodeR = totalClients <= 15 ? 18 : totalClients <= 40 ? 14 : totalClients <= 80 ? 10 : 7;
-    const labelsVisible = showNames && nodeR >= 10;
-    const spacing = Math.max(nodeR * 4, labelsVisible ? 55 : 28);
-
-    // LAN/WLAN/Infra Zuordnung für jeden Client
-    const clientMeta = clientNodes.map(n => {
-      const link = links.find(l => l.to === n.uid || l.from === n.uid);
-      const wlan = link ? isWlanType(link.type) : isWlanType(n.interfaces?.[0]?.type || '');
-      const infra = isInfraDevice(n.name);
-      return { node: n, isWlan: wlan, isInfra: infra };
-    });
-
-    // LAN zuerst, dann WLAN, dann Infra
-    const lanClients = clientMeta.filter(c => !c.isWlan && !c.isInfra);
-    const wlanClients = clientMeta.filter(c => c.isWlan && !c.isInfra);
-    const infraClients = clientMeta.filter(c => c.isInfra);
-    const ordered = [...lanClients, ...wlanClients, ...infraClients];
-
-    // Ringe berechnen
-    const baseRadius = Math.max(nodeR * 7, 70);
-    const ringGap = Math.max(spacing, nodeR * 5);
-    const rings: { radius: number; startIdx: number; count: number }[] = [];
-    let placed = 0;
-    let ringR = baseRadius;
-    while (placed < totalClients) {
-      const cap = Math.max(6, Math.floor(2 * Math.PI * ringR / spacing));
-      const cnt = Math.min(cap, totalClients - placed);
-      rings.push({ radius: ringR, startIdx: placed, count: cnt });
-      placed += cnt;
-      ringR += ringGap;
+    const byUid = new Map(nodes.map(n => [n.uid, n]));
+    const parentOf = new Map<string, MeshLink>();
+    for (const l of links) if (l.from && l.to && l.from !== l.to && !parentOf.has(l.to)) parentOf.set(l.to, l);
+    const childCount = new Map<string, number>();
+    for (const [child, l] of parentOf) if (byUid.has(child)) childCount.set(l.from, (childCount.get(l.from) || 0) + 1);
+    const isHub = (n: MeshNode) => n.uid === masterNode.uid || n.role === 'satellite' || !!n.infra
+      || (childCount.get(n.uid) || 0) > 0 || (!isOfficial && isInfraDevice(n.name));
+    const hubs = nodes.filter(isHub);
+    const hubSet = new Set(hubs.map(h => h.uid));
+    // Geräte je Zugangspunkt (über den Eltern-Link; ohne gültigen Zugangspunkt → Box)
+    const clientsOf = new Map<string, MeshNode[]>(hubs.map(h => [h.uid, []]));
+    for (const n of nodes) {
+      if (hubSet.has(n.uid)) continue;
+      const p = parentOf.get(n.uid)?.from;
+      clientsOf.get(p && hubSet.has(p) ? p : masterNode.uid)!.push(n);
     }
+    const linkTypeOf = (n: MeshNode) => parentOf.get(n.uid)?.type || n.interfaces?.[0]?.type || 'LAN';
+    const totalClients = nodes.length - hubs.length;
+    const nodeR = totalClients <= 15 ? 16 : totalClients <= 40 ? 12 : totalClients <= 80 ? 9 : 7;
+    const labelsVisible = showNames && nodeR >= 7;
+    const spacing = Math.max(nodeR * 3.2, labelsVisible ? 56 : 24);
+    const hubR = (h: MeshNode) => (h.uid === masterNode.uid ? 34 : 26);
 
-    const maxR = rings.length > 0 ? rings[rings.length - 1].radius : baseRadius;
-    const pad = labelsVisible ? 70 : 45;
-    const W = 2 * (maxR + pad + nodeR);
-    const H = W;
-    const cx = W / 2;
-    const cy = H / 2;
-    const masterR = 34;
+    // Ringe eines Clusters: Positionen relativ zum Zugangspunkt + äußerer Radius
+    const layoutCluster = (hub: MeshNode, members: MeshNode[]) => {
+      // LAN und WLAN jeweils zusammenhängend, darin alphabetisch
+      const sorted = [...members].sort((a, b) =>
+        Number(isWlanType(linkTypeOf(a))) - Number(isWlanType(linkTypeOf(b))) || a.name.localeCompare(b.name, 'de'));
+      const pos: { node: MeshNode; x: number; y: number }[] = [];
+      let r = hubR(hub) + nodeR + 40; // Platz für den Namen unter dem Zugangspunkt
+      let i = 0;
+      while (i < sorted.length) {
+        const cap = Math.max(6, Math.floor(2 * Math.PI * r / spacing));
+        const cnt = Math.min(cap, sorted.length - i);
+        for (let k = 0; k < cnt; k++) {
+          const a = 2 * Math.PI * k / cnt - Math.PI / 2;
+          pos.push({ node: sorted[i + k], x: r * Math.cos(a), y: r * Math.sin(a) });
+        }
+        i += cnt;
+        if (i < sorted.length) r += Math.max(spacing, nodeR * 3);
+      }
+      return { pos, radius: (members.length ? r + nodeR : hubR(hub) + 22) + (labelsVisible ? 18 : 6) };
+    };
+    const clusters = hubs.map(h => ({ hub: h, ...layoutCluster(h, clientsOf.get(h.uid) || []) }));
+    const center = clusters.find(c => c.hub.uid === masterNode.uid)!;
+    const others = clusters.filter(c => c !== center).sort((a, b) => b.radius - a.radius);
 
-    // Summary
-    const lanCount = lanClients.length;
-    const wlanCount = wlanClients.length;
-    const infraCount = infraClients.length;
+    // Cluster um die Box verteilen: Winkelanteil nach Clustergröße, Abstand so groß, dass
+    // sich weder benachbarte Cluster noch der Box-Cluster überschneiden
+    const gap = labelsVisible ? 50 : 34;
+    const hubXY = new Map<string, { x: number; y: number }>([[masterNode.uid, { x: 0, y: 0 }]]);
+    if (others.length) {
+      const widths = others.map(c => 2 * c.radius + gap);
+      const total = widths.reduce((a, b) => a + b, 0);
+      const maxR = Math.max(...others.map(c => c.radius));
+      const D = Math.max(center.radius + maxR + gap, total / (2 * Math.PI));
+      let acc = 0;
+      others.forEach((c, idx) => {
+        const a = (acc + widths[idx] / 2) / total * 2 * Math.PI - Math.PI / 2;
+        acc += widths[idx];
+        const dist = others.length === 1 ? center.radius + c.radius + gap : D;
+        hubXY.set(c.hub.uid, { x: dist * Math.cos(a), y: dist * Math.sin(a) });
+      });
+    }
+    const pad = labelsVisible ? 40 : 20;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const c of clusters) {
+      const p = hubXY.get(c.hub.uid)!;
+      minX = Math.min(minX, p.x - c.radius); maxX = Math.max(maxX, p.x + c.radius);
+      minY = Math.min(minY, p.y - c.radius); maxY = Math.max(maxY, p.y + c.radius);
+    }
+    const W = maxX - minX + 2 * pad;
+    const H = maxY - minY + 2 * pad;
+    const ox = pad - minX;
+    const oy = pad - minY;
+
+    const typeColor = (type: string) => (isWlanType(type)
+      ? { stroke: '#10b981', fill: '#065f46', dash: '6 3' }
+      : { stroke: '#3b82f6', fill: '#1e3a5f', dash: '0' });
+    viewBoxRef.current = { w: W, h: H };
+    // Namen automatisch, sobald zwischen zwei Geräten auf dem Bildschirm genug Platz ist;
+    // Schrift bleibt dabei unabhängig vom Zoom ~9,5 px groß
+    const pxPerUnit = zoomSvg ? svgScale(zoomSvg).k : 1;
+    const screenScale = view.k * pxPerUnit;
+    const autoLabels = !labelsVisible && spacing * screenScale >= 78;
+    const autoLabelSize = 9.5 / screenScale;
+    const showTip = (e: React.MouseEvent<SVGGElement>, node: MeshNode) => {
+      if (dragRef.current) return;
+      setHoveredUid(node.uid);
+      const r = e.currentTarget.getBoundingClientRect();
+      setTooltip({ node, x: r.left + r.width / 2, y: r.top + r.height / 2 });
+    };
+    const startPan = (e: React.PointerEvent<SVGSVGElement>) => {
+      if ((e.target as Element).closest('[data-node]')) return; // Klick auf Gerät/Zugangspunkt
+      dragRef.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y };
+      (e.currentTarget as SVGSVGElement).setPointerCapture(e.pointerId);
+    };
+    const movePan = (e: React.PointerEvent<SVGSVGElement>) => {
+      const d = dragRef.current;
+      if (!d) return;
+      const k = svgScale(e.currentTarget).k;
+      setView(v => ({ ...v, x: d.vx + (e.clientX - d.x) / k, y: d.vy + (e.clientY - d.y) / k }));
+    };
+    const endPan = () => { dragRef.current = null; };
+    const zoomBy = (f: number) => setView(v => {
+      const k = Math.min(8, Math.max(0.4, v.k * f));
+      return { k, x: W / 2 - (W / 2 - v.x) * (k / v.k), y: H / 2 - (H / 2 - v.y) * (k / v.k) };
+    });
+    const zoomBtn = { padding: '2px 9px', fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', cursor: 'pointer', background: 'var(--bg-card)', color: 'var(--text-secondary)' } as const;
+    const openNode = (n: MeshNode) => {
+      if (n.url && /^https?:\/\//.test(n.url)) window.open(n.url, '_blank', 'noopener,noreferrer');
+      else if (n.mac && n.uid !== masterNode.uid && onSelectDevice) onSelectDevice(String(n.mac).toLowerCase());
+    };
+    const short = (name: string, max: number) => (name.length > max ? name.slice(0, max - 1) + '…' : name);
+    const allClients = clusters.flatMap(c => c.pos.map(p => p.node));
+    const wlanCount = allClients.filter(n => isWlanType(linkTypeOf(n))).length;
+    const lanCount = allClients.length - wlanCount;
+    const dim = (uid: string, alt?: string) => hoveredUid && hoveredUid !== uid && hoveredUid !== alt;
 
     return (
       <div className="card">
@@ -411,11 +554,11 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}><h3>{t('Netzwerk-Topologie')}</h3>{toggleBtn}</div>
           {legend}
         </div>
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 24, padding: '12px 16px 0', fontSize: 13, color: 'var(--text-secondary)' }}>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 24, padding: '12px 16px 0', fontSize: 13, color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
           <span>{t('{n} Geräte online').replace('{n}', String(totalClients))}</span>
           <span style={{ color: '#3b82f6' }}>● {t('{n} LAN').replace('{n}', String(lanCount))}</span>
           <span style={{ color: '#10b981' }}>● {t('{n} WLAN').replace('{n}', String(wlanCount))}</span>
-          {infraCount > 0 && <span style={{ color: '#f59e0b' }}>● {t('{n} Infrastruktur').replace('{n}', String(infraCount))}</span>}
+          {others.length > 0 && <span style={{ color: '#f59e0b' }}>● {t('{n} Zugangspunkte').replace('{n}', String(others.length))}</span>}
           <button onClick={() => setShowNames(v => !v)} style={{
             marginLeft: 8, padding: '2px 10px', fontSize: 12, borderRadius: 6,
             border: '1px solid var(--border)', cursor: 'pointer',
@@ -423,116 +566,129 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
             color: showNames ? '#fff' : 'var(--text-secondary)',
             transition: 'all 0.2s',
           }}>{showNames ? t('Namen ✓') : t('Namen')}</button>
+          <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }} title={t('Mausrad: zoomen · Ziehen: verschieben')}>
+            <button style={zoomBtn} onClick={() => zoomBy(1 / 1.3)}>−</button>
+            <button style={{ ...zoomBtn, minWidth: 52 }} onClick={() => setView({ k: 1, x: 0, y: 0 })} title={t('Ansicht zurücksetzen')}>{Math.round(view.k * 100)} %</button>
+            <button style={zoomBtn} onClick={() => zoomBy(1.3)}>+</button>
+          </span>
         </div>
-        <div className="card-body" style={{ padding: 0, position: 'relative', overflowX: 'auto' }}
+        <div className="card-body" style={{ padding: 0, position: 'relative', overflow: 'hidden' }}
              onMouseLeave={() => { setTooltip(null); setHoveredUid(null); }}>
-          <svg
-            width="100%"
-            viewBox={`0 0 ${W} ${H}`}
-            style={{ display: 'block', maxHeight: 700, cursor: 'default' }}
-          >
+          <svg ref={setZoomSvg} width="100%" viewBox={`0 0 ${W} ${H}`}
+            onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan}
+            style={{ display: 'block', maxHeight: 820, cursor: dragRef.current ? 'grabbing' : 'grab', touchAction: 'none' }}>
             <defs>
               <radialGradient id="glow-master-r" cx="50%" cy="50%" r="50%">
                 <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.4" />
                 <stop offset="100%" stopColor="#06b6d4" stopOpacity="0" />
               </radialGradient>
             </defs>
+            <g transform={`translate(${view.x},${view.y}) scale(${view.k})`}>
 
-            {/* Verbindungslinien */}
-            {ordered.map((c, i) => {
-              let ring: { radius: number; startIdx: number; count: number } | undefined;
-              let idxInRing = 0;
-              for (const r of rings) {
-                if (i >= r.startIdx && i < r.startIdx + r.count) {
-                  ring = r;
-                  idxInRing = i - r.startIdx;
-                  break;
-                }
-              }
-              if (!ring) return null;
-              const angle = (2 * Math.PI * idxInRing / ring.count) - Math.PI / 2;
-              const nx = cx + ring.radius * Math.cos(angle);
-              const ny = cy + ring.radius * Math.sin(angle);
-              const isHovered = hoveredUid === c.node.uid;
-              const color = c.isInfra ? '#f59e0b' : c.isWlan ? '#10b981' : '#3b82f6';
-              const dash = c.isWlan ? '6 3' : '0';
+            {/* Kreis-Hintergrund je Zugangspunkt */}
+            {clusters.map(c => {
+              const p = hubXY.get(c.hub.uid)!;
+              const isMaster = c.hub.uid === masterNode.uid;
               return (
-                <line key={`l-${i}`} x1={cx} y1={cy} x2={nx} y2={ny}
-                  stroke={color} strokeWidth={isHovered ? 2.5 : 1.5}
-                  strokeDasharray={dash}
-                  strokeOpacity={hoveredUid ? (isHovered ? 0.9 : 0.06) : 0.18}
-                  style={{ transition: 'stroke-opacity 0.2s' }}
-                />
+                <circle key={`bg-${c.hub.uid}`} cx={p.x + ox} cy={p.y + oy} r={c.radius}
+                  fill={isMaster ? '#06b6d4' : '#f59e0b'} fillOpacity={0.035}
+                  stroke={isMaster ? '#06b6d4' : '#f59e0b'} strokeOpacity={0.22} strokeDasharray="4 6" />
               );
             })}
 
-            {/* Master-Knoten */}
-            <g transform={`translate(${cx},${cy})`}>
-              <circle cx={0} cy={0} r={masterR + 14} fill="url(#glow-master-r)" />
-              <circle cx={0} cy={0} r={masterR} fill="#0e7490" stroke="#06b6d4" strokeWidth="2.5" />
-              <text y={-4} textAnchor="middle" fontSize="9" fill="white" fontWeight="600">
-                {masterNode.name.length > 12 ? masterNode.name.slice(0, 10) + '…' : masterNode.name}
-              </text>
-              {masterNode.ip && <text y={10} textAnchor="middle" fontSize="8" fill="rgba(255,255,255,0.7)">{masterNode.ip}</text>}
-            </g>
-
-            {/* Client-Knoten */}
-            {ordered.map((c, i) => {
-              let ring: { radius: number; startIdx: number; count: number } | undefined;
-              let idxInRing = 0;
-              for (const r of rings) {
-                if (i >= r.startIdx && i < r.startIdx + r.count) {
-                  ring = r;
-                  idxInRing = i - r.startIdx;
-                  break;
-                }
-              }
-              if (!ring) return null;
-              const angle = (2 * Math.PI * idxInRing / ring.count) - Math.PI / 2;
-              const nx = cx + ring.radius * Math.cos(angle);
-              const ny = cy + ring.radius * Math.sin(angle);
-              const isHovered = hoveredUid === c.node.uid;
-              const color = c.isInfra ? '#f59e0b' : c.isWlan ? '#10b981' : '#3b82f6';
-              const fillColor = c.isInfra ? '#78350f' : c.isWlan ? '#065f46' : '#1e3a5f';
+            {/* Verbindungen Zugangspunkt → übergeordneter Zugangspunkt (meist die Box) */}
+            {others.map(c => {
+              const link = parentOf.get(c.hub.uid);
+              const parentUid = link && hubXY.has(link.from) ? link.from : masterNode.uid;
+              const a = hubXY.get(parentUid)!;
+              const b = hubXY.get(c.hub.uid)!;
+              const col = typeColor(link?.type || 'LAN');
               return (
-                <g key={c.node.uid}
-                  transform={`translate(${nx},${ny})`}
-                  style={{ cursor: 'pointer' }}
-                  onMouseEnter={e => {
-                    setHoveredUid(c.node.uid);
-                    const svgEl = (e.currentTarget.closest('svg') as SVGSVGElement);
-                    const rect = svgEl.getBoundingClientRect();
-                    setTooltip({ node: c.node, x: nx * (rect.width / W) + rect.left, y: ny * (rect.height / H) + rect.top });
-                  }}
+                <line key={`up-${c.hub.uid}`} x1={a.x + ox} y1={a.y + oy} x2={b.x + ox} y2={b.y + oy}
+                  stroke={col.stroke} strokeWidth={3} strokeDasharray={col.dash}
+                  strokeOpacity={dim(c.hub.uid, parentUid) ? 0.15 : 0.7} style={{ transition: 'stroke-opacity 0.2s' }} />
+              );
+            })}
+
+            {/* Verbindungen Gerät → Zugangspunkt */}
+            {clusters.flatMap(c => {
+              const hp = hubXY.get(c.hub.uid)!;
+              return c.pos.map(({ node, x, y }) => {
+                const col = typeColor(linkTypeOf(node));
+                const hovered = hoveredUid === node.uid || hoveredUid === c.hub.uid;
+                return (
+                  <line key={`l-${node.uid}`} x1={hp.x + ox} y1={hp.y + oy} x2={hp.x + x + ox} y2={hp.y + y + oy}
+                    stroke={col.stroke} strokeWidth={hovered ? 2.5 : 1.3} strokeDasharray={col.dash}
+                    strokeOpacity={hoveredUid ? (hovered ? 0.9 : 0.06) : 0.2}
+                    style={{ transition: 'stroke-opacity 0.2s' }} />
+                );
+              });
+            })}
+
+            {/* Geräte */}
+            {clusters.flatMap(c => {
+              const hp = hubXY.get(c.hub.uid)!;
+              return c.pos.map(({ node, x, y }) => {
+                const ax = hp.x + x + ox;
+                const ay = hp.y + y + oy;
+                const col = typeColor(linkTypeOf(node));
+                const wlan = isWlanType(linkTypeOf(node));
+                const isHovered = hoveredUid === node.uid;
+                return (
+                  <g key={node.uid} data-node transform={`translate(${ax},${ay})`} style={{ cursor: 'pointer' }}
+                    onMouseEnter={e => showTip(e, node)}
+                    onMouseLeave={() => { setHoveredUid(null); setTooltip(null); }}
+                    onClick={() => openNode(node)}>
+                    <circle r={nodeR + 4} fill={col.stroke} fillOpacity={isHovered ? 0.25 : 0} style={{ transition: 'fill-opacity 0.2s' }} />
+                    <circle r={nodeR} fill={col.fill} stroke={col.stroke} strokeWidth={isHovered ? 2.5 : 1.5} />
+                    {nodeR >= 10 && (
+                      <g fill="none" stroke="white" strokeWidth="1" opacity={0.8}>
+                        {wlan ? (
+                          <>
+                            <path d={`M${-nodeR * 0.45} ${nodeR * 0.1} Q0 ${-nodeR * 0.5} ${nodeR * 0.45} ${nodeR * 0.1}`} strokeLinecap="round" />
+                            <circle cx="0" cy={nodeR * 0.3} r={nodeR * 0.12} fill="white" stroke="none" />
+                          </>
+                        ) : (
+                          <rect x={-nodeR * 0.45} y={-nodeR * 0.4} width={nodeR * 0.9} height={nodeR * 0.65} rx={nodeR * 0.1} />
+                        )}
+                      </g>
+                    )}
+                    {/* Namen bei „Namen" oder automatisch beim Hineinzoomen (Layout bleibt gleich) */}
+                    {(labelsVisible || autoLabels) && (
+                      <text y={nodeR + (labelsVisible ? 12 : autoLabelSize * 1.2)} textAnchor="middle"
+                        fontSize={labelsVisible ? 9.5 : autoLabelSize} fill="var(--text-primary)"
+                        stroke="var(--bg-card)" strokeWidth={labelsVisible ? 2.5 : autoLabelSize / 3.5} paintOrder="stroke">{short(node.name, 12)}</text>
+                    )}
+                  </g>
+                );
+              });
+            })}
+
+            {/* Zugangspunkte (Box in der Mitte) */}
+            {clusters.map(c => {
+              const p = hubXY.get(c.hub.uid)!;
+              const isMaster = c.hub.uid === masterNode.uid;
+              const r = hubR(c.hub);
+              const count = c.pos.length;
+              return (
+                <g key={`hub-${c.hub.uid}`} data-node transform={`translate(${p.x + ox},${p.y + oy})`}
+                  style={{ cursor: isMaster ? 'default' : 'pointer' }}
+                  onMouseEnter={e => showTip(e, c.hub)}
                   onMouseLeave={() => { setHoveredUid(null); setTooltip(null); }}
-                >
-                  <circle cx={0} cy={0} r={nodeR + 4} fill={color} fillOpacity={isHovered ? 0.25 : 0} style={{ transition: 'fill-opacity 0.2s' }} />
-                  <circle cx={0} cy={0} r={nodeR} fill={fillColor} stroke={color} strokeWidth={isHovered ? 2.5 : 1.5}
-                    style={{ transition: 'stroke-width 0.2s' }} />
-                  {nodeR >= 10 && (
-                    <g fill="none" stroke="white" strokeWidth="1" opacity={0.8}>
-                      {c.isWlan ? (
-                        <>
-                          <path d={`M${-nodeR*0.45} ${nodeR*0.1} Q0 ${-nodeR*0.5} ${nodeR*0.45} ${nodeR*0.1}`} strokeLinecap="round" />
-                          <circle cx="0" cy={nodeR*0.3} r={nodeR*0.12} fill="white" stroke="none" />
-                        </>
-                      ) : (
-                        <>
-                          <rect x={-nodeR*0.45} y={-nodeR*0.45} width={nodeR*0.9} height={nodeR*0.65} rx={nodeR*0.1} />
-                          <line x1={-nodeR*0.2} y1={nodeR*0.2} x2={nodeR*0.2} y2={nodeR*0.2} />
-                          <line x1={0} y1={nodeR*0.2} x2={0} y2={nodeR*0.45} />
-                        </>
-                      )}
-                    </g>
-                  )}
-                  {labelsVisible && (
-                    <text y={nodeR + 14} textAnchor="middle" fontSize="10" fill="var(--text-primary)" fontWeight="400">
-                      {c.node.name.length > 12 ? c.node.name.slice(0, 10) + '…' : c.node.name}
-                    </text>
-                  )}
+                  onClick={() => openNode(c.hub)}>
+                  {isMaster && <circle r={r + 14} fill="url(#glow-master-r)" />}
+                  <circle r={r} fill={isMaster ? '#0e7490' : '#78350f'} stroke={isMaster ? '#06b6d4' : '#f59e0b'}
+                    strokeWidth={hoveredUid === c.hub.uid ? 3.5 : 2.5} />
+                  {/* Im Kreis die Anzahl, darunter der volle Name – gekürzte Namen („mi-router…")
+                      machten gleichartige Zugangspunkte ununterscheidbar */}
+                  <text y={2} textAnchor="middle" fontSize={isMaster ? 15 : 13} fill="white" fontWeight="700">{count}</text>
+                  <text y={13} textAnchor="middle" fontSize="7" fill="rgba(255,255,255,0.75)" letterSpacing="0.5">{t('GERÄTE')}</text>
+                  <text y={r + 15} textAnchor="middle" fontSize="11" fontWeight="600" fill="var(--text-primary)"
+                    stroke="var(--bg-card)" strokeWidth={4} paintOrder="stroke">{short(c.hub.name, 24)}</text>
                 </g>
               );
             })}
+            </g>
           </svg>
           {tooltipEl}
         </div>
@@ -577,7 +733,7 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
   }
 
   const isInfraNode = (n: TreeNode) =>
-    n.role === 'satellite' || isInfraDevice(n.name) || n.children.length > 0;
+    n.role === 'satellite' || !!n.infra || (!isOfficial && isInfraDevice(n.name)) || n.children.length > 0;
 
   // Sortierung: Infrastruktur zuerst, dann Name – stabil und vorhersagbar
   const sortChildren = (n: TreeNode) => {
@@ -617,6 +773,8 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
   };
 
   const infraCount = flat.filter(n => n !== rootTree && isInfraNode(n)).length;
+  // Nur echte FRITZ!-Mesh-Geräte (Box + Mesh-Repeater) für „getrennt"-Vergleich mit meshTotal
+  const meshConnected = flat.filter(n => n === rootTree || n.role === 'satellite').length;
   const clientCount = flat.length - 1 - infraCount;
 
   return (
@@ -629,6 +787,14 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
         <span>{t('{n} Geräte').replace('{n}', String(flat.length))}</span>
         {infraCount > 0 && <span style={{ color: '#f59e0b' }}>● {t('{n} Infrastruktur').replace('{n}', String(infraCount))}</span>}
         <span style={{ color: 'var(--text-primary)' }}>● {t('{n} Clients').replace('{n}', String(clientCount))}</span>
+        {isOfficial && typeof currentData?.meshTotal === 'number' && currentData.meshTotal > meshConnected && (
+          <span style={{ color: '#ef4444' }} title={t('Mesh-Geräte, die aktuell keine Verbindung haben')}>
+            ● {t('{n} Mesh-Gerät(e) getrennt').replace('{n}', String(currentData.meshTotal - meshConnected))}
+          </span>
+        )}
+        <span style={{ fontSize: 11, opacity: 0.7 }} title={isOfficial ? t('Offizielle Mesh-Liste der FRITZ!Box (TR-064)') : t('Ersatzdaten aus der Weboberfläche')}>
+          {isOfficial ? t('Quelle: Mesh-Liste') : t('Quelle: Weboberfläche')}
+        </span>
       </div>
       <div className="card-body" style={{ padding: 0, position: 'relative', overflow: 'auto' }}
            onMouseLeave={() => { setTooltip(null); setHoveredUid(null); }}>
@@ -685,6 +851,11 @@ function MeshTopology({ meshData, loading, sid }: { meshData: any; loading: bool
                   const svgEl = (e.currentTarget.closest('svg') as SVGSVGElement);
                   const rect = svgEl.getBoundingClientRect();
                   setTooltip({ node: n, x: rect.left + xOf(n) + NODE_W, y: rect.top + yOf(n) });
+                }}
+                // FRITZ!-Repeater: Weboberfläche (X_AVM-DE_URL), alle anderen: Gerätedetails
+                onClick={() => {
+                  if (n.url && /^https?:\/\//.test(n.url)) window.open(n.url, '_blank', 'noopener,noreferrer');
+                  else if (n.mac && n !== rootTree && onSelectDevice) onSelectDevice(String(n.mac).toLowerCase());
                 }}
                 onMouseLeave={() => { setHoveredUid(null); setTooltip(null); }}
               >
@@ -758,23 +929,87 @@ function LANSettings({ lanInfo }: { lanInfo: any }) {
   );
 }
 
+// kbit/s → „250 Mbit/s" bzw. „1,2 Gbit/s"
+function fmtKbit(kbit: number) {
+  if (!kbit) return '-';
+  const mbit = kbit / 1000;
+  return mbit >= 1000 ? `${(mbit / 1000).toFixed(1)} Gbit/s` : `${mbit >= 100 ? Math.round(mbit) : mbit.toFixed(1)} Mbit/s`;
+}
+
+function fmtUptime(sec: number) {
+  if (!sec) return '-';
+  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
+  return d > 0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m`;
+}
+
+function WanStatus({ status }: { status?: string }) {
+  const t = useT();
+  if (!status) return <>-</>;
+  const color = status === 'Connected' ? '#22c55e' : status === 'Connecting' ? '#f59e0b' : '#ef4444';
+  const label = status === 'Connected' ? t('Verbunden') : status === 'Connecting' ? t('Verbindet…') : status;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />{label}
+    </span>
+  );
+}
+
 function WANSettings({ wanInfo }: { wanInfo: any }) {
   const t = useT();
+  const dsl = wanInfo?.dsl;
+  const row = (label: string, value: ReactNode, first = false) => (
+    <tr><td style={{ fontWeight: 500, color: 'var(--text-secondary)', width: first ? 220 : undefined }}>{t(label)}</td><td>{value}</td></tr>
+  );
+  // Störabstand: > 10 dB gut, 6–10 dB ok, darunter kritisch
+  const snrColor = (v: number | null) => v === null ? undefined : v >= 10 ? '#22c55e' : v >= 6 ? '#f59e0b' : '#ef4444';
   return (
-    <div className="card">
-      <div className="card-header"><h3>{t('WAN Einstellungen')}</h3></div>
-      <div className="card-body">
-        <table>
-          <tbody>
-            <tr><td style={{ fontWeight: 500, color: 'var(--text-secondary)', width: 220 }}>{t('Externe IP-Adresse')}</td><td>{wanInfo?.NewExternalIPAddress || '-'}</td></tr>
-            <tr><td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('Verbindungsstatus')}</td><td>{wanInfo?.NewConnectionStatus || '-'}</td></tr>
-            <tr><td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('Verbindungstyp')}</td><td>{wanInfo?.NewConnectionType || '-'}</td></tr>
-            <tr><td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('Upstream')}</td><td>{wanInfo?.NewUpstreamMaxBitRate || '-'}</td></tr>
-            <tr><td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('Downstream')}</td><td>{wanInfo?.NewDownstreamMaxBitRate || '-'}</td></tr>
-          </tbody>
-        </table>
+    <>
+      <div className="card">
+        <div className="card-header"><h3>{t('WAN Einstellungen')}</h3></div>
+        <div className="card-body">
+          <table>
+            <tbody>
+              {row('Verbindungsstatus', <WanStatus status={wanInfo?.NewConnectionStatus} />, true)}
+              {row('Anschlussart', wanInfo?.accessTypeLabel ? t(wanInfo.accessTypeLabel) : '-')}
+              {wanInfo?.provider && row('Anbieter', wanInfo.provider)}
+              {row('Verbindungstyp', wanInfo?.NewConnectionType || '-')}
+              {row('Externe IP-Adresse', wanInfo?.NewExternalIPAddress || '-')}
+              {row('Externe IPv6-Adresse', <span style={{ fontFamily: 'monospace', fontSize: 13 }}>{wanInfo?.ipv6 || '-'}</span>)}
+              {row('Online seit', fmtUptime(parseInt(wanInfo?.NewUptime || '0', 10)))}
+              {row('Leitung (Downstream)', fmtKbit((wanInfo?.rates?.syncDown || wanInfo?.downstreamMax || 0) / 1000))}
+              {row('Leitung (Upstream)', fmtKbit((wanInfo?.rates?.syncUp || wanInfo?.upstreamMax || 0) / 1000))}
+              {!!wanInfo?.rates?.tariffDown && row('Gebuchter Tarif', `↓ ${fmtKbit(wanInfo.rates.tariffDown / 1000)} / ↑ ${fmtKbit(wanInfo.rates.tariffUp / 1000)}`)}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
+      {dsl && (
+        <div className="card">
+          <div className="card-header"><h3>{t('DSL-Leitung')}</h3></div>
+          <div className="card-body">
+            <table>
+              <thead>
+                <tr><th></th><th>{t('Downstream')}</th><th>{t('Upstream')}</th></tr>
+              </thead>
+              <tbody>
+                <tr><td style={{ fontWeight: 500, color: 'var(--text-secondary)', width: 220 }}>{t('Aktuelle Datenrate')}</td><td>{fmtKbit(dsl.downCurr)}</td><td>{fmtKbit(dsl.upCurr)}</td></tr>
+                <tr><td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('Max. erreichbar')}</td><td>{fmtKbit(dsl.downMax)}</td><td>{fmtKbit(dsl.upMax)}</td></tr>
+                <tr><td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('Störabstand')}</td>
+                  <td style={{ color: snrColor(dsl.snrDown) }}>{dsl.snrDown ?? '-'} dB</td>
+                  <td style={{ color: snrColor(dsl.snrUp) }}>{dsl.snrUp ?? '-'} dB</td></tr>
+                <tr><td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{t('Leitungsdämpfung')}</td><td>{dsl.attDown ?? '-'} dB</td><td>{dsl.attUp ?? '-'} dB</td></tr>
+              </tbody>
+            </table>
+            {dsl.crcErrors !== null && dsl.crcErrors !== undefined && (
+              <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-secondary)' }}>
+                {t('Fehler seit Synchronisation')}: CRC {dsl.crcErrors} · FEC {dsl.fecErrors ?? '-'}
+                {dsl.erroredSecs !== null && dsl.erroredSecs !== undefined && ` · ${t('fehlerhafte Sekunden')} ${dsl.erroredSecs}`}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

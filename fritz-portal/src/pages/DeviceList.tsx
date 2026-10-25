@@ -15,7 +15,12 @@ interface Host {
   connDetail?: string;
   connSpeed?: string;
   connDisplay?: string;
+  guest?: boolean;
+  vpn?: boolean;
+  blocked?: boolean;
 }
+
+type QuickFilter = 'all' | 'online' | 'offline' | 'lan' | 'wlan' | 'guest' | 'static';
 
 interface IpStats {
   total: number;
@@ -42,6 +47,7 @@ export default function DeviceList({ sid, onSelectDevice }: DeviceListProps) {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [deletingMac, setDeletingMac] = useState<string | null>(null);
   const [deleteMsg, setDeleteMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
 
   const headers = { 'X-Fritz-SID': sid };
 
@@ -169,11 +175,49 @@ export default function DeviceList({ sid, onSelectDevice }: DeviceListProps) {
     }
   };
 
-  const filtered = hosts.filter(h =>
+  const isWlan = (h: Host) => {
+    if (h.connType === 'WLAN') return true;
+    if (h.connType === 'LAN')  return false;
+    const s = String(h.interface || '').toLowerCase();
+    return s.includes('wlan') || s.includes('802');
+  };
+
+  const matchesQuick = (h: Host) => {
+    switch (quickFilter) {
+      case 'online':  return h.active;
+      case 'offline': return !h.active;
+      case 'lan':     return !isWlan(h);
+      case 'wlan':    return isWlan(h);
+      case 'guest':   return !!h.guest;
+      case 'static':  return h.addressSource === 'Static';
+      default:        return true;
+    }
+  };
+
+  const filtered = hosts.filter(h => matchesQuick(h) && (
     (h.name || '').toLowerCase().includes(search.toLowerCase()) ||
     h.ip.includes(search) ||
     h.mac.toLowerCase().includes(search.toLowerCase())
-  );
+  ));
+
+  // Aktuelle (gefilterte, sortierte) Ansicht als CSV herunterladen – Semikolon
+  // als Trenner, damit Excel mit deutscher Ländereinstellung die Spalten erkennt
+  const exportCsv = () => {
+    const cell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = ['Name', 'IP', 'MAC', 'Status', 'Verbindung', 'Feste IP', 'Gast'];
+    const lines = sorted.map(h => [
+      h.name, h.ip, h.mac, h.active ? 'online' : 'offline',
+      h.connDisplay || (isWlan(h) ? 'WLAN' : 'LAN'),
+      h.addressSource === 'Static' ? 'ja' : 'nein', h.guest ? 'ja' : 'nein',
+    ].map(cell).join(';'));
+    const blob = new Blob(['\ufeff' + [header.map(cell).join(';'), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fritzbox-geraete-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const formatLastActivity = (ts: string | undefined) => {
     if (!ts) return '';
@@ -184,13 +228,6 @@ export default function DeviceList({ sid, onSelectDevice }: DeviceListProps) {
     if (diff < 3600) return t('vor {n} Min').replace('{n}', String(Math.floor(diff / 60)));
     if (diff < 86400) return t('vor {n} Std').replace('{n}', String(Math.floor(diff / 3600)));
     return t('vor {n} Tagen').replace('{n}', String(Math.floor(diff / 86400)));
-  };
-
-  const isWlan = (h: Host) => {
-    if (h.connType === 'WLAN') return true;
-    if (h.connType === 'LAN')  return false;
-    const s = String(h.interface || '').toLowerCase();
-    return s.includes('wlan') || s.includes('802');
   };
 
   const sorted = [...filtered].sort((a, b) => {
@@ -285,7 +322,26 @@ export default function DeviceList({ sid, onSelectDevice }: DeviceListProps) {
       <div className="card">
         <div className="card-header">
           <h3>{t('Alle Ger\u00e4te')}</h3>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginLeft: 'auto', marginRight: 10 }}>
+            {([
+              ['all', 'Alle'], ['online', 'Online'], ['offline', 'Offline'], ['lan', 'LAN'], ['wlan', 'WLAN'],
+              ...(hosts.some(h => h.guest) ? [['guest', 'Gast']] : []),
+              ['static', 'Feste IP'],
+            ] as [QuickFilter, string][]).map(([id, label]) => (
+              <button key={id} onClick={() => setQuickFilter(id)} style={{
+                padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
+                border: `1px solid ${quickFilter === id ? 'var(--accent)' : 'var(--border)'}`,
+                background: quickFilter === id ? 'var(--accent)' : 'var(--bg-primary)',
+                color: quickFilter === id ? '#fff' : 'var(--text-secondary)',
+              }}>{t(label)}</button>
+            ))}
+            <button onClick={exportCsv} title={t('Aktuelle Ansicht als CSV exportieren')} style={{
+              padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
+              border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-secondary)',
+            }}>{t('CSV')} ↓</button>
+          </div>
           <input
+            id="device-search"
             type="text"
             placeholder={t('Suchen...')}
             value={search}
@@ -336,6 +392,13 @@ export default function DeviceList({ sid, onSelectDevice }: DeviceListProps) {
                           >
                             {host.ip}
                           </a>
+                          {host.guest && (
+                            <span title={t('Gerät im Gastnetz')} style={{
+                              marginLeft: 6, fontSize: 10, fontWeight: 600, padding: '1px 5px',
+                              borderRadius: 4, background: '#f59e0b20', color: '#f59e0b',
+                              border: '1px solid #f59e0b40', verticalAlign: 'middle',
+                            }}>{t('GAST')}</span>
+                          )}
                           {host.addressSource === 'Static' && (
                             <span title={t('Feste IP-Adresse')} style={{
                               marginLeft: 6, fontSize: 10, fontWeight: 600, padding: '1px 5px',

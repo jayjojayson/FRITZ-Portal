@@ -1,5 +1,5 @@
 name: "FRITZ!Portal"
-version: "1.4.6"
+version: "1.4.7"
 slug: "fritz-portal"
 description: "FRITZ!Box Dashboard für Home Assistant"
 url: "https://github.com/jayjojayson/FRITZ-Portal"
@@ -21,6 +21,10 @@ panel_admin: true
 hassio_api: true
 homeassistant_api: true
 host_network: true
+# Schreibzugriff auf die HA-Konfiguration – nur für die Dashboard-Card
+# (wird nach /config/www/fritz-portal/ kopiert, abschaltbar per dashboard_card: false)
+map:
+  - homeassistant_config:rw
 ports:
   3003/tcp: null
 ports_description:
@@ -36,6 +40,7 @@ options:
   debug_logging: false
   keep_session_alive: false
   traffic_history_server: false
+  dashboard_card: true
 schema:
   fritzbox_host: "str"
   fritzbox_user: "str"
@@ -47,3 +52,4 @@ schema:
   debug_logging: bool
   keep_session_alive: bool
   traffic_history_server: bool
+  dashboard_card: bool

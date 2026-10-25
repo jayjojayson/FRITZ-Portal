@@ -24,7 +24,6 @@ interface AppCache {
 }
 
 const CACHE_TTL = 600000; // 10 minutes
-const APP_VERSION = '1.4.5';
 const LS_CACHE_KEY = 'fritzportal_apicache';
 
 // Beim Start: in-memory-Cache aus localStorage hydratisieren, damit Dashboard-Daten
@@ -153,6 +152,35 @@ export default function App() {
     return () => { clearInterval(tInfo); clearInterval(tEco); clearInterval(tWan); };
   }, [sid]);
 
+  // Tastenkürzel (siehe Fußzeile): 1–7 Seiten, / Gerätesuche, Esc zurück zur Liste.
+  // Inaktiv, solange in einem Eingabefeld getippt wird.
+  useEffect(() => {
+    const pages: Page[] = ['dashboard', 'devices', 'network', 'traffic', 'telefonie', 'smarthome', 'system'];
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName))) return;
+      const idx = parseInt(e.key, 10);
+      if (idx >= 1 && idx <= pages.length) {
+        setSelectedDevice(null);
+        setCurrentPage(pages[idx - 1]);
+      } else if (e.key === '/') {
+        e.preventDefault();
+        setSelectedDevice(null);
+        setCurrentPage('devices');
+        // Suchfeld erst nach dem Rendern der Geräteseite verfügbar
+        setTimeout(() => document.getElementById('device-search')?.focus(), 50);
+      } else if (e.key === 'Escape') {
+        setCurrentPage(p => {
+          if (p === 'device-detail') { setSelectedDevice(null); return 'devices'; }
+          return p;
+        });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const handleSelectDevice = (mac: string) => {
     setSelectedDevice(mac);
     setCurrentPage('device-detail');
@@ -219,7 +247,6 @@ export default function App() {
       <Header
         currentPage={currentPage === 'device-detail' ? 'devices' : currentPage}
         onNavigate={(page) => { setCurrentPage(page); setSelectedDevice(null); }}
-        version={APP_VERSION}
       />
       <StatusLine
         authenticated={!!sid}
@@ -229,12 +256,12 @@ export default function App() {
         recording={true}
       />
       <main className="main-content">
-        {currentPage === 'dashboard' && <Dashboard sid={sid} />}
+        {currentPage === 'dashboard' && <Dashboard sid={sid} onSelectDevice={handleSelectDevice} onNavigate={(p) => { setSelectedDevice(null); setCurrentPage(p); }} />}
         {currentPage === 'devices' && <DeviceList sid={sid} onSelectDevice={handleSelectDevice} />}
         {currentPage === 'device-detail' && selectedDevice && (
           <DeviceDetail sid={sid} mac={selectedDevice} onBack={handleBackToList} />
         )}
-        {currentPage === 'network' && <Network sid={sid} />}
+        {currentPage === 'network' && <Network sid={sid} onSelectDevice={handleSelectDevice} />}
         {currentPage === 'traffic' && <Traffic sid={sid} />}
         {currentPage === 'telefonie' && <Telefonie sid={sid} />}
         {currentPage === 'smarthome' && <SmartHome sid={sid} />}
@@ -242,9 +269,9 @@ export default function App() {
       </main>
       <div className="cmd-hint">
         <span><span className="accent">$</span> {t('bereit')}</span>
-        <span>↑↓ {t('navigieren')}</span>
-        <span>enter {t('öffnen')}</span>
+        <span>1–7 {t('Seiten')}</span>
         <span>/ {t('suchen')}</span>
+        <span>esc {t('zurück')}</span>
         <span className="right" title={t('Durchschnittliche CPU-Auslastung der FRITZ!Box (1 / 5 / 15 Minuten)')}>
           {t('CPU AVG')} 1m·5m·15m: <span className="accent">{status.load || '— / — / —'}</span>
         </span>
