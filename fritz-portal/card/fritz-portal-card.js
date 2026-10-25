@@ -17,7 +17,7 @@
  *   ha_style: false         # true = Standard-Design von Home Assistant
  */
 
-const CARD_VERSION = '1.4.9';
+const CARD_VERSION = '1.5.0';
 const ALL_SECTIONS = ['system', 'wan', 'traffic', 'traffic_stats', 'hosts', 'mesh', 'wlan', 'phone', 'smarthome'];
 const SECTION_LABELS = {
   system: 'System (CPU, RAM, Temperatur, Geräte)',
@@ -202,6 +202,7 @@ class FritzPortalCard extends HTMLElement {
     const darkChanged = dark !== this.hasAttribute('dark');
     this.toggleAttribute('dark', dark);
     this.toggleAttribute('ha', !!this._config?.ha_style);
+    this._maybeLoadAliases();
     this._maybeFetchHistory();
     // HA ruft diesen Setter bei JEDER Zustandsänderung irgendeiner Entität auf – nur neu
     // zeichnen, wenn sich eine eigene Entität geändert hat (HA erzeugt dann ein neues
@@ -214,16 +215,45 @@ class FritzPortalCard extends HTMLElement {
     const count = Object.keys(next.states).length;
     if (!this._ownIds || this._statesCount !== count) {
       this._statesCount = count;
-      this._ownIds = Object.keys(next.states).filter(id => id.includes(prefix));
+      this._ownIds = Object.keys(next.states).filter(id => id.includes(prefix))
+        .concat(Object.values(this._alias || {}));
       return true;
     }
     return this._ownIds.some(id => prev.states[id] !== next.states[id]);
   }
 
+  // Seit HA 2026.4 wird object_id der MQTT-Discovery ignoriert – frisch angelegte
+  // Entitäten heißen dann z. B. sensor.fritz_portal_cpu_auslastung. Über die unique_id
+  // (fritzportal_<id>) aus der Entity-Registry auf die erwarteten IDs abbilden.
+  async _maybeLoadAliases() {
+    const count = Object.keys(this._hass?.states || {}).length;
+    if (!this._hass?.connection || this._aliasLoading || this._aliasCount === count) return;
+    // Neue (lazy) Entitäten → höchstens einmal pro Minute neu laden
+    if (this._aliasLoaded && Date.now() - this._aliasLoaded < 60000) return;
+    this._aliasLoading = true;
+    this._aliasCount = count;
+    try {
+      const list = await this._hass.connection.sendMessagePromise({ type: 'config/entity_registry/list' });
+      const prefix = this._config?.entity_prefix || 'fritzportal';
+      const alias = {};
+      for (const e of list || []) {
+        if (e.platform !== 'mqtt' || !e.unique_id?.startsWith('fritzportal_')) continue;
+        const canonical = `${e.entity_id.split('.')[0]}.${prefix}_${e.unique_id.slice('fritzportal_'.length)}`;
+        if (canonical !== e.entity_id) alias[canonical] = e.entity_id;
+      }
+      const changed = JSON.stringify(alias) !== JSON.stringify(this._alias || {});
+      this._alias = alias;
+      if (changed) { this._ownIds = null; this._scheduleRender(); }
+    } catch { /* ohne Registry-Zugriff bleiben die Standard-IDs */ }
+    this._aliasLoaded = Date.now();
+    this._aliasLoading = false;
+  }
+
   getCardSize() { return 2 + (this._config?.sections || ALL_SECTIONS).length * 2; }
 
   // ── Helpers ──
-  _id(domain, suffix) { return `${domain}.${this._config.entity_prefix}_${suffix}`; }
+  _id(domain, suffix) { return this._resolve(`${domain}.${this._config.entity_prefix}_${suffix}`); }
+  _resolve(id) { return this._hass?.states?.[id] ? id : (this._alias?.[id] || id); }
   _st(domain, suffix) { return this._hass?.states?.[this._id(domain, suffix)]; }
   _val(suffix) { const s = this._st('sensor', suffix); return s && !['unknown', 'unavailable'].includes(s.state) ? s.state : null; }
   _show(section) { return (this._config.sections || ALL_SECTIONS).includes(section); }
@@ -284,7 +314,8 @@ class FritzPortalCard extends HTMLElement {
     if (wan) chips.push(wan.state === 'on' ? '<span class="chip ok">● online</span>' : '<span class="chip bad">● offline</span>');
     if (fw?.state === 'on') chips.push(`<span class="chip warn" title="${esc(fw.attributes.latest_version)}">FW-Update</span>`);
 
-    const anyEntity = Object.keys(this._hass.states).some(id => id.includes(`.${this._config.entity_prefix}_`));
+    const anyEntity = Object.keys(this._hass.states).some(id => id.includes(`.${this._config.entity_prefix}_`))
+      || Object.values(this._alias || {}).some(id => this._hass.states[id]);
 
     root.innerHTML = `
       <style>${STYLE}</style>
@@ -444,8 +475,10 @@ class FritzPortalCard extends HTMLElement {
 
   _renderWlan() {
     const prefix = `${this._config.entity_prefix}_wlan_`;
-    const ids = Object.keys(this._hass.states)
+    // Erwartete IDs (inkl. umbenannter Entitäten aus der Registry)
+    const ids = [...new Set([...Object.keys(this._hass.states), ...Object.keys(this._alias || {})])]
       .filter(id => (id.startsWith('switch.') || id.startsWith('sensor.')) && id.split('.')[1].startsWith(prefix))
+      .filter(id => this._hass.states[this._resolve(id)])
       .sort();
     // Steuerbarer Schalter (MQTT) hat Vorrang vor dem Nur-Anzeige-Sensor (REST)
     const byIdx = new Map();
@@ -454,7 +487,8 @@ class FritzPortalCard extends HTMLElement {
       if (!byIdx.has(idx) || id.startsWith('switch.')) byIdx.set(idx, id);
     }
     if (byIdx.size === 0) return '';
-    const rows = [...byIdx.values()].map(id => {
+    const rows = [...byIdx.values()].map(canon => {
+      const id = this._resolve(canon);
       const s = this._hass.states[id];
       const on = s.state === 'on';
       const name = String(s.attributes.friendly_name || id).replace(/^FRITZ!Portal\s+/, '').replace(/^WLAN\s+/, '');

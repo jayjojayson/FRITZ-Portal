@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.5.0
+
+- Fix (**dashboard card shows nothing / "no sensors"**): Since Home Assistant 2026.4 the MQTT discovery field `object_id` is ignored. Newly created entities therefore got IDs built from the device and sensor name (e.g. `sensor.fritz_portal_cpu_auslastung` instead of `sensor.fritzportal_cpu`) – the card couldn't find them and stayed empty. The add-on now also sends `default_entity_id`, so new installations get the documented IDs again. The card finds entities that were already named differently via their `unique_id` in the entity registry – existing installations work without renaming anything.
+- Thanks to Nicknol for the feedback on the new dashboard card.
+
+---
+
+If you like FRITZ!Portal, I would appreciate a Star rating ⭐ from you.
+This helps the algorithm to boost the Add-on. Thank you.
+You can also support me with a coffee via ko-fi or PayPal.
+
+---
+
+[![README English](https://img.shields.io/badge/README-English-orange)](https://github.com/jayjojayson/FRITZ-Portal/blob/main/README_eng.md) [![README Deutsch](https://img.shields.io/badge/README-Deutsch-orange)](https://github.com/jayjojayson/FRITZ-Portal) 
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/G2G01VCROJ) [![Support](https://img.shields.io/badge/%20-Support%20Me-steelblue?style=flat&logo=paypal&logoColor=white)](https://www.paypal.me/quadFlyerFW)
+
 ## 1.4.9
 
 - Fix (**dashboard card – editor**): The fields "Active devices: count" and "Calls: count" were not applied – after confirming, the field was empty again and the value was missing from the configuration.

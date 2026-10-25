@@ -3572,9 +3572,12 @@ async function publishMqttDiscovery() {
   console.log('MQTT Discovery: Broker erreichbar – registriere Sensoren...');
   const device = fritzboxDevice();
   let registered = 0;
+  // object_id wertet HA seit 2026.4 nicht mehr aus – ohne default_entity_id entstünden
+  // IDs aus Gerätename + Name (sensor.fritz_portal_cpu_auslastung), die die Card nicht findet
   for (const s of MQTT_SENSORS) {
     const config = {
       name: s.name, unique_id: `fritzportal_${s.id}`, object_id: `fritzportal_${s.id}`,
+      default_entity_id: `sensor.fritzportal_${s.id}`,
       state_topic: `fritzportal/${s.id}/state`,
       unit_of_measurement: s.unit || undefined, icon: s.icon,
       device_class: s.device_class || undefined, state_class: s.state_class || undefined,
@@ -3590,6 +3593,7 @@ async function publishMqttDiscovery() {
       const config = {
         name: `${dir === 'received' ? 'Download' : 'Upload'} ${t.name}`,
         unique_id: `fritzportal_${id}`, object_id: `fritzportal_${id}`,
+        default_entity_id: `sensor.fritzportal_${id}`,
         state_topic: `fritzportal/${id}/state`,
         unit_of_measurement: 'MB',
         icon: dir === 'received' ? 'mdi:download-network' : 'mdi:upload-network',
@@ -3604,6 +3608,7 @@ async function publishMqttDiscovery() {
     for (const s of MQTT_PHONE_SENSORS) {
       const config = {
         name: s.name, unique_id: `fritzportal_${s.id}`, object_id: `fritzportal_${s.id}`,
+        default_entity_id: `sensor.fritzportal_${s.id}`,
         state_topic: `fritzportal/${s.id}/state`,
         json_attributes_topic: `fritzportal/${s.id}/attributes`,
         icon: s.icon,
@@ -3629,6 +3634,7 @@ async function publishWlanDiscovery(states) {
       name: `WLAN ${w.label}`,
       unique_id:    `fritzportal_wlan_${w.index}`,
       object_id:    `fritzportal_wlan_${w.index}`,
+      default_entity_id: `switch.fritzportal_wlan_${w.index}`,
       command_topic: `fritzportal/wlan/${w.index}/set`,
       state_topic:   `fritzportal/wlan/${w.index}/state`,
       payload_on: 'ON', payload_off: 'OFF',
@@ -3854,6 +3860,7 @@ async function ensureMqttEntity(def) {
   if (lazyDiscovered.has(key)) return;
   const config = {
     name: def.name, unique_id: `fritzportal_${def.id}`, object_id: `fritzportal_${def.id}`,
+    default_entity_id: `${def.component}.fritzportal_${def.id}`,
     state_topic: `fritzportal/${def.id}/state`,
     json_attributes_topic: def.json_attributes ? `fritzportal/${def.id}/attributes` : undefined,
     icon: def.icon, unit_of_measurement: def.unit, device_class: def.device_class, state_class: def.state_class,
