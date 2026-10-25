@@ -17,7 +17,7 @@
  *   ha_style: false         # true = Standard-Design von Home Assistant
  */
 
-const CARD_VERSION = '1.4.8';
+const CARD_VERSION = '1.4.9';
 const ALL_SECTIONS = ['system', 'wan', 'traffic', 'traffic_stats', 'hosts', 'mesh', 'wlan', 'phone', 'smarthome'];
 const SECTION_LABELS = {
   system: 'System (CPU, RAM, Temperatur, Geräte)',

@@ -1,12 +1,17 @@
 # Changelog
 
+## 1.4.9
+
+- Fix (**dashboard card – editor**): The fields "Active devices: count" and "Calls: count" were not applied – after confirming, the field was empty again and the value was missing from the configuration.
+- Improved (**dashboard card – editor**): The sections are shown as a compact checkbox list instead of individual toggles, making the editor much shorter.
+
 ## 1.4.8
 
 - New (**dashboard card – traffic statistics**): New section `traffic_stats` with a table for today, yesterday, current week, current month and last month (received/sent, automatically in MB or GB).
 - New (**dashboard card – smart home**): New section `smarthome` – devices are grouped by the FRITZ!Box groups (usually set up as rooms), optionally by device type or not grouped at all. Shows switch state, temperature/target temperature, power and battery. Note: the FRITZ!Box interfaces have no concept of "rooms" – the groups from Smart Home → Groups are used. New for this: `sensor.fritzportal_smarthome` (number of reachable devices, attribute `devices` with name, group, type and readings).
 - New (**dashboard card – calls**): The number of recent calls can be set in the editor (`phone_count`, 1–20, default 5; previously fixed at 3). For this, `sensor.fritzportal_last_call` has a new attribute `recent_calls` with the last 20 calls.
 - New (**dashboard card – Home Assistant design**): With `ha_style: true` (editor: "Use Home Assistant design") the card uses the colours, font and corner radius of the active HA theme instead of the terminal look.
-- Improved (**dashboard card – editor**): The visual editor now uses native HA controls (compact checkbox list for the sections, toggles, number fields, dropdowns, expandable groups).
+- Improved (**dashboard card – editor**): The visual editor now uses native HA controls (toggles, number fields, dropdowns, expandable groups).
 - Fix (dashboard card): The "free IPs" tile label wrapped, so its number sat lower than on the other tiles. Labels are now single-line ("IP-Pool"); on narrow cards the tiles switch to three columns.
 - Improved (#31, **WLAN switches in HA**): The switches now include the frequency band in their name, e.g. "WLAN Home (5 GHz)" – with the same SSID on all bands they were indistinguishable before. Entity IDs stay the same.
 - Improved (**fast panel start**): When reopening the panel, the last loaded view is shown immediately from the cache and refreshed in the background – no more loading screen (in testing 60 ms instead of 1.4 s to first content). The server also reuses the existing session instead of re-discovering the FRITZ!Box services every time.
