@@ -601,14 +601,16 @@ const EDITOR_LABELS = {
   hosts_sort: 'Aktive Geräte: Sortierung',
   phone_count: 'Anrufe: Anzahl der letzten Anrufe',
   smarthome_group: 'Smart Home: Gruppierung',
-  ...Object.fromEntries(ALL_SECTIONS.map(k => [`show_${k}`, SECTION_LABELS[k]])),
+  sections: '',
 };
 
 const EDITOR_SCHEMA = [
   { name: 'title', selector: { text: {} } },
   {
     type: 'expandable', name: 'grp_sections', title: 'Bereiche', flatten: true, expanded: true, icon: 'mdi:view-dashboard-outline',
-    schema: ALL_SECTIONS.map(k => ({ name: `show_${k}`, selector: { boolean: {} } })),
+    // Checkbox-Liste statt einzelner Schalter – deutlich kompakter
+    schema: [{ name: 'sections', selector: { select: { multiple: true, mode: 'list',
+      options: ALL_SECTIONS.map(k => ({ value: k, label: SECTION_LABELS[k] })) } } }],
   },
   {
     type: 'expandable', name: 'grp_style', title: 'Darstellung', flatten: true, icon: 'mdi:palette-outline',
@@ -621,7 +623,8 @@ const EDITOR_SCHEMA = [
   {
     type: 'expandable', name: 'grp_options', title: 'Optionen', flatten: true, icon: 'mdi:tune-variant',
     schema: [
-      { type: 'grid', name: 'grp_counts', schema: [
+      // flatten: ohne würde ha-form die Werte unter „grp_counts" verschachteln
+      { type: 'grid', name: 'grp_counts', flatten: true, schema: [
         { name: 'hosts_limit', selector: { number: { min: 1, max: 200, mode: 'box' } } },
         { name: 'phone_count', selector: { number: { min: 1, max: 20, mode: 'box' } } },
       ] },
@@ -637,7 +640,7 @@ class FritzPortalCardEditor extends HTMLElement {
   setConfig(config) { this._config = { ...config }; this._update(); }
   set hass(hass) { this._hass = hass; this._update(); }
 
-  // Konfig ↔ Formulardaten: Bereiche als einzelne Schalter statt Liste
+  // Konfig ↔ Formulardaten (Bereiche in fester Reihenfolge)
   _formData() {
     const c = this._config || {};
     const sections = c.sections || ALL_SECTIONS;
@@ -645,7 +648,7 @@ class FritzPortalCardEditor extends HTMLElement {
       title: c.title ?? 'FRITZ!Portal', ha_style: !!c.ha_style, theme: c.theme || 'auto',
       hosts_limit: c.hosts_limit ?? 8, phone_count: c.phone_count ?? 5,
       hosts_sort: c.hosts_sort || 'activity', smarthome_group: c.smarthome_group || 'group',
-      ...Object.fromEntries(ALL_SECTIONS.map(k => [`show_${k}`, sections.includes(k)])),
+      sections: ALL_SECTIONS.filter(k => sections.includes(k)),
     };
   }
 
@@ -674,7 +677,8 @@ class FritzPortalCardEditor extends HTMLElement {
       this._form.addEventListener('value-changed', (e) => {
         const v = e.detail.value;
         const config = { ...this._config };
-        config.sections = ALL_SECTIONS.filter(k => v[`show_${k}`]);
+        // Feste Reihenfolge, unabhängig von der Klick-Reihenfolge
+        config.sections = ALL_SECTIONS.filter(k => (v.sections || []).includes(k));
         for (const key of ['title', 'ha_style', 'theme', 'hosts_limit', 'phone_count', 'hosts_sort', 'smarthome_group']) {
           if (v[key] !== undefined) config[key] = v[key];
         }
