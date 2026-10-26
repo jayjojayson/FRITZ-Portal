@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.5.1
+
+If you like FRITZ!Portal, I would appreciate a Star rating ⭐ from you.
+This helps the algorithm to boost the Add-on. Thank you.
+You can also support me with a coffee via ko-fi or PayPal.
+
+---
+
+[![README English](https://img.shields.io/badge/README-English-orange)](https://github.com/jayjojayson/FRITZ-Portal/blob/main/README_eng.md) [![README Deutsch](https://img.shields.io/badge/README-Deutsch-orange)](https://github.com/jayjojayson/FRITZ-Portal) 
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/G2G01VCROJ) [![Support](https://img.shields.io/badge/%20-Support%20Me-steelblue?style=flat&logo=paypal&logoColor=white)](https://www.paypal.me/quadFlyerFW)
+
+---
+
+- New (**dashboard card – network graphic - beta**): New section `topology` shows your network like the panel under Network → Topology – switchable right in the card between **Network** (cluster per access point, FRITZ!Box in the middle, LAN blue / Wi-Fi green) and **Mesh** (tree with FRITZ!Box, repeaters, your own routers/access points and devices). In the mesh tree, access points with many devices are collapsed and expand with a click. Third-party routers and manual assignments from "Connection & assignment" are included. New editor options: view on load (`topology_view: network | mesh`), show device names (`topology_names`), devices in the mesh tree (`topology_clients`). New for this: `sensor.fritzportal_topology` (number of devices, attribute `nodes` with name, role, access point, LAN/Wi-Fi and IP – updated at the traffic interval).
+- New (**zoom in the mesh view**): The mesh tree in the panel can be zoomed – buttons −/%/+ (clicking % resets) plus Ctrl/⌘ + mouse wheel or trackpad gesture; the point under the cursor stays in place. The plain mouse wheel keeps scrolling, since the tree is often longer than the screen. The dashboard card's network graphic is zoomable too (both views): buttons, Ctrl/⌘ + mouse wheel and, in the network view, panning by dragging.
+- New (**clear event log**): Under System the FRITZ!Box event log can be deleted (with confirmation) – like "Delete list" in the box's interface. Additionally, "Last month only" hides older entries; the box itself can only delete the entire log. The choice is remembered in the browser.
+- Fix (**WAN: line showed 1.0 Mbit/s on fiber**, forum): Fiber boxes partly report line/sync rates in kbit/s instead of bit/s – 1 Gbit/s showed up as 1 Mbit/s. Rates are now checked for plausibility (comparing sources; on fiber/cable/Ethernet/mobile, values below 2 Mbit/s are implausible); DSL lines stay unchanged. With debug logging enabled, the raw values appear in the log.
+- Fix (**static IP addresses were not shown**, "STATIC" in the device list, 🔒 in the device details disappeared again after saving): Current firmwares (e.g. FRITZ!OS 8 on the 6591 Cable) report reservations neither in the web interface device list nor via TR-064 – only on each device's edit page ("Always assign this network device the same IPv4 address"). FRITZ!Portal now syncs this flag in the background (40 devices per run, active ones first; strictly low priority – only when no other web interface request is waiting, first sync 60 s after startup, so the panel, mesh and network views aren't slowed down), stores the result in `/data` (available right after a restart) and refreshes it every 12 h. The device details always query the device fresh; assigning/removing takes effect immediately. The official TR-064 list `NewReservedAddresses` is evaluated as well, if the box fills it.
+- Fix (**web login at startup**): Simultaneous requests at startup (devices, mesh, sensors) now share one login instead of creating several sessions in parallel – this sometimes made the first login after a start fail.
+- Fix (**device list: scrollbar on large screens**): The last column showed the text "\u00d7" instead of "×" for online devices – wider than its box, so the table was always 10 px too wide and showed a (bright) scrollbar. Scrollbars now only appear when the table really doesn't fit (small screens) and use subtle theme colours.
+- Improved (#34, **DECT status**): The telephony page refreshes the DECT status every 15 s (previously only on open, cached for 60 s on the server) – a call becomes visible promptly, if the box reports it. The battery column is hidden when the box provides no battery values (the official DECT interface has no battery level). Debug logging records the raw DECT list values.
+- Fix (**dashboard: CPU/RAM/temperature history**): The detail view was labelled "last 3h" but showed shorter periods depending on uptime. History and label are now consistently 30 min – like the tiles' sparklines.
+- Docs (README DE/EN, add-on documentation): New section "How FRITZ!Portal fetches data from the FRITZ!Box" – sources (TR-064 vs. web interface), sequence after startup, cache times and why static IP addresses show up gradually.
+- Improved (**Italian**): Revised translation by [@Mistergatti](https://github.com/Mistergatti) – thank you! Consistent spelling (Mesh, Repeater) and more precise terms (e.g. access type, band, tariff).
+
 ## 1.5.0
 
 - Fix (**dashboard card shows nothing / "no sensors"**): Since Home Assistant 2026.4 the MQTT discovery field `object_id` is ignored. Newly created entities therefore got IDs built from the device and sensor name (e.g. `sensor.fritz_portal_cpu_auslastung` instead of `sensor.fritzportal_cpu`) – the card couldn't find them and stayed empty. The add-on now also sends `default_entity_id`, so new installations get the documented IDs again. The card finds entities that were already named differently via their `unique_id` in the entity registry – existing installations work without renaming anything.

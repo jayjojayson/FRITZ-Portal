@@ -9,7 +9,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Home%20Assistant-App-41BDF5?logo=home-assistant&logoColor=white" alt="HA App"/>
-  <img src="https://img.shields.io/badge/Version-1.5.0-blue" alt="Version"/>
+  <img src="https://img.shields.io/badge/Version-1.5.1-blue" alt="Version"/>
   <img src="https://img.shields.io/badge/Architecture-amd64%20%7C%20aarch64%20%7C%20armhf-green" alt="Arch"/>
   <img src="https://img.shields.io/badge/License-MIT-lightgrey" alt="License"/>
   <img src="https://img.shields.io/badge/Downloads-30.4K-blue" alt="Downloads"/>
@@ -131,12 +131,15 @@ Lovelace resource). Then pick **"Add card" → "FRITZ!Portal"** in your dashboar
 ```yaml
 type: custom:fritz-portal-card
 title: FRITZ!Box                 # optional
-sections: [system, wan, traffic, traffic_stats, hosts, mesh, wlan, phone, smarthome]   # optional, fixed order
+sections: [system, wan, traffic, traffic_stats, hosts, mesh, topology, wlan, phone, smarthome]   # optional, fixed order
 hosts_limit: 8                   # devices shown while collapsed
 hosts_sort: activity             # activity | ip | name
 phone_count: 5                   # number of recent calls (1–20, v1.4.8+)
 smarthome_group: group           # group (FRITZ!Box groups/rooms) | category (device type) | none
 ha_style: false                  # true = Home Assistant's standard design instead of the terminal look
+topology_view: network           # network graphic: network (clusters) | mesh (tree) – v1.5.1+
+topology_names: false            # network graphic: show device names
+topology_clients: true           # mesh tree: also show devices
 theme: auto                      # auto | dark | light
 ```
 
@@ -150,6 +153,7 @@ All options can also be set in the card's **visual editor** (native HA controls)
 | `traffic_stats` | Traffic statistics table: today, yesterday, current week, current month, last month (received/sent) |
 | `hosts` | Active devices with search, filter (all/LAN/WLAN/guest) and sorting (activity/IP/name); clicking the IP opens the device's web UI |
 | `mesh` | FRITZ!Box and repeaters with model, firmware, link and client count ("2/3 online") |
+| `topology` | Network graphic like in the panel: **Network** (cluster per access point) or **Mesh** (tree), switchable right in the card |
 | `wlan` | WLAN switches (controllable with MQTT, otherwise read-only) |
 | `phone` | The most recent calls, count set via `phone_count` (requires `ha_phone_sensors`) |
 | `smarthome` | Smart home devices grouped by FRITZ!Box groups (rooms) or device type, with switch state, temperature, power and battery |
@@ -240,6 +244,7 @@ state appears as a read-only sensor `sensor.fritzportal_wlan_<N>` (no switching 
 | `sensor.fritzportal_external_ip` | External IPv4 address |
 | `sensor.fritzportal_dsl_downstream` / `_upstream` | DSL sync rate in Mbit/s (DSL lines only) |
 | `sensor.fritzportal_mesh_devices` | Number of connected mesh devices; attribute `devices` with model, firmware, link, clients; `total` incl. disconnected ones |
+| `sensor.fritzportal_topology` | Number of devices in the network; attribute `nodes` with name, role, access point, LAN/Wi-Fi and IP – basis of the card's network graphic (v1.5.1+) |
 | `sensor.fritzportal_smarthome` | Number of reachable smart home devices; attribute `devices` with name, group/room, type, switch state, power, energy, temperature, battery (v1.4.8+) |
 | `binary_sensor.fritzportal_firmware_update` | FRITZ!OS update available; attributes: installed/new version, release notes link |
 
@@ -319,6 +324,47 @@ The following models have been tested by users and work well:
 | FRITZ!Box XXXX | ✅ Good | try your model |
 
 > **Note:** Models not listed here may also work – they simply haven't been explicitly tested yet.
+
+---
+
+## 🔄 How FRITZ!Portal fetches data from the FRITZ!Box
+
+In short: the official interface first, the web interface only as a supplement, everything cached and throttled. This keeps the FRITZ!Box relaxed even with many devices – in return, some values show up a little later.
+
+**Two sources**
+
+| Source | What comes from it | Notes |
+|---|---|---|
+| **TR-064** (official AVM interface, port 49000) | device list, mesh, WAN/DSL, WLAN, call list, DECT, event log, firmware status | always preferred; the complete device list comes in **one** request |
+| **Web interface** (`data.lua`, same login as in the browser) | only what TR-064 doesn't provide: CPU/RAM/temperature, traffic counters, connection details (LAN port, WLAN band), static IP addresses | at most **2 requests at a time** with at least **0.4 s** in between; one login is reused instead of creating new ones all the time |
+
+**Sequence after the add-on starts**
+
+1. **Login** to the FRITZ!Box: TR-064 and web interface. With "Keep session alive permanently" right at startup, otherwise when the panel is first opened.
+2. **Opening the panel:** the last loaded view appears immediately from the cache and is refreshed in the background.
+3. **HA sensors:** system values (CPU, RAM, devices online …) every 60 s, traffic every 300 s (both configurable). Mesh, firmware and the card's network graphic arrive about **45 s** after startup for the first time, then at the traffic interval.
+4. **Static IP addresses:** background sync starting about **60 s** after startup, see below.
+
+**Caching (selection)** – how long data is reused before the box is asked again:
+
+| Data | cached for |
+|---|---|
+| DECT status | 15 s |
+| mesh, WLAN, event log | 30 s |
+| device list, WAN, call list | 60 s |
+| static IP addresses | 12 h (stored in `/data`) |
+
+**Why do static IP addresses show up gradually?**
+Current FRITZ!OS versions report a DHCP reservation ("Always assign this network device the same IPv4 address") neither in the device list nor via TR-064 – only on the edit page of **each individual device**. FRITZ!Portal therefore queries these pages in the background:
+
+- **strictly low priority:** only when no other web interface request is waiting – the panel, mesh and sensors always come first
+- in batches of 40 devices, active devices first
+- the result is stored in `/data` (available right after a restart) and refreshed every **12 h**
+
+With many devices, the **first** sync can therefore take a few minutes – the "STATIC" badge appears gradually during that time. The **device details** always query the device fresh, and a static IP assigned or removed in the panel takes effect immediately.
+
+**And when the panel is closed?**
+After 5 minutes without use, the more expensive background queries pause (e.g. the CPU/RAM history for the dashboard tiles). The HA sensors keep running as long as a session exists – with "Keep session alive permanently", even without the panel open. With the panel closed, the server only collects the traffic history if "Collect traffic history on the server" is enabled.
 
 ---
 

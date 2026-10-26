@@ -4,7 +4,7 @@
  * Zeigt die vom FRITZ!Portal-Add-on gelieferten Sensoren (sensor.fritzportal_*)
  * im Terminal-Look des Portals (oder im Home-Assistant-Design): System-Kacheln,
  * Internet/WAN, Live-Traffic mit Verlauf, Traffic-Statistik, aktive Geräte
- * (Suche/Filter/Sortierung), Mesh, WLAN-Schalter, Anrufe und Smart Home.
+ * (Suche/Filter/Sortierung), Mesh, Netzwerk-Grafik, WLAN-Schalter, Anrufe und Smart Home.
  *
  * Wird vom Add-on automatisch nach /local/fritz-portal/ kopiert und als
  * Lovelace-Ressource registriert. Keine externen Abhängigkeiten.
@@ -15,10 +15,13 @@
  *   phone_count: 5          # Anzahl der letzten Anrufe
  *   smarthome_group: group  # group (FRITZ!Box-Gruppen) | category (Gerätetyp) | none
  *   ha_style: false         # true = Standard-Design von Home Assistant
+ *   topology_view: network  # Netzwerk-Grafik: network (Cluster je Zugangspunkt) | mesh (Baum)
+ *   topology_names: false   # Netzwerk-Grafik: Gerätenamen anzeigen
+ *   topology_clients: true  # Mesh-Baum: auch Endgeräte zeigen (sonst nur Zugangspunkte)
  */
 
-const CARD_VERSION = '1.5.0';
-const ALL_SECTIONS = ['system', 'wan', 'traffic', 'traffic_stats', 'hosts', 'mesh', 'wlan', 'phone', 'smarthome'];
+const CARD_VERSION = '1.5.1';
+const ALL_SECTIONS = ['system', 'wan', 'traffic', 'traffic_stats', 'hosts', 'mesh', 'topology', 'wlan', 'phone', 'smarthome'];
 const SECTION_LABELS = {
   system: 'System (CPU, RAM, Temperatur, Geräte)',
   wan: 'Internet / WAN',
@@ -26,14 +29,21 @@ const SECTION_LABELS = {
   traffic_stats: 'Traffic-Statistik (Heute … Vormonat)',
   hosts: 'Aktive Geräte',
   mesh: 'Mesh',
+  topology: 'Netzwerk-Grafik (Mesh-Baum / Netzwerk-Cluster)',
   wlan: 'WLAN-Schalter',
   phone: 'Anrufe',
   smarthome: 'Smart Home',
 };
 const HA_TITLES = {
   'system.status': 'System', 'internet.wan': 'Internet', 'traffic.live': 'Traffic live', 'traffic.stats': 'Traffic-Statistik',
-  'hosts.active': 'Aktive Geräte', 'mesh.nodes': 'Mesh', 'wlan.ssid': 'WLAN', 'phone.calls': 'Anrufe', 'smarthome': 'Smart Home',
+  'hosts.active': 'Aktive Geräte', 'mesh.nodes': 'Mesh', 'net.topology': 'Netzwerk', 'wlan.ssid': 'WLAN', 'phone.calls': 'Anrufe', 'smarthome': 'Smart Home',
 };
+// Farben der Netzwerk-Grafik wie in der Mesh-/Netzwerk-Ansicht des Panels
+const TOPO = {
+  master: { stroke: '#06b6d4', fill: '#0e7490' }, ap: { stroke: '#f59e0b', fill: '#78350f' },
+  LAN: { stroke: '#3b82f6', fill: '#1e3a5f', dash: '0' }, WLAN: { stroke: '#10b981', fill: '#065f46', dash: '6 3' },
+};
+const TREE_FOLD = 10; // Mesh-Baum: ab so vielen Endgeräten je Zugangspunkt eingeklappt
 const SMARTHOME_CATEGORY = {
   socket: 'Steckdosen', thermostat: 'Heizung', lamp: 'Licht', blind: 'Rollläden',
   sensor: 'Sensoren', control: 'Taster', other: 'Sonstige',
@@ -160,6 +170,28 @@ const STYLE = `
   table.stats td { text-align: right; padding: 5px 0; border-top: 1px dashed var(--fp-border); white-space: nowrap; }
   table.stats tr:first-of-type td { border-top: none; }
   table.stats .dn { color: var(--fp-cyan); } table.stats .up { color: var(--fp-wlan); }
+  /* Netzwerk-Grafik: Mesh-Baum (HTML, Linien per CSS – unabhängig von der Schrift) */
+  .tree { display: flex; flex-direction: column; }
+  .trow { display: flex; align-items: stretch; min-height: 30px; }
+  .tc { width: 14px; flex: none; position: relative; }
+  .tc.pipe::before, .tc.tee::before, .tc.end::before { content: ''; position: absolute; left: 6px; top: 0; bottom: 0;
+    border-left: 1px solid var(--fp-border2); }
+  .tc.end::before { bottom: 50%; }
+  .tc.tee::after, .tc.end::after { content: ''; position: absolute; left: 6px; right: 0; top: 50%;
+    border-top: 1.5px solid var(--lc, var(--fp-border2)); }
+  .tc.wlan::after { border-top-style: dashed; }
+  .tbox { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; margin: 2px 0; padding: 3px 8px;
+    border: 1px solid var(--bc); background: color-mix(in srgb, var(--bc) 14%, transparent); font-size: 12px; }
+  :host([ha]) .tbox { border-radius: 8px; }
+  .tbox .name { flex: 1; }
+  .tbox .ip { color: var(--fp-text2); font-size: 11px; margin-left: 6px; }
+  .badge { font-size: 10px; padding: 1px 6px; border: 1px solid currentColor; white-space: nowrap; border-radius: 9px; }
+  /* Netzwerk-Grafik: Cluster-Ansicht (SVG) */
+  svg.topo { width: 100%; height: auto; max-height: 560px; display: block; cursor: grab; touch-action: pan-y; }
+  .zoom { display: inline-flex; gap: 2px; margin-right: 6px; }
+  .zoom .zk { min-width: 46px; }
+  svg.topo .lbl { fill: var(--fp-text); stroke: var(--fp-bg); paint-order: stroke; font-family: var(--fp-mono); }
+  .topo-sum { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--fp-text2); margin-bottom: 6px; }
   .grp { font-size: 10px; letter-spacing: 1.2px; color: var(--fp-text2); text-transform: uppercase; margin: 8px 0 2px; }
   .grp:first-child { margin-top: 0; }
   .foot { display: flex; justify-content: space-between; padding: 6px 14px; font-size: 10px; color: var(--fp-muted);
@@ -170,7 +202,8 @@ class FritzPortalCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
-    this._ui = { search: '', filter: 'all', sort: 'activity', expanded: false };
+    this._ui = { search: '', filter: 'all', sort: 'activity', expanded: false, treeOpen: new Set(),
+      zoom: { k: 1, x: 0, y: 0 }, treeK: 1 };
     this._history = { down: [], up: [], fetched: 0 };
     this._renderPending = false;
   }
@@ -188,8 +221,12 @@ class FritzPortalCard extends HTMLElement {
       smarthome_group: 'group',
       ha_style: false,
       theme: 'auto',
+      topology_view: 'network',
+      topology_names: false,
+      topology_clients: true,
       ...(config || {}),
     };
+    this._ui.topo = this._config.topology_view === 'mesh' ? 'mesh' : 'network';
     if (this._config.hosts_sort) this._ui.sort = this._config.hosts_sort;
     this._ownIds = null; // Präfix kann sich geändert haben
     this._scheduleRender();
@@ -303,6 +340,7 @@ class FritzPortalCard extends HTMLElement {
     if (this._show('traffic_stats')) sections.push(this._renderTrafficStats());
     if (this._show('hosts'))   sections.push(this._renderHosts());
     if (this._show('mesh'))    sections.push(this._renderMesh());
+    if (this._show('topology')) sections.push(this._renderTopology());
     if (this._show('wlan'))    sections.push(this._renderWlan());
     if (this._show('phone'))   sections.push(this._renderPhone());
     if (this._show('smarthome')) sections.push(this._renderSmartHome());
@@ -473,6 +511,244 @@ class FritzPortalCard extends HTMLElement {
     return this._sec('mesh.nodes', chip, `<div class="rows">${rows}</div>`);
   }
 
+  // ── Netzwerk-Grafik: Mesh-Baum oder Cluster je Zugangspunkt (wie im Panel) ──
+  // Daten: sensor.fritzportal_topology (nodes: id, name, role, parent, link, ip)
+  _topoModel() {
+    const nodes = this._st('sensor', 'topology')?.attributes?.nodes;
+    if (!Array.isArray(nodes) || nodes.length === 0) return null;
+    const master = nodes.find(n => n.role === 'master') || nodes[0];
+    const byId = new Map(nodes.map(n => [n.id, n]));
+    const children = new Map(nodes.map(n => [n.id, []]));
+    const parentOf = (n) => (n.parent && n.parent !== n.id && byId.has(n.parent) ? n.parent : master.id);
+    for (const n of nodes) if (n !== master) children.get(parentOf(n)).push(n);
+    const isHub = (n) => n === master || n.role === 'repeater' || n.role === 'ap' || children.get(n.id).length > 0;
+    return { nodes, master, byId, children, parentOf, isHub };
+  }
+
+  _renderTopology() {
+    const m = this._topoModel();
+    if (!m) return '';
+    const view = this._ui.topo || 'network';
+    const k = view === 'mesh' ? this._ui.treeK : this._ui.zoom.k;
+    const tabs = `<span class="tools" style="margin:0">
+      <span class="zoom" title="Strg/⌘ + Mausrad: zoomen${view === 'network' ? ' · Ziehen: verschieben' : ''}">
+        <button class="fb" data-zoom="out" aria-label="Verkleinern">−</button><button class="fb zk" data-zoom="reset" aria-label="Ansicht zurücksetzen">${Math.round(k * 100)} %</button><button class="fb" data-zoom="in" aria-label="Vergrößern">+</button></span>
+      <button class="fb ${view === 'network' ? 'on' : ''}" data-topo="network">Netzwerk</button>
+      <button class="fb ${view === 'mesh' ? 'on' : ''}" data-topo="mesh">Mesh</button></span>`;
+    const body = view === 'mesh' ? this._renderMeshTree(m) : this._renderCluster(m);
+    return this._sec('net.topology', tabs, body);
+  }
+
+  // Zoom: Baum per CSS-zoom, Netzwerk-Grafik per Transformation (Punkt unter der Maus bleibt
+  // stehen). Nur das Nötige im DOM aktualisieren – kein komplettes Neuzeichnen je Mausrad-Schritt.
+  _zoomTopo(factor, cx, cy) {
+    if (this._ui.topo === 'mesh') {
+      this._ui.treeK = Math.min(3, Math.max(0.4, this._ui.treeK * factor));
+    } else {
+      const z = this._ui.zoom, { W = 0, H = 0 } = this._topoWH || {};
+      const k = Math.min(8, Math.max(0.4, z.k * factor));
+      if (cx === undefined) { cx = W / 2; cy = H / 2; }
+      this._ui.zoom = { k, x: cx - (cx - z.x) * (k / z.k), y: cy - (cy - z.y) * (k / z.k) };
+    }
+    this._applyZoom();
+  }
+
+  _applyZoom() {
+    const root = this.shadowRoot;
+    const z = this._ui.zoom;
+    root.querySelector('svg.topo .zg')?.setAttribute('transform', `translate(${z.x.toFixed(1)},${z.y.toFixed(1)}) scale(${z.k})`);
+    const tree = root.querySelector('.tree');
+    if (tree) tree.style.zoom = this._ui.treeK;
+    const lbl = root.querySelector('.zoom .zk');
+    if (lbl) lbl.textContent = `${Math.round((this._ui.topo === 'mesh' ? this._ui.treeK : z.k) * 100)} %`;
+  }
+
+  _bindZoom(root) {
+    root.querySelectorAll('[data-zoom]').forEach(el => el.addEventListener('click', () => {
+      const a = el.dataset.zoom;
+      if (a === 'reset') { this._ui.zoom = { k: 1, x: 0, y: 0 }; this._ui.treeK = 1; this._applyZoom(); }
+      else this._zoomTopo(a === 'in' ? 1.25 : 1 / 1.25);
+    }));
+    const svg = root.querySelector('svg.topo');
+    // Strg/⌘ + Mausrad bzw. Trackpad-Geste zoomt; normales Mausrad scrollt das Dashboard
+    const wheel = (e) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const f = Math.exp(-e.deltaY * 0.0025);
+      if (svg && this._ui.topo !== 'mesh') {
+        const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+        const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+        this._zoomTopo(f, p.x, p.y);
+      } else this._zoomTopo(f);
+    };
+    root.querySelector('.tree')?.addEventListener('wheel', wheel, { passive: false });
+    if (!svg) return;
+    svg.addEventListener('wheel', wheel, { passive: false });
+    // Verschieben per Ziehen (Maus/Touch)
+    let drag = null;
+    svg.addEventListener('pointerdown', (e) => {
+      drag = { x: e.clientX, y: e.clientY, vx: this._ui.zoom.x, vy: this._ui.zoom.y, s: svg.getScreenCTM()?.a || 1 };
+      svg.setPointerCapture(e.pointerId);
+      svg.style.cursor = 'grabbing';
+    });
+    svg.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      this._ui.zoom = { ...this._ui.zoom, x: drag.vx + (e.clientX - drag.x) / drag.s, y: drag.vy + (e.clientY - drag.y) / drag.s };
+      this._applyZoom();
+    });
+    const end = () => { drag = null; svg.style.cursor = ''; };
+    svg.addEventListener('pointerup', end);
+    svg.addEventListener('pointercancel', end);
+  }
+
+  _renderMeshTree(m) {
+    const showClients = this._config.topology_clients !== false;
+    const sortKids = (list) => [...list].sort((a, b) =>
+      Number(!m.isHub(a)) - Number(!m.isHub(b)) || String(a.name).localeCompare(String(b.name), 'de'));
+    const clientCount = (n) => m.children.get(n.id).filter(c => !m.isHub(c)).length;
+    const rows = [];
+    // Tiefensuche; „lasts" merkt je Ebene, ob der Vorfahr der letzte Eintrag war (für die Linien)
+    const walk = (n, lasts) => {
+      const isMaster = n === m.master;
+      const hub = m.isHub(n);
+      const col = isMaster ? TOPO.master : hub ? TOPO.ap : TOPO[n.link === 'WLAN' ? 'WLAN' : 'LAN'];
+      const lineCol = TOPO[n.link === 'WLAN' ? 'WLAN' : 'LAN'].stroke;
+      const cells = lasts.map((last, i) => {
+        const own = i === lasts.length - 1;
+        const cls = own ? (last ? 'end' : 'tee') : (last ? '' : 'pipe');
+        return `<span class="tc ${cls}${own && n.link === 'WLAN' ? ' wlan' : ''}"${own ? ` style="--lc:${lineCol}"` : ''}></span>`;
+      }).join('');
+      const cnt = clientCount(n);
+      const badge = isMaster ? `<span class="badge" style="color:${TOPO.master.stroke}">${cnt} Geräte</span>`
+        : hub ? `<span class="badge" style="color:${TOPO.ap.stroke}">${n.role === 'repeater' ? 'Repeater' : 'Zugangspunkt'}${cnt ? ' · ' + cnt : ''}</span>`
+        : `<span class="badge" style="color:${lineCol}">${esc(n.link || 'LAN')}</span>`;
+      rows.push(`<div class="trow">${cells}<div class="tbox" style="--bc:${col.stroke}" title="${esc(n.name)}${n.ip ? ' · ' + esc(n.ip) : ''}">
+        <span class="name">${esc(n.name)}${n.ip ? `<span class="ip">${esc(n.ip)}</span>` : ''}</span>${badge}</div></div>`);
+      // Viele Endgeräte an einem Zugangspunkt eingeklappt (Klick klappt auf/zu)
+      const kids = sortKids(m.children.get(n.id));
+      const hubKids = kids.filter(c => m.isHub(c));
+      const clientKids = showClients ? kids.filter(c => !m.isHub(c)) : [];
+      const foldable = clientKids.length > TREE_FOLD;
+      const open = !foldable || this._ui.treeOpen.has(n.id);
+      const items = [...hubKids, ...(open ? clientKids : [])];
+      if (foldable) items.push(null);
+      items.forEach((c, i) => {
+        const last = i === items.length - 1;
+        if (c) return walk(c, [...lasts, last]);
+        const cells = [...lasts, last].map((l, j, arr) => `<span class="tc ${j === arr.length - 1 ? 'end' : l ? '' : 'pipe'}"></span>`).join('');
+        rows.push(`<div class="trow">${cells}<button class="more" data-tree="${esc(n.id)}" style="margin:0 0 0 6px">${open
+          ? '▴ einklappen' : `▾ ${clientKids.length} Geräte anzeigen`}</button></div>`);
+      });
+    };
+    walk(m.master, []);
+    return `<div class="tree" style="zoom:${this._ui.treeK}">${rows.join('')}</div>`;
+  }
+
+  _renderCluster(m) {
+    const names = !!this._config.topology_names;
+    const hubs = m.nodes.filter(m.isHub);
+    const hubSet = new Set(hubs.map(h => h.id));
+    const clientsOf = new Map(hubs.map(h => [h.id, []]));
+    for (const n of m.nodes) {
+      if (hubSet.has(n.id)) continue;
+      const p = m.parentOf(n);
+      clientsOf.get(hubSet.has(p) ? p : m.master.id).push(n);
+    }
+    const total = m.nodes.length - hubs.length;
+    const nodeR = total <= 15 ? 16 : total <= 40 ? 12 : total <= 80 ? 9 : 7;
+    const spacing = Math.max(nodeR * 3.2, names ? 56 : 24);
+    const hubR = (h) => (h === m.master ? 34 : 26);
+    // Geräte in Ringen um den Zugangspunkt – LAN und WLAN jeweils zusammenhängend
+    const layout = (hub, members) => {
+      const sorted = [...members].sort((a, b) =>
+        Number(a.link === 'WLAN') - Number(b.link === 'WLAN') || String(a.name).localeCompare(String(b.name), 'de'));
+      const pos = [];
+      let r = hubR(hub) + nodeR + 40, i = 0;
+      while (i < sorted.length) {
+        const cap = Math.max(6, Math.floor(2 * Math.PI * r / spacing));
+        const cnt = Math.min(cap, sorted.length - i);
+        for (let k = 0; k < cnt; k++) {
+          const a = 2 * Math.PI * k / cnt - Math.PI / 2;
+          pos.push({ node: sorted[i + k], x: r * Math.cos(a), y: r * Math.sin(a) });
+        }
+        i += cnt;
+        if (i < sorted.length) r += Math.max(spacing, nodeR * 3);
+      }
+      return { pos, radius: (members.length ? r + nodeR : hubR(hub) + 22) + (names ? 18 : 6) };
+    };
+    const clusters = hubs.map(h => ({ hub: h, ...layout(h, clientsOf.get(h.id)) }));
+    const center = clusters.find(c => c.hub === m.master);
+    const others = clusters.filter(c => c !== center).sort((a, b) => b.radius - a.radius);
+    // Zugangspunkte um die Box verteilen – Winkelanteil nach Clustergröße, ohne Überschneidung
+    const gap = names ? 50 : 34;
+    const at = new Map([[m.master.id, { x: 0, y: 0 }]]);
+    if (others.length) {
+      const widths = others.map(c => 2 * c.radius + gap);
+      const sum = widths.reduce((a, b) => a + b, 0);
+      const D = Math.max(center.radius + Math.max(...others.map(c => c.radius)) + gap, sum / (2 * Math.PI));
+      let acc = 0;
+      others.forEach((c, idx) => {
+        const a = (acc + widths[idx] / 2) / sum * 2 * Math.PI - Math.PI / 2;
+        acc += widths[idx];
+        const dist = others.length === 1 ? center.radius + c.radius + gap : D;
+        at.set(c.hub.id, { x: dist * Math.cos(a), y: dist * Math.sin(a) });
+      });
+    }
+    const pad = names ? 40 : 20;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const c of clusters) {
+      const p = at.get(c.hub.id);
+      minX = Math.min(minX, p.x - c.radius); maxX = Math.max(maxX, p.x + c.radius);
+      minY = Math.min(minY, p.y - c.radius); maxY = Math.max(maxY, p.y + c.radius);
+    }
+    const W = maxX - minX + 2 * pad, H = maxY - minY + 2 * pad, ox = pad - minX, oy = pad - minY;
+    this._topoWH = { W, H };
+    const f = (v) => v.toFixed(1);
+    const short = (s, max) => (String(s).length > max ? String(s).slice(0, max - 1) + '…' : String(s));
+    const tip = (n) => `<title>${esc(n.name)}${n.ip ? ' · ' + esc(n.ip) : ''}${n.role === 'client' ? ' · ' + esc(n.link) : ''}</title>`;
+    const parts = [];
+    for (const c of clusters) {
+      const p = at.get(c.hub.id), col = c.hub === m.master ? TOPO.master : TOPO.ap;
+      parts.push(`<circle cx="${f(p.x + ox)}" cy="${f(p.y + oy)}" r="${f(c.radius)}" fill="${col.stroke}" fill-opacity="0.035" stroke="${col.stroke}" stroke-opacity="0.22" stroke-dasharray="4 6"/>`);
+    }
+    for (const c of others) {
+      const parent = at.has(m.parentOf(c.hub)) ? m.parentOf(c.hub) : m.master.id;
+      const a = at.get(parent), b = at.get(c.hub.id), col = TOPO[c.hub.link === 'WLAN' ? 'WLAN' : 'LAN'];
+      parts.push(`<line x1="${f(a.x + ox)}" y1="${f(a.y + oy)}" x2="${f(b.x + ox)}" y2="${f(b.y + oy)}" stroke="${col.stroke}" stroke-width="3" stroke-dasharray="${col.dash}" stroke-opacity="0.7"/>`);
+    }
+    for (const c of clusters) {
+      const hp = at.get(c.hub.id);
+      for (const { node, x, y } of c.pos) {
+        const col = TOPO[node.link === 'WLAN' ? 'WLAN' : 'LAN'];
+        parts.push(`<line x1="${f(hp.x + ox)}" y1="${f(hp.y + oy)}" x2="${f(hp.x + x + ox)}" y2="${f(hp.y + y + oy)}" stroke="${col.stroke}" stroke-width="1.3" stroke-dasharray="${col.dash}" stroke-opacity="0.2"/>`);
+      }
+    }
+    for (const c of clusters) {
+      const hp = at.get(c.hub.id);
+      for (const { node, x, y } of c.pos) {
+        const col = TOPO[node.link === 'WLAN' ? 'WLAN' : 'LAN'];
+        parts.push(`<g transform="translate(${f(hp.x + x + ox)},${f(hp.y + y + oy)})">${tip(node)}
+          <circle r="${nodeR}" fill="${col.fill}" stroke="${col.stroke}" stroke-width="1.5"/>
+          ${names ? `<text class="lbl" y="${nodeR + 12}" text-anchor="middle" font-size="9.5" stroke-width="2.5">${esc(short(node.name, 12))}</text>` : ''}</g>`);
+      }
+    }
+    for (const c of clusters) {
+      const p = at.get(c.hub.id), isMaster = c.hub === m.master, r = hubR(c.hub), col = isMaster ? TOPO.master : TOPO.ap;
+      parts.push(`<g transform="translate(${f(p.x + ox)},${f(p.y + oy)})">${tip(c.hub)}
+        <circle r="${r}" fill="${col.fill}" stroke="${col.stroke}" stroke-width="2.5"/>
+        <text y="2" text-anchor="middle" font-size="${isMaster ? 15 : 13}" fill="#fff" font-weight="700">${c.pos.length}</text>
+        <text y="13" text-anchor="middle" font-size="7" fill="rgba(255,255,255,0.75)" letter-spacing="0.5">GERÄTE</text>
+        <text class="lbl" y="${r + 15}" text-anchor="middle" font-size="11" font-weight="600" stroke-width="4">${esc(short(c.hub.name, 24))}</text></g>`);
+    }
+    const wlan = m.nodes.filter(n => !hubSet.has(n.id) && n.link === 'WLAN').length;
+    const sum = `<div class="topo-sum"><span>${total} Geräte</span>
+      <span style="color:${TOPO.LAN.stroke}">● ${total - wlan} LAN</span><span style="color:${TOPO.WLAN.stroke}">● ${wlan} WLAN</span>
+      ${others.length ? `<span style="color:${TOPO.ap.stroke}">● ${others.length} Zugangspunkte</span>` : ''}</div>`;
+    const z = this._ui.zoom;
+    return `${sum}<svg class="topo" viewBox="0 0 ${f(W)} ${f(H)}" role="img" aria-label="Netzwerk-Topologie">
+      <g class="zg" transform="translate(${f(z.x)},${f(z.y)}) scale(${z.k})">${parts.join('')}</g></svg>`;
+  }
+
   _renderWlan() {
     const prefix = `${this._config.entity_prefix}_wlan_`;
     // Erwartete IDs (inkl. umbenannter Entitäten aus der Registry)
@@ -618,6 +894,14 @@ class FritzPortalCard extends HTMLElement {
     root.getElementById('fp-search')?.addEventListener('input', (e) => {
       this._ui.search = e.target.value; this._render();
     });
+    root.querySelectorAll('[data-tree]').forEach(el => el.addEventListener('click', () => {
+      const open = this._ui.treeOpen;
+      if (open.has(el.dataset.tree)) open.delete(el.dataset.tree); else open.add(el.dataset.tree);
+      this._render();
+    }));
+    this._bindZoom(root);
+    root.querySelectorAll('[data-topo]').forEach(el =>
+      el.addEventListener('click', () => { this._ui.topo = el.dataset.topo; this._render(); }));
     root.querySelectorAll('[data-toggle]').forEach(el => el.addEventListener('click', () => {
       this._hass.callService('switch', 'toggle', { entity_id: el.dataset.toggle });
     }));
@@ -635,6 +919,9 @@ const EDITOR_LABELS = {
   hosts_sort: 'Aktive Geräte: Sortierung',
   phone_count: 'Anrufe: Anzahl der letzten Anrufe',
   smarthome_group: 'Smart Home: Gruppierung',
+  topology_view: 'Netzwerk-Grafik: Ansicht beim Laden',
+  topology_names: 'Netzwerk-Grafik: Gerätenamen anzeigen',
+  topology_clients: 'Mesh-Baum: auch Endgeräte anzeigen',
   sections: '',
 };
 
@@ -666,6 +953,10 @@ const EDITOR_SCHEMA = [
         { value: 'activity', label: 'Zuletzt aktiv zuerst' }, { value: 'ip', label: 'IP-Adresse' }, { value: 'name', label: 'Name' }] } } },
       { name: 'smarthome_group', selector: { select: { mode: 'dropdown', options: [
         { value: 'group', label: 'Nach FRITZ!Box-Gruppe (Räume)' }, { value: 'category', label: 'Nach Gerätetyp' }, { value: 'none', label: 'Keine Gruppierung' }] } } },
+      { name: 'topology_view', selector: { select: { mode: 'dropdown', options: [
+        { value: 'network', label: 'Netzwerk (Cluster je Zugangspunkt)' }, { value: 'mesh', label: 'Mesh (Baum)' }] } } },
+      { name: 'topology_names', selector: { boolean: {} } },
+      { name: 'topology_clients', selector: { boolean: {} } },
     ],
   },
 ];
@@ -682,6 +973,8 @@ class FritzPortalCardEditor extends HTMLElement {
       title: c.title ?? 'FRITZ!Portal', ha_style: !!c.ha_style, theme: c.theme || 'auto',
       hosts_limit: c.hosts_limit ?? 8, phone_count: c.phone_count ?? 5,
       hosts_sort: c.hosts_sort || 'activity', smarthome_group: c.smarthome_group || 'group',
+      topology_view: c.topology_view || 'network', topology_names: !!c.topology_names,
+      topology_clients: c.topology_clients !== false,
       sections: ALL_SECTIONS.filter(k => sections.includes(k)),
     };
   }
@@ -713,7 +1006,7 @@ class FritzPortalCardEditor extends HTMLElement {
         const config = { ...this._config };
         // Feste Reihenfolge, unabhängig von der Klick-Reihenfolge
         config.sections = ALL_SECTIONS.filter(k => (v.sections || []).includes(k));
-        for (const key of ['title', 'ha_style', 'theme', 'hosts_limit', 'phone_count', 'hosts_sort', 'smarthome_group']) {
+        for (const key of ['title', 'ha_style', 'theme', 'hosts_limit', 'phone_count', 'hosts_sort', 'smarthome_group', 'topology_view', 'topology_names', 'topology_clients']) {
           if (v[key] !== undefined) config[key] = v[key];
         }
         this._config = config;

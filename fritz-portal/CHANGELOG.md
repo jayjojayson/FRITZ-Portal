@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.5.1
+
+If you like FRITZ!Portal, I would appreciate a Star rating ⭐ from you.
+This helps the algorithm to boost the Add-on. Thank you.
+You can also support me with a coffee via ko-fi or PayPal.
+
+---
+
+[![README English](https://img.shields.io/badge/README-English-orange)](https://github.com/jayjojayson/FRITZ-Portal/blob/main/README_eng.md) [![README Deutsch](https://img.shields.io/badge/README-Deutsch-orange)](https://github.com/jayjojayson/FRITZ-Portal) 
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/G2G01VCROJ) [![Support](https://img.shields.io/badge/%20-Support%20Me-steelblue?style=flat&logo=paypal&logoColor=white)](https://www.paypal.me/quadFlyerFW)
+
+---
+
+- Neu (**Dashboard-Card – Netzwerk-Grafik - beta**): Neuer Bereich `topology` zeigt das Netzwerk wie im Panel unter Netzwerk → Topologie – umschaltbar direkt in der Karte zwischen **Netzwerk** (Cluster je Zugangspunkt, FRITZ!Box in der Mitte, LAN blau / WLAN grün) und **Mesh** (Baum mit FRITZ!Box, Repeatern, eigenen Routern/Access Points und Endgeräten). Im Mesh-Baum werden Zugangspunkte mit vielen Geräten eingeklappt und lassen sich per Klick aufklappen. Fremd-Router und manuelle Zuordnungen aus „Verbindung & Zuordnung" werden übernommen. Neue Optionen im Editor: Ansicht beim Laden (`topology_view: network | mesh`), Gerätenamen anzeigen (`topology_names`), Endgeräte im Mesh-Baum (`topology_clients`). Dafür neu: `sensor.fritzportal_topology` (Anzahl der Geräte, Attribut `nodes` mit Name, Rolle, Zugangspunkt, LAN/WLAN und IP – Aktualisierung im Traffic-Intervall).
+- Neu (**Zoom in der Mesh-Ansicht**): Der Mesh-Baum im Panel lässt sich zoomen – Buttons −/%/+ (Klick auf % setzt zurück) sowie Strg/⌘ + Mausrad bzw. Trackpad-Geste; der Punkt unter dem Mauszeiger bleibt stehen. Das normale Mausrad scrollt weiter, da der Baum oft länger als der Bildschirm ist. Auch die Netzwerk-Grafik der Dashboard-Card ist zoombar (beide Ansichten): Buttons, Strg/⌘ + Mausrad und in der Netzwerk-Ansicht Verschieben per Ziehen.
+- Neu (**Ereignisprotokoll leeren**): Unter System lässt sich das Ereignisprotokoll der FRITZ!Box löschen (mit Rückfrage) – wie „Liste löschen" in der Box-Oberfläche. Zusätzlich blendet „Nur letzter Monat" ältere Einträge aus; die Box selbst kann nur das gesamte Protokoll löschen. Die Auswahl wird im Browser gemerkt.
+- Fix (**WAN: Leitung zeigte 1,0 Mbit/s bei Glasfaser**, Forum): Glasfaser-Boxen liefern die Leitungs-/Sync-Raten teils in kbit/s statt bit/s – 1 Gbit/s erschien so als 1 Mbit/s. Die Raten werden jetzt plausibilisiert (Vergleich der Quellen, bei Glasfaser/Kabel/Ethernet/Mobilfunk sind Werte unter 2 Mbit/s unplausibel); DSL-Leitungen bleiben unverändert. Mit aktivem Debug-Logging stehen die Rohwerte im Protokoll.
+- Fix (**feste IP-Adressen wurden nicht angezeigt**, „FEST" in der Geräteliste, 🔒 in der Detailansicht verschwand nach dem Speichern wieder): Aktuelle Firmwares (z. B. FRITZ!OS 8 auf der 6591 Cable) melden Reservierungen weder in der Geräteliste der Weboberfläche noch per TR-064 – nur auf der Bearbeiten-Seite jedes einzelnen Geräts („Diesem Netzwerkgerät immer die gleiche IPv4-Adresse zuweisen"). FRITZ!Portal gleicht diese Kennung jetzt im Hintergrund ab (40 Geräte je Durchlauf, aktive zuerst; strikt nachrangig – nur wenn gerade keine andere Abfrage an die Weboberfläche wartet, erster Abgleich 60 s nach dem Start, damit Panel, Mesh- und Netzwerk-Ansicht nicht ausgebremst werden), speichert das Ergebnis in `/data` (nach Neustart sofort verfügbar) und frischt es alle 12 h auf. Die Detailansicht fragt das Gerät immer frisch ab; Zuweisen/Entfernen wird sofort übernommen. Zusätzlich wird die offizielle TR-064-Liste `NewReservedAddresses` ausgewertet, falls die Box sie befüllt.
+- Fix (**Web-Login beim Start**): Gleichzeitige Abfragen beim Start (Geräte, Mesh, Sensoren) teilen sich jetzt einen Login, statt parallel mehrere Sessions anzulegen – der erste Login nach dem Start schlug dadurch teils fehl.
+- Fix (**Geräteliste: Scrollbalken auf großen Bildschirmen**): In der letzten Spalte stand bei Online-Geräten statt „×" der Text „\u00d7" – breiter als das Kästchen, wodurch die Tabelle immer 10 px zu breit war und einen (hellen) Scrollbalken zeigte. Scrollbalken erscheinen jetzt nur noch, wenn die Tabelle wirklich nicht passt (kleine Bildschirme), und sind dezent in den Theme-Farben gehalten.
+- Verbessert (#34, **DECT-Status**): Die Telefonie-Seite lädt den DECT-Status alle 15 s nach (vorher nur beim Öffnen, serverseitig 60 s gecacht) – ein Gespräch wird so zeitnah sichtbar, sofern die Box es meldet. Die Akku-Spalte wird ausgeblendet, wenn die Box keine Akkuwerte liefert (die offizielle DECT-Schnittstelle kennt keinen Akkustand). Debug-Logging protokolliert die Rohwerte der DECT-Liste.
+- Fix (**Dashboard: Verlauf von CPU/RAM/Temperatur**): Die Detailansicht war mit „letzte 3h" beschriftet, zeigte aber je nach Laufzeit kürzere Zeiträume. Verlauf und Beschriftung sind jetzt einheitlich 30 min – wie die Sparklines der Kacheln.
+- Doku (README DE/EN, Add-on-Dokumentation): Neuer Abschnitt „So holt FRITZ!Portal die Daten von der FRITZ!Box" – Quellen (TR-064 vs. Weboberfläche), Ablauf nach dem Start, Zwischenspeicher-Zeiten und warum feste IP-Adressen nach und nach erscheinen.
+- Verbessert (**Italienisch**): Überarbeitete Übersetzung von [@Mistergatti](https://github.com/Mistergatti) – danke! Einheitliche Schreibweise (Mesh, Repeater) und präzisere Begriffe (u. a. Anschlussart, Funkband, Tarif).
+
 ## 1.5.0
 
 - Fix (**Dashboard-Card zeigt nichts / „keine Sensoren"**): Seit Home Assistant 2026.4 wird das Feld `object_id` der MQTT-Discovery ignoriert. Neu angelegte Entitäten bekamen dadurch IDs aus Gerätename und Sensorname (z. B. `sensor.fritz_portal_cpu_auslastung` statt `sensor.fritzportal_cpu`) – die Card fand sie nicht und blieb leer. Das Add-on sendet jetzt zusätzlich `default_entity_id`, neue Installationen erhalten wieder die dokumentierten IDs. Die Card findet bereits anders benannte Entitäten über ihre `unique_id` in der Entity-Registry – bestehende Installationen funktionieren ohne Umbenennen.

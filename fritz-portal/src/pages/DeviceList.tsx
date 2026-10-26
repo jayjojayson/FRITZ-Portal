@@ -473,7 +473,7 @@ export default function DeviceList({ sid, onSelectDevice }: DeviceListProps) {
                             color: 'var(--text-muted)', fontSize: 14, lineHeight: '24px',
                             textAlign: 'center', fontFamily: 'var(--font-mono)',
                           }}
-                        >\u00d7</span>
+                        >{'\u00d7'}</span>
                       )}
                     </td>
                   </tr>

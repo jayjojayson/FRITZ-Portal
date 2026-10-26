@@ -604,7 +604,15 @@ code {
   font-weight: 500;
 }
 
+/* ── Scrollbalken: dezent in Theme-Farben statt Browser-Standard (weiß im Dark Mode) ── */
+* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
 /* ── Tables ───────────────────────────────────────────────────────────────── */
+/* Horizontal scrollen nur, wenn die Tabelle wirklich breiter ist (kleine Bildschirme) */
 .table-container {
   overflow-x: auto;
 }

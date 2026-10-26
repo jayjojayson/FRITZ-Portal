@@ -116,7 +116,7 @@ function EcoHistoryModal({ type, sid, onClose }: { type: EcoModal; sid: string; 
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: 620 }}>
         <div className="modal-head">
-          <span className="title">{t('{title} — letzte 3h').replace('{title}', title)}</span>
+          <span className="title">{t('{title} — letzte 30 min').replace('{title}', title)}</span>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
         <div style={{ padding: 18 }}>

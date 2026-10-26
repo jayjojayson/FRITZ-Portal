@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { apiFetch } from '../lib/apiFetch';
 import { getApiCache, setApiCache } from '../App';
 import { useT } from '../lib/i18n';
@@ -259,6 +259,40 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
     zoomSvg.addEventListener('wheel', onWheel, { passive: false });
     return () => zoomSvg.removeEventListener('wheel', onWheel);
   }, [zoomSvg]);
+  // Zoom des Mesh-Baums: Strg/⌘ + Mausrad bzw. Trackpad-Geste (normales Mausrad scrollt
+  // weiter – der Baum ist oft länger als der Bildschirm) und die Buttons −/%/+
+  const [treeK, setTreeK] = useState(1);
+  const treeKRef = useRef(1);
+  const [treeBox, setTreeBox] = useState<HTMLDivElement | null>(null);
+  const treeAnchor = useRef<{ x: number; y: number; from: number } | null>(null);
+  const zoomTree = (factor: number, clientX?: number, clientY?: number) => {
+    const from = treeKRef.current;
+    const k = Math.min(3, Math.max(0.3, from * factor));
+    if (k === from) return;
+    const r = treeBox?.querySelector('svg')?.getBoundingClientRect();
+    // Punkt unter dem Mauszeiger (ohne Maus: linke obere Ecke) bleibt an seiner Stelle
+    treeAnchor.current = r && clientX !== undefined && clientY !== undefined
+      ? { x: (clientX - r.left) / from, y: (clientY - r.top) / from, from } : null;
+    treeKRef.current = k;
+    setTreeK(k);
+  };
+  useEffect(() => {
+    if (!treeBox) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      zoomTree(Math.exp(-e.deltaY * 0.0025), e.clientX, e.clientY);
+    };
+    treeBox.addEventListener('wheel', onWheel, { passive: false });
+    return () => treeBox.removeEventListener('wheel', onWheel);
+  }, [treeBox]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    const a = treeAnchor.current;
+    if (!a || !treeBox) return;
+    treeAnchor.current = null;
+    treeBox.scrollLeft += a.x * (treeK - a.from);
+    window.scrollBy(0, a.y * (treeK - a.from));
+  }, [treeK, treeBox]);
   const isOriginallyHosts = meshData?._source === 'hosts-fallback';
   const [viewMode, setViewMode] = useState<'mesh' | 'hosts'>(isOriginallyHosts ? 'hosts' : 'mesh');
   const [hostsData, setHostsData] = useState<any>(null);
@@ -772,6 +806,7 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
       : { fill: '#1e3a5f', stroke: '#3b82f6' };
   };
 
+  const treeZoomBtn = { padding: '2px 9px', fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', cursor: 'pointer', background: 'var(--bg-card)', color: 'var(--text-secondary)' } as const;
   const infraCount = flat.filter(n => n !== rootTree && isInfraNode(n)).length;
   // Nur echte FRITZ!-Mesh-Geräte (Box + Mesh-Repeater) für „getrennt"-Vergleich mit meshTotal
   const meshConnected = flat.filter(n => n === rootTree || n.role === 'satellite').length;
@@ -795,10 +830,15 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
         <span style={{ fontSize: 11, opacity: 0.7 }} title={isOfficial ? t('Offizielle Mesh-Liste der FRITZ!Box (TR-064)') : t('Ersatzdaten aus der Weboberfläche')}>
           {isOfficial ? t('Quelle: Mesh-Liste') : t('Quelle: Weboberfläche')}
         </span>
+        <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }} title={t('Strg + Mausrad: zoomen')}>
+          <button style={treeZoomBtn} onClick={() => zoomTree(1 / 1.25)}>−</button>
+          <button style={{ ...treeZoomBtn, minWidth: 52 }} onClick={() => zoomTree(1 / treeKRef.current)} title={t('Ansicht zurücksetzen')}>{Math.round(treeK * 100)} %</button>
+          <button style={treeZoomBtn} onClick={() => zoomTree(1.25)}>+</button>
+        </span>
       </div>
-      <div className="card-body" style={{ padding: 0, position: 'relative', overflow: 'auto' }}
+      <div ref={setTreeBox} className="card-body" style={{ padding: 0, position: 'relative', overflow: 'auto' }}
            onMouseLeave={() => { setTooltip(null); setHoveredUid(null); }}>
-        <svg width={svgW} height={svgH} style={{ display: 'block' }}>
+        <svg width={svgW * treeK} height={svgH * treeK} viewBox={`0 0 ${svgW} ${svgH}`} style={{ display: 'block' }}>
           {/* Vertikale "Pipes" pro Elternknoten (ein Strich von Eltern-Bottom zur Mitte des letzten Kindes) */}
           {flat.map(parent => {
             if (parent.children.length === 0) return null;
@@ -850,7 +890,7 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
                   setHoveredUid(n.uid);
                   const svgEl = (e.currentTarget.closest('svg') as SVGSVGElement);
                   const rect = svgEl.getBoundingClientRect();
-                  setTooltip({ node: n, x: rect.left + xOf(n) + NODE_W, y: rect.top + yOf(n) });
+                  setTooltip({ node: n, x: rect.left + (xOf(n) + NODE_W) * treeK, y: rect.top + yOf(n) * treeK });
                 }}
                 // FRITZ!-Repeater: Weboberfläche (X_AVM-DE_URL), alle anderen: Gerätedetails
                 onClick={() => {

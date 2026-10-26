@@ -8,7 +8,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Home%20Assistant-App-41BDF5?logo=home-assistant&logoColor=white" alt="HA App"/>
-  <img src="https://img.shields.io/badge/Version-1.5.0-blue" alt="Version"/>
+  <img src="https://img.shields.io/badge/Version-1.5.1-blue" alt="Version"/>
   <img src="https://img.shields.io/badge/Architektur-amd64%20%7C%20aarch64%20%7C%20armv7-green" alt="Arch"/>
   <img src="https://img.shields.io/badge/Lizenz-MIT-lightgrey" alt="Lizenz"/>  
   <img src="https://img.shields.io/badge/Downloads-30.4K-blue" alt="Downloads"/>
@@ -130,12 +130,15 @@ Lovelace-Ressource). Danach im Dashboard **„Karte hinzufügen" → „FRITZ!Po
 ```yaml
 type: custom:fritz-portal-card
 title: FRITZ!Box                 # optional
-sections: [system, wan, traffic, traffic_stats, hosts, mesh, wlan, phone, smarthome]   # optional, Reihenfolge fix
+sections: [system, wan, traffic, traffic_stats, hosts, mesh, topology, wlan, phone, smarthome]   # optional, Reihenfolge fix
 hosts_limit: 8                   # Geräte im eingeklappten Zustand
 hosts_sort: activity             # activity | ip | name
 phone_count: 5                   # Anzahl der letzten Anrufe (1–20, ab v1.4.8)
 smarthome_group: group           # group (FRITZ!Box-Gruppen/Räume) | category (Gerätetyp) | none
 ha_style: false                  # true = Standard-Design von Home Assistant statt Terminal-Look
+topology_view: network           # Netzwerk-Grafik: network (Cluster) | mesh (Baum) – ab v1.5.1
+topology_names: false            # Netzwerk-Grafik: Gerätenamen anzeigen
+topology_clients: true           # Mesh-Baum: auch Endgeräte zeigen
 theme: auto                      # auto | dark | light
 ```
 
@@ -149,6 +152,7 @@ Alle Optionen lassen sich auch bequem im **visuellen Editor** der Karte einstell
 | `traffic_stats` | Traffic-Statistik als Tabelle: Heute, Gestern, aktuelle Woche, aktueller Monat, Vormonat (empfangen/gesendet) |
 | `hosts` | Aktive Geräte mit Suche, Filter (Alle/LAN/WLAN/Gast) und Sortierung (Aktivität/IP/Name); Klick auf die IP öffnet die Weboberfläche des Geräts |
 | `mesh` | FRITZ!Box und Repeater mit Modell, Firmware, Verbindung und Anzahl Clients („2/3 online") |
+| `topology` | Netzwerk-Grafik wie im Panel: **Netzwerk** (Cluster je Zugangspunkt) oder **Mesh** (Baum), direkt in der Karte umschaltbar |
 | `wlan` | WLAN-Schalter (mit MQTT steuerbar, sonst Nur-Anzeige) |
 | `phone` | Die letzten Anrufe, Anzahl über `phone_count` (benötigt `ha_phone_sensors`) |
 | `smarthome` | Smart-Home-Geräte nach FRITZ!Box-Gruppen (Räumen) oder Gerätetyp sortiert, mit Schaltzustand, Temperatur, Leistung und Akku |
@@ -240,6 +244,7 @@ erscheint der Status als Nur-Anzeige-Sensor `sensor.fritzportal_wlan_<N>` (kein 
 | `sensor.fritzportal_external_ip` | Externe IPv4-Adresse |
 | `sensor.fritzportal_dsl_downstream` / `_upstream` | DSL-Sync-Rate in Mbit/s (nur bei DSL-Anschluss) |
 | `sensor.fritzportal_mesh_devices` | Anzahl verbundener Mesh-Geräte; Attribut `devices` mit Modell, Firmware, Verbindung, Clients; `total` inkl. getrennter |
+| `sensor.fritzportal_topology` | Anzahl der Geräte im Netzwerk; Attribut `nodes` mit Name, Rolle, Zugangspunkt, LAN/WLAN und IP – Grundlage der Netzwerk-Grafik der Card (ab v1.5.1) |
 | `sensor.fritzportal_smarthome` | Anzahl erreichbarer Smart-Home-Geräte; Attribut `devices` mit Name, Gruppe/Raum, Typ, Schaltzustand, Leistung, Energie, Temperatur, Akku (ab v1.4.8) |
 | `binary_sensor.fritzportal_firmware_update` | FRITZ!OS-Update verfügbar; Attribute: installierte/neue Version, Link zu den Versionshinweisen |
 
@@ -317,6 +322,47 @@ Die folgenden Modelle wurden von Nutzern getestet und laufen gut:
 | FRITZ!Box XXXX | ✅ Good | teste einfach dein Modell |
 
 > **Hinweis:** Modelle, die nicht in dieser Liste stehen, funktionieren möglicherweise ebenfalls – sie wurden nur noch nicht explizit getestet.
+
+---
+
+## 🔄 So holt FRITZ!Portal die Daten von der FRITZ!Box
+
+Kurz gesagt: zuerst die offizielle Schnittstelle, die Weboberfläche nur ergänzend, alles zwischengespeichert und gedrosselt. So bleibt die FRITZ!Box auch bei vielen Geräten entspannt, und manche Werte erscheinen dafür etwas später.
+
+**Zwei Quellen**
+
+| Quelle | Was kommt daher | Hinweise |
+|---|---|---|
+| **TR-064** (offizielle AVM-Schnittstelle, Port 49000) | Geräteliste, Mesh, WAN/DSL, WLAN, Anrufliste, DECT, Ereignisprotokoll, Firmware-Status | wird immer bevorzugt; die komplette Geräteliste kommt in **einer** Anfrage |
+| **Weboberfläche** (`data.lua`, Anmeldung wie im Browser) | nur, was TR-064 nicht liefert: CPU/RAM/Temperatur, Traffic-Zähler, Verbindungsdetails (LAN-Port, WLAN-Band), feste IP-Adressen | höchstens **2 Abfragen gleichzeitig** mit mind. **0,4 s Abstand**; eine Anmeldung wird wiederverwendet statt ständig neu angelegt |
+
+**Ablauf nach dem Start des Add-ons**
+
+1. **Anmeldung** an der FRITZ!Box: TR-064 und Weboberfläche. Mit „Sitzung dauerhaft aktiv halten" direkt beim Start, sonst beim ersten Öffnen des Panels.
+2. **Panel öffnen:** Die zuletzt geladene Ansicht erscheint sofort aus dem Zwischenspeicher, aktualisiert wird im Hintergrund.
+3. **HA-Sensoren:** System-Werte (CPU, RAM, Geräte online …) alle 60 s, Traffic alle 300 s (beides einstellbar). Mesh, Firmware und die Netzwerk-Grafik der Card kommen erstmals ca. **45 s** nach dem Start, danach im Traffic-Intervall.
+4. **Feste IP-Adressen:** Abgleich im Hintergrund ab ca. **60 s** nach dem Start, siehe unten.
+
+**Zwischenspeicher (Auswahl)** – so lange werden Daten wiederverwendet, bevor die Box erneut gefragt wird:
+
+| Daten | gespeichert für |
+|---|---|
+| DECT-Status | 15 s |
+| Mesh, WLAN, Ereignisprotokoll | 30 s |
+| Geräteliste, WAN, Anrufliste | 60 s |
+| feste IP-Adressen | 12 h (dauerhaft in `/data`) |
+
+**Warum erscheinen feste IP-Adressen erst nach und nach?**
+Aktuelle FRITZ!OS-Versionen melden eine DHCP-Reservierung („Diesem Netzwerkgerät immer die gleiche IPv4-Adresse zuweisen") weder in der Geräteliste noch per TR-064 – nur auf der Bearbeiten-Seite **jedes einzelnen Geräts**. FRITZ!Portal fragt diese Seiten deshalb im Hintergrund ab:
+
+- **strikt nachrangig:** nur, wenn gerade keine andere Abfrage an die Weboberfläche wartet – Panel, Mesh und Sensoren haben immer Vorrang
+- in Portionen von 40 Geräten, aktive Geräte zuerst
+- das Ergebnis wird in `/data` gespeichert (nach einem Neustart sofort da) und alle **12 h** aufgefrischt
+
+Bei vielen Geräten kann der **erste** Abgleich daher einige Minuten dauern – das „FEST"-Kennzeichen taucht in dieser Zeit nach und nach auf. Die **Gerätedetails** fragen das jeweilige Gerät immer frisch ab, und eine im Panel zugewiesene oder entfernte feste IP wird sofort übernommen.
+
+**Und wenn das Panel geschlossen ist?**
+Nach 5 Minuten ohne Nutzung pausieren die aufwendigeren Hintergrund-Abfragen (z. B. der CPU/RAM-Verlauf für die Dashboard-Kacheln). Die HA-Sensoren laufen weiter, solange eine Sitzung besteht – mit „Sitzung dauerhaft aktiv halten" also auch ohne geöffnetes Panel. Den Traffic-Verlauf sammelt der Server bei geschlossenem Panel nur mit der Option „Traffic-Verlauf serverseitig sammeln".
 
 ---
 

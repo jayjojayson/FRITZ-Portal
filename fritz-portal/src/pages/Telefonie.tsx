@@ -24,6 +24,17 @@ export default function Telefonie({ sid }: TelefonieProps) {
     loadData();
   }, []);
 
+  // DECT-Status (z. B. „Im Gespräch") ändert sich laufend – solange der Tab offen ist,
+  // alle 15 s nachladen (Server cacht ebenso lange, eine Anfrage an die Box)
+  useEffect(() => {
+    if (tab !== 'dect') return;
+    const timer = setInterval(() => {
+      apiFetch('/api/fritz/dect', { headers }).then(r => r.json())
+        .then(d => { setApiCache('dect', d); setDectInfo(d); }).catch(() => {});
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const loadData = async () => {
     try {
       const [callsRes, dectRes] = await Promise.all([
@@ -87,6 +98,8 @@ export default function Telefonie({ sid }: TelefonieProps) {
 
 function DECTTab({ dectInfo, t }: { dectInfo: any; t: (s: string) => string }) {
   const handsets: any[] = dectInfo?.handsets || [];
+  // Akkustand liefert nur die Weboberfläche mancher Firmwares – ohne Werte Spalte ausblenden
+  const hasBattery = handsets.some(h => h.battery);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div className="card">
@@ -118,7 +131,7 @@ function DECTTab({ dectInfo, t }: { dectInfo: any; t: (s: string) => string }) {
                     <th>{t('Name')}</th>
                     <th>{t('Modell')}</th>
                     <th>{t('Status')}</th>
-                    <th>{t('Akku')}</th>
+                    {hasBattery && <th>{t('Akku')}</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -150,7 +163,7 @@ function DECTTab({ dectInfo, t }: { dectInfo: any; t: (s: string) => string }) {
                           <span className={`status-dot ${dotClass}`} />
                           {label}
                         </td>
-                        <td>{h.battery ? `${h.battery}%` : '—'}</td>
+                        {hasBattery && <td>{h.battery ? `${h.battery}%` : '—'}</td>}
                       </tr>
                     );
                   })}

@@ -54,20 +54,58 @@ function DashboardSettings({ sid, initial }: { sid: string; initial: { calls: bo
 }
 
 // Ereignisprotokoll der FRITZ!Box (wie „System → Ereignisse" in der Box-Oberfläche)
+// Datum der Box „10.06.26" → Zeitstempel (für „Nur letzter Monat")
+const logTime = (date: string) => {
+  const [d, m, y] = date.split('.').map(n => parseInt(n, 10));
+  return d && m && Number.isFinite(y) ? new Date(2000 + (y % 100), m - 1, d).getTime() : NaN;
+};
+const LS_LOG_MONTH = 'fritzportal_log_month';
+
 function DeviceLog({ sid }: { sid: string }) {
   const t = useT();
   const [filter, setFilter] = useState<LogFilter>('all');
   const [events, setEvents] = useState<{ date: string; time: string; msg: string; group?: string }[] | null>(null);
   const [loading, setLoading] = useState(false);
+  // Die Box kann nur komplett löschen – ältere Einträge daher wahlweise nur ausblenden
+  const [monthOnly, setMonthOnly] = useState(() => { try { return localStorage.getItem(LS_LOG_MONTH) === '1'; } catch { return false; } });
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
-  useEffect(() => {
+  const load = () => {
     setLoading(true);
     apiFetch(`/api/fritz/device-log?filter=${filter}`, { headers: { 'X-Fritz-SID': sid } })
       .then(r => r.json())
       .then(d => setEvents(Array.isArray(d?.events) ? d.events : []))
       .catch(() => setEvents([]))
       .finally(() => setLoading(false));
-  }, [filter]);
+  };
+  useEffect(load, [filter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleMonth = () => {
+    const v = !monthOnly;
+    setMonthOnly(v);
+    try { localStorage.setItem(LS_LOG_MONTH, v ? '1' : '0'); } catch {}
+  };
+  const clearLog = async () => {
+    setClearing(true);
+    setMsg(null);
+    try {
+      const d = await (await apiFetch('/api/fritz/device-log/clear', { method: 'POST', headers: { 'X-Fritz-SID': sid } })).json();
+      setMsg(d.success ? { text: t('Protokoll geleert.'), ok: true } : { text: d.error || t('Löschen fehlgeschlagen'), ok: false });
+      if (d.success) load();
+    } catch {
+      setMsg({ text: t('Verbindungsfehler.'), ok: false });
+    } finally {
+      setClearing(false);
+      setConfirmClear(false);
+    }
+  };
+
+  const cutoff = Date.now() - 31 * 86400000;
+  const shown = events && monthOnly ? events.filter(e => !(logTime(e.date) < cutoff)) : events;
+  const hidden = (events?.length || 0) - (shown?.length || 0);
+  const smallBtn = { padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-secondary)' } as const;
 
   return (
     <div className="card" style={{ marginTop: 24 }}>
@@ -87,14 +125,14 @@ function DeviceLog({ sid }: { sid: string }) {
       <div className="card-body" style={{ maxHeight: 420, overflowY: 'auto', padding: 0 }}>
         {loading && !events ? (
           <div style={{ padding: 24, textAlign: 'center' }}><div className="spinner" /></div>
-        ) : !events || events.length === 0 ? (
+        ) : !shown || shown.length === 0 ? (
           <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
             {t('Keine Ereignisse verfügbar')}
           </div>
         ) : (
           <table style={{ opacity: loading ? 0.5 : 1 }}>
             <tbody>
-              {events.map((e, i) => (
+              {shown.map((e, i) => (
                 <tr key={i}>
                   <td style={{ whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)', width: 150, verticalAlign: 'top' }}>
                     {e.date} {e.time}
@@ -104,6 +142,27 @@ function DeviceLog({ sid }: { sid: string }) {
               ))}
             </tbody>
           </table>
+        )}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 16px', borderTop: '1px solid var(--border)', fontSize: 12 }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', color: 'var(--text-secondary)' }}
+          title={t('Einträge älter als einen Monat ausblenden – die FRITZ!Box selbst kann nur das gesamte Protokoll löschen')}>
+          <input type="checkbox" checked={monthOnly} onChange={toggleMonth} />
+          {t('Nur letzter Monat')}
+        </label>
+        {monthOnly && hidden > 0 && <span style={{ color: 'var(--text-muted)' }}>{t('{n} ältere ausgeblendet', { n: hidden })}</span>}
+        <span style={{ flex: 1 }} />
+        {msg && <span style={{ color: msg.ok ? 'var(--success)' : 'var(--danger)' }}>{msg.text}</span>}
+        {confirmClear ? (
+          <>
+            <span>{t('Alle Ereignisse auf der FRITZ!Box löschen?')}</span>
+            <button style={{ ...smallBtn, borderColor: 'var(--danger)', color: 'var(--danger)' }} disabled={clearing} onClick={clearLog}>
+              {clearing ? '…' : t('Ja, löschen')}
+            </button>
+            <button style={smallBtn} disabled={clearing} onClick={() => setConfirmClear(false)}>{t('Abbrechen')}</button>
+          </>
+        ) : (
+          <button style={smallBtn} onClick={() => { setMsg(null); setConfirmClear(true); }}>{t('Protokoll leeren')}</button>
         )}
       </div>
     </div>
