@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/Version-1.5.1-blue" alt="Version"/>
   <img src="https://img.shields.io/badge/Architektur-amd64%20%7C%20aarch64%20%7C%20armv7-green" alt="Arch"/>
   <img src="https://img.shields.io/badge/Lizenz-MIT-lightgrey" alt="Lizenz"/>  
-  <img src="https://img.shields.io/badge/Downloads-30.4K-blue" alt="Downloads"/>
+  <img src="https://img.shields.io/badge/Downloads-32.1K-blue" alt="Downloads"/>
   <a href="README_eng.md"><img src="https://img.shields.io/badge/README-Eng-lightblue" alt="English"/></a>
 </p>
 <p align="center">
@@ -327,7 +327,7 @@ Die folgenden Modelle wurden von Nutzern getestet und laufen gut:
 
 ## 🔄 So holt FRITZ!Portal die Daten von der FRITZ!Box
 
-Kurz gesagt: zuerst die offizielle Schnittstelle, die Weboberfläche nur ergänzend, alles zwischengespeichert und gedrosselt. So bleibt die FRITZ!Box auch bei vielen Geräten entspannt, und manche Werte erscheinen dafür etwas später.
+Kurz gesagt: zuerst die offizielle Schnittstelle, die Weboberfläche nur ergänzend, alles zwischengespeichert und gedrosselt. So bleibt die FRITZ!Box auch bei vielen Geräten entspannt und manche Werte erscheinen dafür etwas später.
 
 **Zwei Quellen**
 
@@ -355,14 +355,14 @@ Kurz gesagt: zuerst die offizielle Schnittstelle, die Weboberfläche nur ergänz
 **Warum erscheinen feste IP-Adressen erst nach und nach?**
 Aktuelle FRITZ!OS-Versionen melden eine DHCP-Reservierung („Diesem Netzwerkgerät immer die gleiche IPv4-Adresse zuweisen") weder in der Geräteliste noch per TR-064 – nur auf der Bearbeiten-Seite **jedes einzelnen Geräts**. FRITZ!Portal fragt diese Seiten deshalb im Hintergrund ab:
 
-- **strikt nachrangig:** nur, wenn gerade keine andere Abfrage an die Weboberfläche wartet – Panel, Mesh und Sensoren haben immer Vorrang
+- **strikt nachrangig:** nur, wenn gerade keine andere Abfrage an die Weboberfläche wartet – Panel, Mesh, Geräte und Sensoren haben immer Vorrang
 - in Portionen von 40 Geräten, aktive Geräte zuerst
 - das Ergebnis wird in `/data` gespeichert (nach einem Neustart sofort da) und alle **12 h** aufgefrischt
 
 Bei vielen Geräten kann der **erste** Abgleich daher einige Minuten dauern – das „FEST"-Kennzeichen taucht in dieser Zeit nach und nach auf. Die **Gerätedetails** fragen das jeweilige Gerät immer frisch ab, und eine im Panel zugewiesene oder entfernte feste IP wird sofort übernommen.
 
 **Und wenn das Panel geschlossen ist?**
-Nach 5 Minuten ohne Nutzung pausieren die aufwendigeren Hintergrund-Abfragen (z. B. der CPU/RAM-Verlauf für die Dashboard-Kacheln). Die HA-Sensoren laufen weiter, solange eine Sitzung besteht – mit „Sitzung dauerhaft aktiv halten" also auch ohne geöffnetes Panel. Den Traffic-Verlauf sammelt der Server bei geschlossenem Panel nur mit der Option „Traffic-Verlauf serverseitig sammeln".
+Nach 5 Minuten ohne Nutzung pausieren die Hintergrund-Abfragen (z. B. der CPU/RAM-Verlauf für die Dashboard-Kacheln). Die HA-Sensoren laufen weiter, solange eine Sitzung besteht – mit „Sitzung dauerhaft aktiv halten" also auch ohne geöffnetes Panel. Den Traffic-Verlauf sammelt der Server bei geschlossenem Panel nur mit der Option „Traffic-Verlauf serverseitig sammeln".
 
 ---
 
