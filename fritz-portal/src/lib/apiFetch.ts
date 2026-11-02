@@ -14,10 +14,24 @@ function getIngressBase(): string {
 // alle übrigen API-Aufrufe – sonst bekämen sie ein 401 der noch fehlenden Sitzung.
 let markReady: () => void = () => {};
 const sessionReady: Promise<void> = new Promise(r => { markReady = r; });
-export function setSessionReady() { markReady(); }
+// Bestätigte Sitzungs-ID. Der Server vergibt sie bei jedem Start neu (zufällig) – Aufrufe,
+// die noch mit der im Browser gemerkten alten ID gebaut wurden, bekommen hier die aktuelle.
+let currentSid = '';
+export function setSessionReady(sid: string) { currentSid = sid; markReady(); }
+
+function withCurrentSid(init?: RequestInit): RequestInit | undefined {
+  if (!currentSid || !init?.headers) return init;
+  const h = new Headers(init.headers);
+  if (!h.has('X-Fritz-SID')) return init;
+  h.set('X-Fritz-SID', currentSid);
+  return { ...init, headers: h };
+}
 
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  if (!path.includes('/api/fritz/auto-session')) await sessionReady;
+  if (!path.includes('/api/fritz/auto-session')) {
+    await sessionReady;
+    init = withCurrentSid(init);
+  }
   const ingressBase = getIngressBase();
   let url: string;
   if (ingressBase) {

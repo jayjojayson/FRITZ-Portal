@@ -34,9 +34,26 @@
   --shadow-lg: 0 8px 40px rgba(0,0,0,0.12);
   --radius:    3px;
   --radius-lg: 4px;
+
+  /* Online-Monitor-Serien (validiert: CVD-/Kontrast-Check je Modus) */
+  --om-home:     #eda100;
+  --om-iptv:     #6250d6;
+  --om-guest:    #eb6834;
+  --om-realtime: #e87ba4;
+  --om-high:     #2a78d6;
+  --om-normal:   #1baf7a;
+  --om-low:      #6250d6;
 }
 
 [data-theme="dark"] {
+  --om-home:     #c98500;
+  --om-iptv:     #9085e9;
+  --om-guest:    #d95926;
+  --om-realtime: #d55181;
+  --om-high:     #3987e5;
+  --om-normal:   #199e70;
+  --om-low:      #9085e9;
+
   --bg-primary:    #171b22;
   --bg-sidebar:    #131820;
   --bg-card:       #1a1f28;

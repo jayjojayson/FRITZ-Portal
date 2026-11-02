@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { apiFetch } from '../lib/apiFetch';
 import { getApiCache } from '../App';
 import { useT } from '../lib/i18n';
-import { ConnectionSettings, AccessProfileSettings, type TopologyHost } from '../components/DeviceSettings';
+import { ConnectionSettings, AccessProfileSettings, HaExportSettings, type TopologyHost } from '../components/DeviceSettings';
 
 interface Host extends TopologyHost {
   interface: string;
@@ -471,8 +471,6 @@ export default function DeviceDetail({ sid, mac, onBack }: DeviceDetailProps) {
 
       <ConnectionSettings sid={sid} device={device} hosts={hosts} onChanged={h => setHosts(h as Host[])} />
 
-      <AccessProfileSettings sid={sid} ip={device.ip} disabled={!!device.editHide} />
-
       <div className="card">
         <div className="card-header">
           <h3>{t('IPv4-Adresse dauerhaft zuweisen')}</h3>
@@ -523,6 +521,10 @@ export default function DeviceDetail({ sid, mac, onBack }: DeviceDetailProps) {
           </div>
         </div>
       </div>
+
+      <AccessProfileSettings sid={sid} ip={device.ip} disabled={!!device.editHide} />
+
+      <HaExportSettings sid={sid} mac={device.mac} />
 
       <div className="card">
         <div className="card-header">

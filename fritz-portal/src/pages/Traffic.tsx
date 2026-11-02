@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { apiFetch } from '../lib/apiFetch';
 import { getApiCache, setApiCache } from '../App';
 import { useT } from '../lib/i18n';
+import OnlineMonitor from '../components/OnlineMonitor';
 
 interface Counter {
   name: string;
@@ -15,7 +16,7 @@ interface TrafficProps {
   sid: string;
 }
 
-export default function Traffic({ sid }: TrafficProps) {
+function TrafficCounters({ sid }: TrafficProps) {
   const t = useT();
   // Cache-first wie auf den anderen Seiten: letzter Stand sofort, frische Werte im Hintergrund
   const cached: Counter[] | null = getApiCache('traffic-counters');
@@ -96,11 +97,6 @@ export default function Traffic({ sid }: TrafficProps) {
 
   return (
     <div>
-      <div className="page-header">
-        <h2>{t('Traffic')}</h2>
-        <p>{t('Online-Zähler & Datenvolumen')}</p>
-      </div>
-
       {error && (
         <div
           style={{
@@ -290,6 +286,34 @@ export default function Traffic({ sid }: TrafficProps) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+type TrafficTab = 'counters' | 'monitor';
+const TAB_KEY = 'fritzportal_traffic_tab';
+
+export default function Traffic({ sid }: TrafficProps) {
+  const t = useT();
+  const [tab, setTab] = useState<TrafficTab>(() => {
+    try { return localStorage.getItem(TAB_KEY) === 'monitor' ? 'monitor' : 'counters'; } catch { return 'counters'; }
+  });
+  const pick = (v: TrafficTab) => {
+    setTab(v);
+    try { localStorage.setItem(TAB_KEY, v); } catch {}
+  };
+
+  return (
+    <div>
+      <div className="page-header">
+        <h2>{t('Traffic')}</h2>
+        <p>{tab === 'monitor' ? t('Online-Monitor – aktuelle Auslastung') : t('Online-Zähler & Datenvolumen')}</p>
+      </div>
+      <div className="tab-row">
+        <button className={`tab${tab === 'counters' ? ' active' : ''}`} onClick={() => pick('counters')}>{t('Traffic')}</button>
+        <button className={`tab${tab === 'monitor' ? ' active' : ''}`} onClick={() => pick('monitor')}>{t('Online-Monitor')}</button>
+      </div>
+      {tab === 'monitor' ? <OnlineMonitor sid={sid} /> : <TrafficCounters sid={sid} />}
     </div>
   );
 }

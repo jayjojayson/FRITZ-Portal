@@ -20,7 +20,7 @@
  *   topology_clients: true  # Mesh-Baum: auch Endgeräte zeigen (sonst nur Zugangspunkte)
  */
 
-const CARD_VERSION = '1.5.1';
+const CARD_VERSION = '1.5.2';
 const ALL_SECTIONS = ['system', 'wan', 'traffic', 'traffic_stats', 'hosts', 'mesh', 'topology', 'wlan', 'phone', 'smarthome'];
 const SECTION_LABELS = {
   system: 'System (CPU, RAM, Temperatur, Geräte)',
@@ -54,6 +54,10 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
 ));
 const isIPv4 = (ip) => /^(\d{1,3}\.){3}\d{1,3}$/.test(String(ip || ''));
+// IP als Link (neuer Tab) – nur gültige IPv4-Adressen, alles andere bleibt Text
+const ipLink = (ip, text = ip) => (isIPv4(ip)
+  ? `<a class="iplink" href="http://${esc(ip)}" target="_blank" rel="noopener noreferrer" title="${esc(ip)} im neuen Tab öffnen">${esc(text)}</a>`
+  : esc(text));
 const ipNum = (ip) => String(ip || '0.0.0.0').split('.').reduce((a, p) => a * 256 + (parseInt(p, 10) || 0), 0);
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
 
@@ -185,6 +189,10 @@ const STYLE = `
   :host([ha]) .tbox { border-radius: 8px; }
   .tbox .name { flex: 1; }
   .tbox .ip { color: var(--fp-text2); font-size: 11px; margin-left: 6px; }
+  a.iplink { color: inherit; text-decoration: none; border-bottom: 1px dotted currentColor; }
+  a.iplink:hover { color: var(--fp-accent); }
+  svg.topo a.nodelink { cursor: pointer; }
+  svg.topo a.nodelink:hover circle { stroke-width: 3; }
   .badge { font-size: 10px; padding: 1px 6px; border: 1px solid currentColor; white-space: nowrap; border-radius: 9px; }
   /* Netzwerk-Grafik: Cluster-Ansicht (SVG) */
   svg.topo { width: 100%; height: auto; max-height: 560px; display: block; cursor: grab; touch-action: pan-y; }
@@ -227,6 +235,7 @@ class FritzPortalCard extends HTMLElement {
       ...(config || {}),
     };
     this._ui.topo = this._config.topology_view === 'mesh' ? 'mesh' : 'network';
+    this._ui.names = !!this._config.topology_names;
     if (this._config.hosts_sort) this._ui.sort = this._config.hosts_sort;
     this._ownIds = null; // Präfix kann sich geändert haben
     this._scheduleRender();
@@ -531,7 +540,8 @@ class FritzPortalCard extends HTMLElement {
     const view = this._ui.topo || 'network';
     const k = view === 'mesh' ? this._ui.treeK : this._ui.zoom.k;
     const tabs = `<span class="tools" style="margin:0">
-      <span class="zoom" title="Strg/⌘ + Mausrad: zoomen${view === 'network' ? ' · Ziehen: verschieben' : ''}">
+      ${view === 'network' ? `<button class="fb ${this._ui.names ? 'on' : ''}" data-names title="Gerätenamen ein-/ausblenden">Namen</button>` : ''}
+      <span class="zoom" title="${view === 'network' ? 'Mausrad: zoomen · Ziehen: verschieben' : 'Strg/⌘ + Mausrad: zoomen'}">
         <button class="fb" data-zoom="out" aria-label="Verkleinern">−</button><button class="fb zk" data-zoom="reset" aria-label="Ansicht zurücksetzen">${Math.round(k * 100)} %</button><button class="fb" data-zoom="in" aria-label="Vergrößern">+</button></span>
       <button class="fb ${view === 'network' ? 'on' : ''}" data-topo="network">Netzwerk</button>
       <button class="fb ${view === 'mesh' ? 'on' : ''}" data-topo="mesh">Mesh</button></span>`;
@@ -564,15 +574,17 @@ class FritzPortalCard extends HTMLElement {
   }
 
   _bindZoom(root) {
+    root.querySelector('[data-names]')?.addEventListener('click', () => { this._ui.names = !this._ui.names; this._render(); });
     root.querySelectorAll('[data-zoom]').forEach(el => el.addEventListener('click', () => {
       const a = el.dataset.zoom;
       if (a === 'reset') { this._ui.zoom = { k: 1, x: 0, y: 0 }; this._ui.treeK = 1; this._applyZoom(); }
       else this._zoomTopo(a === 'in' ? 1.25 : 1 / 1.25);
     }));
     const svg = root.querySelector('svg.topo');
-    // Strg/⌘ + Mausrad bzw. Trackpad-Geste zoomt; normales Mausrad scrollt das Dashboard
+    // Netzwerk-Grafik: Mausrad zoomt (wie im Panel). Mesh-Baum: nur Strg/⌘ + Mausrad bzw.
+    // Trackpad-Geste – sonst ließe sich das Dashboard über dem langen Baum nicht scrollen
     const wheel = (e) => {
-      if (!e.ctrlKey && !e.metaKey) return;
+      if (this._ui.topo === 'mesh' && !e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
       const f = Math.exp(-e.deltaY * 0.0025);
       if (svg && this._ui.topo !== 'mesh') {
@@ -585,17 +597,27 @@ class FritzPortalCard extends HTMLElement {
     if (!svg) return;
     svg.addEventListener('wheel', wheel, { passive: false });
     // Verschieben per Ziehen (Maus/Touch)
+    // Zeiger erst ab 4 px Bewegung übernehmen – so bleibt ein einfacher Klick ein Klick
+    // (öffnet die IP), nach dem Ziehen wird der Klick dagegen unterdrückt
     let drag = null;
+    let dragged = false;
     svg.addEventListener('pointerdown', (e) => {
-      drag = { x: e.clientX, y: e.clientY, vx: this._ui.zoom.x, vy: this._ui.zoom.y, s: svg.getScreenCTM()?.a || 1 };
-      svg.setPointerCapture(e.pointerId);
-      svg.style.cursor = 'grabbing';
+      drag = { x: e.clientX, y: e.clientY, vx: this._ui.zoom.x, vy: this._ui.zoom.y, s: svg.getScreenCTM()?.a || 1, id: e.pointerId, moving: false };
+      dragged = false;
     });
     svg.addEventListener('pointermove', (e) => {
       if (!drag) return;
+      if (!drag.moving) {
+        if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 4) return;
+        drag.moving = true;
+        dragged = true;
+        svg.setPointerCapture(drag.id);
+        svg.style.cursor = 'grabbing';
+      }
       this._ui.zoom = { ...this._ui.zoom, x: drag.vx + (e.clientX - drag.x) / drag.s, y: drag.vy + (e.clientY - drag.y) / drag.s };
       this._applyZoom();
     });
+    svg.addEventListener('click', (e) => { if (dragged) { e.preventDefault(); e.stopPropagation(); dragged = false; } }, true);
     const end = () => { drag = null; svg.style.cursor = ''; };
     svg.addEventListener('pointerup', end);
     svg.addEventListener('pointercancel', end);
@@ -623,7 +645,7 @@ class FritzPortalCard extends HTMLElement {
         : hub ? `<span class="badge" style="color:${TOPO.ap.stroke}">${n.role === 'repeater' ? 'Repeater' : 'Zugangspunkt'}${cnt ? ' · ' + cnt : ''}</span>`
         : `<span class="badge" style="color:${lineCol}">${esc(n.link || 'LAN')}</span>`;
       rows.push(`<div class="trow">${cells}<div class="tbox" style="--bc:${col.stroke}" title="${esc(n.name)}${n.ip ? ' · ' + esc(n.ip) : ''}">
-        <span class="name">${esc(n.name)}${n.ip ? `<span class="ip">${esc(n.ip)}</span>` : ''}</span>${badge}</div></div>`);
+        <span class="name">${esc(n.name)}${n.ip ? `<span class="ip">${ipLink(n.ip)}</span>` : ''}</span>${badge}</div></div>`);
       // Viele Endgeräte an einem Zugangspunkt eingeklappt (Klick klappt auf/zu)
       const kids = sortKids(m.children.get(n.id));
       const hubKids = kids.filter(c => m.isHub(c));
@@ -645,7 +667,7 @@ class FritzPortalCard extends HTMLElement {
   }
 
   _renderCluster(m) {
-    const names = !!this._config.topology_names;
+    const names = !!this._ui.names;
     const hubs = m.nodes.filter(m.isHub);
     const hubSet = new Set(hubs.map(h => h.id));
     const clientsOf = new Map(hubs.map(h => [h.id, []]));
@@ -705,7 +727,10 @@ class FritzPortalCard extends HTMLElement {
     this._topoWH = { W, H };
     const f = (v) => v.toFixed(1);
     const short = (s, max) => (String(s).length > max ? String(s).slice(0, max - 1) + '…' : String(s));
-    const tip = (n) => `<title>${esc(n.name)}${n.ip ? ' · ' + esc(n.ip) : ''}${n.role === 'client' ? ' · ' + esc(n.link) : ''}</title>`;
+    const tip = (n) => `<title>${esc(n.name)}${n.ip ? ' · ' + esc(n.ip) : ''}${n.role === 'client' ? ' · ' + esc(n.link) : ''}${isIPv4(n.ip) ? ' – Klick: im neuen Tab öffnen' : ''}</title>`;
+    // Klick auf ein Gerät öffnet seine IP in einem neuen Tab
+    const linkWrap = (n, inner) => (isIPv4(n.ip)
+      ? `<a href="http://${esc(n.ip)}" target="_blank" rel="noopener noreferrer" class="nodelink">${inner}</a>` : inner);
     const parts = [];
     for (const c of clusters) {
       const p = at.get(c.hub.id), col = c.hub === m.master ? TOPO.master : TOPO.ap;
@@ -727,18 +752,18 @@ class FritzPortalCard extends HTMLElement {
       const hp = at.get(c.hub.id);
       for (const { node, x, y } of c.pos) {
         const col = TOPO[node.link === 'WLAN' ? 'WLAN' : 'LAN'];
-        parts.push(`<g transform="translate(${f(hp.x + x + ox)},${f(hp.y + y + oy)})">${tip(node)}
+        parts.push(linkWrap(node, `<g transform="translate(${f(hp.x + x + ox)},${f(hp.y + y + oy)})">${tip(node)}
           <circle r="${nodeR}" fill="${col.fill}" stroke="${col.stroke}" stroke-width="1.5"/>
-          ${names ? `<text class="lbl" y="${nodeR + 12}" text-anchor="middle" font-size="9.5" stroke-width="2.5">${esc(short(node.name, 12))}</text>` : ''}</g>`);
+          ${names ? `<text class="lbl" y="${nodeR + 12}" text-anchor="middle" font-size="9.5" stroke-width="2.5">${esc(short(node.name, 12))}</text>` : ''}</g>`));
       }
     }
     for (const c of clusters) {
       const p = at.get(c.hub.id), isMaster = c.hub === m.master, r = hubR(c.hub), col = isMaster ? TOPO.master : TOPO.ap;
-      parts.push(`<g transform="translate(${f(p.x + ox)},${f(p.y + oy)})">${tip(c.hub)}
+      parts.push(linkWrap(c.hub, `<g transform="translate(${f(p.x + ox)},${f(p.y + oy)})">${tip(c.hub)}
         <circle r="${r}" fill="${col.fill}" stroke="${col.stroke}" stroke-width="2.5"/>
         <text y="2" text-anchor="middle" font-size="${isMaster ? 15 : 13}" fill="#fff" font-weight="700">${c.pos.length}</text>
         <text y="13" text-anchor="middle" font-size="7" fill="rgba(255,255,255,0.75)" letter-spacing="0.5">GERÄTE</text>
-        <text class="lbl" y="${r + 15}" text-anchor="middle" font-size="11" font-weight="600" stroke-width="4">${esc(short(c.hub.name, 24))}</text></g>`);
+        <text class="lbl" y="${r + 15}" text-anchor="middle" font-size="11" font-weight="600" stroke-width="4">${esc(short(c.hub.name, 24))}</text></g>`));
     }
     const wlan = m.nodes.filter(n => !hubSet.has(n.id) && n.link === 'WLAN').length;
     const sum = `<div class="topo-sum"><span>${total} Geräte</span>

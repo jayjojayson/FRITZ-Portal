@@ -9,7 +9,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Home%20Assistant-App-41BDF5?logo=home-assistant&logoColor=white" alt="HA App"/>
-  <img src="https://img.shields.io/badge/Version-1.5.1-blue" alt="Version"/>
+  <img src="https://img.shields.io/badge/Version-1.5.2-blue" alt="Version"/>
   <img src="https://img.shields.io/badge/Architecture-amd64%20%7C%20aarch64%20%7C%20armhf-green" alt="Arch"/>
   <img src="https://img.shields.io/badge/License-MIT-lightgrey" alt="License"/>
   <img src="https://img.shields.io/badge/Downloads-35.1K-blue" alt="Downloads"/>
@@ -45,7 +45,7 @@ If you like the App, I would appreciate a Star rating ⭐ from you. 🤗
 | **Device List** | All connected hosts with status, IP, MAC, connection type, sorting, search, internet blocking + **delete function for offline devices** |
 | **Device Detail** | Rename device (with umlaut sanitiser), reserve a fixed DHCP IP, block/unblock internet, remove device from the FRITZ!Box list |
 | **Network** | LAN, WAN, WLAN, DHCP – details at a glance; **Mesh topology visualisation** with mesh and radial network view; **WLAN on/off per SSID** (e.g. guest access); WLAN password editable inline |
-| **Traffic** | Live download/upload chart (30 s tick, 30 min history) + statistics for Today, Yesterday, Week, Month, Last Month |
+| **Traffic** | Two sub-pages: **Traffic** – live download/upload chart (30 s tick, 30 min history) + online counter for Today, Yesterday, Week, Month, Last Month; **Online monitor** – utilization like the FRITZ!Box, split into home network/IPTV/guest network and priority classes (10/30/60 min) |
 | **Telephony** | Call list (caller/called/device separated, type filter) and DECT handsets – **clean separation from SmartHome** (DECT actors like FRITZ!DECT 200/301 only appear under SmartHome) |
 | **SmartHome** | All smart home devices incl. **Zigbee** (FRITZ!OS 8.20+ via the new Smart Home REST API, otherwise AHA) with temperature, target temperature, humidity, switch state, power, energy, battery and firmware |
 | **System** | Fritz!Box model, firmware, uptime, serial number, reboot function; HA sensor configuration, debug logging, „keep session alive" and „collect traffic history on the server" toggles |
@@ -93,7 +93,7 @@ If you like the App, I would appreciate a Star rating ⭐ from you. 🤗
 | `dashboard_card` | Copy the dashboard card to `/config/www/fritz-portal/` on start and register it as a Lovelace resource | `true` |
 
 4. **Save → Start**
-5. Open via **Web UI** or directly at `http://<ha-ip>:3003`
+5. Open via the Home Assistant **sidebar** (or "Open web UI" in the add-on). Direct access via `http://<ha-ip>:3003` is intentionally no longer possible since v1.5.2: that route worked without any login and would put the FRITZ!Box at risk (see changelog).
 
 > **Note:** The app automatically logs in to the Fritz!Box with the configured credentials on startup – no manual login required.
 
@@ -224,6 +224,34 @@ surface it in HA:
 > For the 1:1 view incl. switchable sorting (activity/IP/name) the embedded Ingress view remains the direct
 > route; the `active_hosts` attribute is the lightweight way to build your own card without Ingress.
 
+### Controlling individual devices from Home Assistant (v1.5.2+)
+
+Each device can be handed over to Home Assistant individually: open the device in the **device list** → card **"Home Assistant"** → set **"Provide in Home Assistant"** to **On**. FRITZ!Portal then creates its own HA device via MQTT, named after the device – as a sub-device of the FRITZ!Box – with:
+
+| Entity | Purpose |
+|---|---|
+| Switch **Internetzugang** (internet access) | `on` = internet allowed, `off` = blocked – e.g. via automation for the kids' tablet |
+| Button **Aufwecken (WoL)** | sends Wake-on-LAN through the FRITZ!Box |
+| Binary sensor **Online** | connected yes/no; attributes `ip`, `mac`, `connection`, `access_point`, `guest`, `last_activity` |
+| Sensors **IP-Adresse**, **Verbindung** | diagnostic values (e.g. "WLAN · mi-router") |
+
+Home Assistant derives the entity IDs from the device name, e.g. `switch.kids_tablet_internetzugang`. Changes in the panel (e.g. "Block internet") show up in HA immediately and vice versa. Switching off removes the device from HA again; if a device is deleted from the FRITZ!Box, FRITZ!Portal cleans it up automatically after 5 minutes.
+
+Requirements: an MQTT broker in HA (e.g. Mosquitto). For commands from HA, a session to the box must exist – best enable **"Keep session alive permanently"**.
+
+```yaml
+# Example: block internet for the kids' tablet at 8 pm
+automation:
+  - alias: Kids tablet offline in the evening
+    triggers:
+      - trigger: time
+        at: "20:00:00"
+    actions:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.kids_tablet_internetzugang
+```
+
 ### Switching WLAN from Home Assistant
 
 Each WLAN/SSID (2.4 GHz, 5 GHz, 6 GHz, **guest access**) is registered as a controllable switch
@@ -244,7 +272,7 @@ state appears as a read-only sensor `sensor.fritzportal_wlan_<N>` (no switching 
 | `sensor.fritzportal_external_ip` | External IPv4 address |
 | `sensor.fritzportal_dsl_downstream` / `_upstream` | DSL sync rate in Mbit/s (DSL lines only) |
 | `sensor.fritzportal_mesh_devices` | Number of connected mesh devices; attribute `devices` with model, firmware, link, clients; `total` incl. disconnected ones |
-| `sensor.fritzportal_topology` | Number of devices in the network; attribute `nodes` with name, role, access point, LAN/Wi-Fi and IP – basis of the card's network graphic (v1.5.1+) |
+| `sensor.fritzportal_topology` | Number of devices in the network; attribute `nodes` with name, role, access point, LAN/Wi-Fi and IP – basis of the card's network graphic (v1.5.1+); updated on changes, immediately after corrections in the panel |
 | `sensor.fritzportal_smarthome` | Number of reachable smart home devices; attribute `devices` with name, group/room, type, switch state, power, energy, temperature, battery (v1.4.8+) |
 | `binary_sensor.fritzportal_firmware_update` | FRITZ!OS update available; attributes: installed/new version, release notes link |
 
@@ -342,7 +370,7 @@ In short: the official interface first, the web interface only as a supplement, 
 
 1. **Login** to the FRITZ!Box: TR-064 and web interface. With "Keep session alive permanently" right at startup, otherwise when the panel is first opened.
 2. **Opening the panel:** the last loaded view appears immediately from the cache and is refreshed in the background.
-3. **HA sensors:** system values (CPU, RAM, devices online …) every 60 s, traffic every 300 s (both configurable). Mesh, firmware and the card's network graphic arrive about **45 s** after startup for the first time, then at the traffic interval.
+3. **HA sensors:** system values (CPU, RAM, devices online …) every 60 s, traffic every 300 s (both configurable). Mesh and firmware arrive about **45 s** after startup for the first time, then at the traffic interval. The card's network graphic is checked every minute and only sent when something changed – after a correction under "Connection & assignment" **immediately** (within seconds).
 4. **Static IP addresses:** background sync starting about **60 s** after startup, see below.
 
 **Caching (selection)** – how long data is reused before the box is asked again:
@@ -390,6 +418,8 @@ docker run --rm -p 3003:3003 \
 
 Then open in your browser: **http://localhost:3003**
 
+> **Note:** Without Home Assistant there is no separate login – anyone who can reach the port can control the FRITZ!Box. It's best to restrict access, e.g. `-e FRITZPORTAL_ALLOWED_IPS=192.168.178.20,192.168.178.0/28` (single IPs or IPv4 ranges, comma-separated) or publish the port locally only (`-p 127.0.0.1:3003:3003`). With `-p`, the container often sees requests from the Docker host itself as `172.17.0.1` – add that address too.
+
 ### Frontend development only (Vite Dev Server)
 
 ```bash
@@ -415,10 +445,11 @@ The full version history can be found in [CHANGELOG.md](fritz-portal/CHANGELOG.m
 |---|---|
 | [@jayjojayson](https://github.com/jayjojayson) | Development & maintenance |
 | [@Mistergatti](https://github.com/Mistergatti) | Italian translation ([#36](https://github.com/jayjojayson/FRITZ-Portal/pull/36)) |
+| [@Trizompa](https://github.com/Trizompa) | Responsible disclosure of the unprotected access on the home network (GHSA-h565-vx6r-3rhv, fixed in v1.5.2) |
 
 Thanks also to everyone who helped with bug reports and debug logs in the [issues](https://github.com/jayjojayson/FRITZ-Portal/issues). Contributions are welcome – just open a pull request.
 ---
 
 <p align="center">
-  Made with ❤️ for the Home Assistant community
+  Made with ❤️ for the Home Assistant community © jayjojayson
 </p>

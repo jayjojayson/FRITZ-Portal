@@ -219,3 +219,65 @@ export function AccessProfileSettings({ sid, ip, disabled }: { sid: string; ip: 
     </div>
   );
 }
+
+// Gerät als eigenes Gerät in Home Assistant bereitstellen (MQTT): Schalter Internetzugang,
+// Button Aufwecken (WoL), Online-Status mit IP/Verbindung/Zugangspunkt. Ausschalten
+// entfernt das Gerät wieder aus Home Assistant.
+export function HaExportSettings({ sid, mac }: { sid: string; mac: string }) {
+  const t = useT();
+  const headers = { 'X-Fritz-SID': sid };
+  const [state, setState] = useState<{ enabled: boolean; available: boolean; commands: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  useEffect(() => {
+    apiFetch(`/api/fritz/device/ha-export?mac=${encodeURIComponent(mac)}`, { headers })
+      .then(r => r.json()).then(setState).catch(() => setState(null));
+  }, [mac]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!state) return null;
+
+  const toggle = async (enabled: boolean) => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const d = await (await apiFetch('/api/fritz/device/ha-export', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ mac, enabled }),
+      })).json();
+      if (d.success) {
+        setState(s => (s ? { ...s, enabled } : s));
+        setMsg({ text: enabled ? t('In Home Assistant bereitgestellt') : t('Aus Home Assistant entfernt'), ok: true });
+      } else setMsg({ text: d.error || t('Fehler beim Speichern.'), ok: false });
+    } catch {
+      setMsg({ text: t('Verbindungsfehler.'), ok: false });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card">
+      <div className="card-header"><h3>{t('Home Assistant')}</h3></div>
+      <div className="card-body">
+        <Row label={t('In Home Assistant bereitstellen')}
+          hint={t('Legt das Gerät per MQTT als eigenes Gerät in Home Assistant an: Schalter „Internetzugang", Button „Aufwecken (WoL)", Online-Status, IP und Verbindung – z. B. für Automationen. Ausschalten entfernt es wieder.')}>
+          <Segmented disabled={busy || (!state.available && !state.enabled)}
+            value={state.enabled ? 'on' : 'off'}
+            options={[['off', t('Aus')], ['on', t('Ein')]]}
+            onChange={v => toggle(v === 'on')} />
+        </Row>
+        {!state.available && (
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}>
+            {t('Nur mit MQTT verfügbar – dafür in Home Assistant einen MQTT-Broker einrichten (z. B. Mosquitto).')}
+          </div>
+        )}
+        {state.available && state.enabled && !state.commands && (
+          <div style={{ fontSize: 12, color: 'var(--warning)', marginTop: 8 }}>
+            {t('Zustände werden übertragen, aber die Verbindung zum MQTT-Broker für Befehle aus Home Assistant fehlt noch.')}
+          </div>
+        )}
+        {msg && <div className={msg.ok ? 'success-message' : 'error-message'} style={{ marginTop: 12 }}>{msg.text}</div>}
+      </div>
+    </div>
+  );
+}

@@ -8,7 +8,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Home%20Assistant-App-41BDF5?logo=home-assistant&logoColor=white" alt="HA App"/>
-  <img src="https://img.shields.io/badge/Version-1.5.1-blue" alt="Version"/>
+  <img src="https://img.shields.io/badge/Version-1.5.2-blue" alt="Version"/>
   <img src="https://img.shields.io/badge/Architektur-amd64%20%7C%20aarch64%20%7C%20armv7-green" alt="Arch"/>
   <img src="https://img.shields.io/badge/Lizenz-MIT-lightgrey" alt="Lizenz"/>  
   <img src="https://img.shields.io/badge/Downloads-35.1K-blue" alt="Downloads"/> 
@@ -44,7 +44,7 @@ Wenn euch die App gefällt, würde ich mich über eine Sternebewertung ⭐ freue
 | **Geräteliste** | Alle verbundenen Hosts mit Status, IP, MAC, Verbindungstyp, Sortierung, Suche, Internet-Sperre + **Lösch-Funktion für Offline-Geräte** |
 | **Geräte-Detail** | Name umbenennen (mit Umlaut-Sanitizer), DHCP-IP fest reservieren, Internet sperren/freigeben, Gerät aus FRITZ!Box-Liste entfernen |
 | **Netzwerk** | LAN, WAN, WLAN, DHCP – Details auf einen Blick; **Mesh-Topologie-Visualisierung** mit Mesh- und radialer Netzwerk-Ansicht; **WLAN ein/aus pro SSID** (z. B. Gastzugang); WLAN-Passwort direkt änderbar |
-| **Traffic** | Download/Upload-Chart live (30 s Takt, 30 min Verlauf) + Statistiken für Heute, Gestern, Woche, Monat, Vormonat |
+| **Traffic** | Zwei Unterseiten: **Traffic** – Download/Upload-Chart live (30 s Takt, 30 min Verlauf) + Online-Zähler für Heute, Gestern, Woche, Monat, Vormonat; **Online-Monitor** – Auslastung wie in der FRITZ!Box, aufgeteilt nach Heimnetz/IPTV/Gastnetz und Priorisierungsklassen (10/30/60 min) |
 | **Telefonie** | Anrufliste (Von/An/Gerät getrennt, Typ-Filter) und DECT-Handsets – **saubere Trennung zu SmartHome** (DECT-Aktoren wie FRITZ!DECT 200/301 landen nur noch in SmartHome) |
 | **SmartHome** | Alle Smart-Home-Geräte inkl. **Zigbee** (ab FRITZ!OS 8.20 über die neue Smart-Home-REST-API, sonst AHA) mit Temperatur, Soll-Temperatur, Luftfeuchte, Schaltzustand, Leistung, Energie, Akku und Firmware |
 | **System** | Fritz!Box Modell, Firmware, Uptime, Seriennummer, Neustart-Funktion; HA-Sensoren-Konfiguration, Debug-Logging, „Sitzung dauerhaft halten", „Traffic-Verlauf serverseitig sammeln" |
@@ -92,7 +92,7 @@ Wenn euch die App gefällt, würde ich mich über eine Sternebewertung ⭐ freue
 | `dashboard_card` | Dashboard-Card beim Start nach `/config/www/fritz-portal/` kopieren und als Lovelace-Ressource registrieren | `true` |
 
 4. **Speichern → Starten**
-5. Via **Benutzeroberfläche** öffnen oder direkt unter `http://<ha-ip>:3003`
+5. Über die **Seitenleiste** von Home Assistant öffnen (bzw. „Benutzeroberfläche öffnen" in der App). Der direkte Aufruf über `http://<ha-ip>:3003` ist seit v1.5.2 bewusst nicht mehr möglich: Dieser Weg lief ohne Anmeldung und wäre ein Risiko für die FRITZ!Box (siehe Changelog).
 
 > **Hinweis:** Die App meldet sich beim Start automatisch mit den konfigurierten Zugangsdaten an der Fritz!Box an – kein manuelles Login nötig.
 
@@ -224,6 +224,34 @@ Zwei Wege, sie in HA sichtbar zu machen:
 > Ingress-Ansicht weiterhin der direkte Weg; das `active_hosts`-Attribut ist der schlanke Weg für eine
 > eigene Karte ohne Ingress.
 
+### Einzelne Geräte in Home Assistant steuern (ab v1.5.2)
+
+Jedes Gerät lässt sich einzeln an Home Assistant übergeben: Gerät in der **Geräteliste** öffnen → Karte **„Home Assistant"** → **„In Home Assistant bereitstellen"** auf **Ein**. FRITZ!Portal legt dann per MQTT ein eigenes HA-Gerät mit dem Namen des Geräts an – als Untergerät der FRITZ!Box – mit:
+
+| Entität | Funktion |
+|---|---|
+| Schalter **Internetzugang** | `on` = Internet freigegeben, `off` = gesperrt – z. B. per Automation für das Kinder-Tablet |
+| Button **Aufwecken (WoL)** | sendet Wake-on-LAN über die FRITZ!Box |
+| Binärsensor **Online** | verbunden ja/nein; Attribute `ip`, `mac`, `connection`, `access_point`, `guest`, `last_activity` |
+| Sensoren **IP-Adresse**, **Verbindung** | Diagnose-Werte (z. B. „WLAN · mi-router") |
+
+Die Entity-IDs leitet Home Assistant aus dem Gerätenamen ab, z. B. `switch.kinder_tablet_internetzugang`. Änderungen im Panel (z. B. „Internet sperren") erscheinen sofort in HA und umgekehrt. Ausschalten entfernt das Gerät wieder aus HA; wird ein Gerät aus der FRITZ!Box gelöscht, räumt FRITZ!Portal es nach 5 Minuten automatisch auf.
+
+Voraussetzungen: MQTT-Broker in HA (z. B. Mosquitto). Für Befehle aus HA muss außerdem eine Sitzung zur Box bestehen – am besten **„Sitzung dauerhaft aktiv halten"** einschalten.
+
+```yaml
+# Beispiel: Internet für das Kinder-Tablet um 20 Uhr sperren
+automation:
+  - alias: Kinder-Tablet abends offline
+    triggers:
+      - trigger: time
+        at: "20:00:00"
+    actions:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.kinder_tablet_internetzugang
+```
+
 ### WLAN aus Home Assistant schalten
 
 Jede WLAN/SSID (2,4 GHz, 5 GHz, 6 GHz, **Gastzugang**) wird – sofern ein MQTT-Broker eingerichtet ist –
@@ -244,7 +272,7 @@ erscheint der Status als Nur-Anzeige-Sensor `sensor.fritzportal_wlan_<N>` (kein 
 | `sensor.fritzportal_external_ip` | Externe IPv4-Adresse |
 | `sensor.fritzportal_dsl_downstream` / `_upstream` | DSL-Sync-Rate in Mbit/s (nur bei DSL-Anschluss) |
 | `sensor.fritzportal_mesh_devices` | Anzahl verbundener Mesh-Geräte; Attribut `devices` mit Modell, Firmware, Verbindung, Clients; `total` inkl. getrennter |
-| `sensor.fritzportal_topology` | Anzahl der Geräte im Netzwerk; Attribut `nodes` mit Name, Rolle, Zugangspunkt, LAN/WLAN und IP – Grundlage der Netzwerk-Grafik der Card (ab v1.5.1) |
+| `sensor.fritzportal_topology` | Anzahl der Geräte im Netzwerk; Attribut `nodes` mit Name, Rolle, Zugangspunkt, LAN/WLAN und IP – Grundlage der Netzwerk-Grafik der Card (ab v1.5.1); aktualisiert bei Änderungen, nach Korrekturen im Panel sofort |
 | `sensor.fritzportal_smarthome` | Anzahl erreichbarer Smart-Home-Geräte; Attribut `devices` mit Name, Gruppe/Raum, Typ, Schaltzustand, Leistung, Energie, Temperatur, Akku (ab v1.4.8) |
 | `binary_sensor.fritzportal_firmware_update` | FRITZ!OS-Update verfügbar; Attribute: installierte/neue Version, Link zu den Versionshinweisen |
 
@@ -340,7 +368,7 @@ Kurz gesagt: zuerst die offizielle Schnittstelle, die Weboberfläche nur ergänz
 
 1. **Anmeldung** an der FRITZ!Box: TR-064 und Weboberfläche. Mit „Sitzung dauerhaft aktiv halten" direkt beim Start, sonst beim ersten Öffnen des Panels.
 2. **Panel öffnen:** Die zuletzt geladene Ansicht erscheint sofort aus dem Zwischenspeicher, aktualisiert wird im Hintergrund.
-3. **HA-Sensoren:** System-Werte (CPU, RAM, Geräte online …) alle 60 s, Traffic alle 300 s (beides einstellbar). Mesh, Firmware und die Netzwerk-Grafik der Card kommen erstmals ca. **45 s** nach dem Start, danach im Traffic-Intervall.
+3. **HA-Sensoren:** System-Werte (CPU, RAM, Geräte online …) alle 60 s, Traffic alle 300 s (beides einstellbar). Mesh und Firmware kommen erstmals ca. **45 s** nach dem Start, danach im Traffic-Intervall. Die Netzwerk-Grafik der Card wird jede Minute geprüft und nur bei Änderungen gesendet – nach einer Korrektur unter „Verbindung & Zuordnung" **sofort** (wenige Sekunden).
 4. **Feste IP-Adressen:** Abgleich im Hintergrund ab ca. **60 s** nach dem Start, siehe unten.
 
 **Zwischenspeicher (Auswahl)** – so lange werden Daten wiederverwendet, bevor die Box erneut gefragt wird:
@@ -388,6 +416,8 @@ docker run --rm -p 3003:3003 \
 
 Danach im Browser öffnen: **http://localhost:3003**
 
+> **Hinweis:** Ohne Home Assistant gibt es keine eigene Anmeldung – wer den Port erreicht, kann die FRITZ!Box steuern. Am besten den Zugriff einschränken, z. B. `-e FRITZPORTAL_ALLOWED_IPS=192.168.178.20,192.168.178.0/28` (einzelne IPs oder IPv4-Bereiche, kommagetrennt) oder den Port nur lokal freigeben (`-p 127.0.0.1:3003:3003`). Bei `-p` sieht der Container Aufrufe vom Docker-Host selbst oft als `172.17.0.1` – diese Adresse dann mit eintragen.
+
 ### Nur Frontend entwickeln (Vite Dev Server)
 
 ```bash
@@ -412,11 +442,12 @@ Die vollständige Versionshistorie ist in [CHANGELOG.md](fritz-portal/CHANGELOG.
 |---|---|
 | [@jayjojayson](https://github.com/jayjojayson) | Entwicklung & Pflege |
 | [@Mistergatti](https://github.com/Mistergatti) | Italienische Übersetzung ([#36](https://github.com/jayjojayson/FRITZ-Portal/pull/36)) |
+| [@Trizompa](https://github.com/Trizompa) | Verantwortungsvolle Meldung zum ungeschützten Zugriff im Heimnetz (GHSA-h565-vx6r-3rhv, behoben in v1.5.2) |
 
 Danke auch an alle, die mit Fehlerberichten und Debug-Protokollen in den [Issues](https://github.com/jayjojayson/FRITZ-Portal/issues) geholfen haben. Beiträge sind willkommen – einfach einen Pull Request öffnen.
 
 ---
 
 <p align="center">
-  Made with ❤️ for the Home Assistant community
+  Made with ❤️ for the Home Assistant community © jayjojayson
 </p>

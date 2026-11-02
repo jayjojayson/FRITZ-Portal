@@ -1,8 +1,8 @@
 # Changelog
 
-## 1.5.1
+## 1.5.2
 
-If you like FRITZ!Portal, I would appreciate a Star rating ⭐ from you.
+Please, if you like FRITZ!Portal, I would appreciate a Star rating ⭐ from you.
 This helps the algorithm to boost the Add-on. Thank you.
 You can also support me with a coffee via ko-fi or PayPal.
 
@@ -13,6 +13,26 @@ You can also support me with a coffee via ko-fi or PayPal.
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/G2G01VCROJ) [![Support](https://img.shields.io/badge/%20-Support%20Me-steelblue?style=flat&logo=paypal&logoColor=white)](https://www.paypal.me/quadFlyerFW)
 
 ---
+
+- **Security** (**important update**, [GHSA-h565-vx6r-3rhv](https://github.com/jayjojayson/FRITZ-Portal/security/advisories/GHSA-h565-vx6r-3rhv), reported by [**@Trizompa**](https://github.com/Trizompa) – thank you!): The add-on runs in the host network and was therefore reachable at `http://<HA-IP>:3003` from every device on the home network – bypassing Home Assistant's authentication. In addition, `/api/fritz/auto-session` handed out a fixed session id to any caller, which gave access to the full FRITZ!Box control (e.g. blocking devices, reading WLAN passwords, reboot). Fixed:
+  - As an HA add-on, the server now only accepts requests via HA Ingress (Supervisor proxy) and from localhost; all other requests from the network are rejected with 403 and logged. Access is therefore only possible through the HA sidebar (requires an HA login as administrator).
+  - The session id is generated randomly on every start instead of being fixed, and no longer appears in the log.
+  - API requests from foreign websites (cross-site) are rejected as well.
+  - The `3003/tcp` port mapping was removed from the add-on configuration.
+  - Docker without Home Assistant: new environment variable `FRITZPORTAL_ALLOWED_IPS` (single IPs or IPv4 ranges) restricts access; without it the log points out the open access at startup.
+  - **Note:** Direct access via `http://<HA-IP>:3003` (e.g. in an iframe card) was intended as a convenience, but it worked without any login and is therefore no longer possible. Please use the sidebar, the Ingress URL or the dashboard card instead.
+- New (**control individual devices from Home Assistant**): The device details have a new "Home Assistant" card with the switch "Provide in Home Assistant". When enabled, FRITZ!Portal creates its own HA device via MQTT (sub-device of the FRITZ!Box) with an **internet access** switch (block/allow), a **Wake up (WoL)** button, an **Online** binary sensor (attributes: IP, MAC, connection, access point, guest) plus IP and connection as diagnostic sensors – e.g. for automations like "kids' tablet offline at 8 pm". Changes in the panel show up in HA immediately and vice versa; commands from HA are only executed for enabled devices. Switching off removes the device from HA; if it is deleted from the FRITZ!Box, FRITZ!Portal cleans up the entries automatically after 5 minutes. The setting is stored in `/data` and survives updates. Requires MQTT.
+- New (**dashboard card – clickable IP addresses**): In the mesh tree the IP addresses are links, in the network view clicking a device or access point opens its IP – each in a new tab. Panning by dragging doesn't trigger a click.
+- New (**Traffic › Online monitor**): The Traffic page now has two sub-pages – "Traffic" (online counter as before) and "Online monitor". The online monitor shows the internet connection's utilization as stacked bars, like the FRITZ!Box: downstream split into home network, IPTV and guest network, upstream into real-time, prioritized, normal and background applications. Period 10, 30 or 60 min; individual categories can be hidden and shown with a click. The box only provides the last 100 seconds – FRITZ!Portal records longer periods itself while it is active.
+- Changed (**device details – order**): "Permanently assign IPv4 address" now sits directly below "Connection & assignment", followed by "Access profile (parental controls)" and "Home Assistant".
+- Fix (**dashboard – download/upload rate**): On some boxes the live rate showed an outdated or too low value. Causes: newer firmwares (e.g. 6591 Cable) name the data source `netMoni` instead of `netMon`, the fallback returned the value from about 100 seconds ago (the box lists values newest first), and upload only counted the "Normal applications" category – yet on many boxes upload lands almost entirely under "Background applications". Dashboard, card and HA sensors now use the same data as the online monitor: the order is detected automatically, all categories are summed and averaged over the last 30 seconds (with bursty traffic such as video streaming a single 5 s sample was pure chance).
+- New (**compact mesh tree in the panel**): Like in the dashboard card, access points with many devices (more than 10) can be collapsed – "▾ Show 49 devices" expands, "▴ Collapse" folds again. Switchable between **Compact** and **Full** (previous view); the choice is remembered in the browser. The counters (devices, infrastructure, clients) still count all devices.
+- New (**dashboard card – names in the network view**): A "Namen" button right in the card shows and hides the device names (default still via `topology_names`).
+- Improved (**dashboard card – zoom with the mouse wheel**): In the network view the plain mouse wheel now zooms, like in the panel. In the mesh tree it stays Ctrl/⌘ + mouse wheel so the dashboard can still be scrolled over the tree.
+- Fix (**dashboard card – network graphic picks up changes immediately**): Corrections under "Connection & assignment" only showed up in the card after the next traffic interval (default 5 min, longer depending on settings). Now the add-on sends the new topology to Home Assistant a few seconds after the change. In addition it is checked every minute and only sent when something changed – so changes on the FRITZ!Box itself also arrive quickly. The topology sensor is also decoupled from the mesh and firmware sensors: an error there no longer holds it up.
+- Fix (**dashboard card – old version in the browser**): The card is now included with version **and** a checksum of its content (`?v=1.5.2-…`). Previously a browser or the HA app could keep using an older card from its cache – e.g. the zoom buttons were missing while another device already showed them.
+
+## 1.5.1
 
 - New (**dashboard card – network graphic - beta**): New section `topology` shows your network like the panel under Network → Topology – switchable right in the card between **Network** (cluster per access point, FRITZ!Box in the middle, LAN blue / Wi-Fi green) and **Mesh** (tree with FRITZ!Box, repeaters, your own routers/access points and devices). In the mesh tree, access points with many devices are collapsed and expand with a click. Third-party routers and manual assignments from "Connection & assignment" are included. New editor options: view on load (`topology_view: network | mesh`), show device names (`topology_names`), devices in the mesh tree (`topology_clients`). New for this: `sensor.fritzportal_topology` (number of devices, attribute `nodes` with name, role, access point, LAN/Wi-Fi and IP – updated at the traffic interval).
 - New (**zoom in the mesh view**): The mesh tree in the panel can be zoomed – buttons −/%/+ (clicking % resets) plus Ctrl/⌘ + mouse wheel or trackpad gesture; the point under the cursor stays in place. The plain mouse wheel keeps scrolling, since the tree is often longer than the screen. The dashboard card's network graphic is zoomable too (both views): buttons, Ctrl/⌘ + mouse wheel and, in the network view, panning by dragging.
@@ -30,18 +50,6 @@ You can also support me with a coffee via ko-fi or PayPal.
 
 - Fix (**dashboard card shows nothing / "no sensors"**): Since Home Assistant 2026.4 the MQTT discovery field `object_id` is ignored. Newly created entities therefore got IDs built from the device and sensor name (e.g. `sensor.fritz_portal_cpu_auslastung` instead of `sensor.fritzportal_cpu`) – the card couldn't find them and stayed empty. The add-on now also sends `default_entity_id`, so new installations get the documented IDs again. The card finds entities that were already named differently via their `unique_id` in the entity registry – existing installations work without renaming anything.
 - Thanks to Nicknol for the feedback on the new dashboard card.
-
----
-
-If you like FRITZ!Portal, I would appreciate a Star rating ⭐ from you.
-This helps the algorithm to boost the Add-on. Thank you.
-You can also support me with a coffee via ko-fi or PayPal.
-
----
-
-[![README English](https://img.shields.io/badge/README-English-orange)](https://github.com/jayjojayson/FRITZ-Portal/blob/main/README_eng.md) [![README Deutsch](https://img.shields.io/badge/README-Deutsch-orange)](https://github.com/jayjojayson/FRITZ-Portal) 
-
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/G2G01VCROJ) [![Support](https://img.shields.io/badge/%20-Support%20Me-steelblue?style=flat&logo=paypal&logoColor=white)](https://www.paypal.me/quadFlyerFW)
 
 ## 1.4.9
 

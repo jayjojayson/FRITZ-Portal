@@ -97,7 +97,7 @@ export default function App() {
           setSid(data.sid);
           setError(null);
           try { localStorage.setItem(LS_SID_KEY, data.sid); } catch {}
-          setSessionReady();
+          setSessionReady(data.sid);
         } else {
           try { localStorage.removeItem(LS_SID_KEY); } catch {}
           setSid(null);

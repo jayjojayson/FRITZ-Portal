@@ -1,5 +1,5 @@
 name: "FRITZ!Portal"
-version: "1.5.1"
+version: "1.5.2"
 slug: "fritz-portal"
 description: "FRITZ!Box Dashboard für Home Assistant"
 url: "https://github.com/jayjojayson/FRITZ-Portal"
@@ -25,10 +25,8 @@ host_network: true
 # (wird nach /config/www/fritz-portal/ kopiert, abschaltbar per dashboard_card: false)
 map:
   - homeassistant_config:rw
-ports:
-  3003/tcp: null
-ports_description:
-  3003/tcp: "FRITZ!Portal Web UI"
+# Kein direkter Port: Zugriff nur über die HA-Seitenleiste (Ingress). Der Server lehnt
+# Anfragen aus dem LAN ab (Sicherheitsmeldung GHSA-h565-vx6r-3rhv).
 options:
   fritzbox_host: "fritz.box"
   fritzbox_user: ""

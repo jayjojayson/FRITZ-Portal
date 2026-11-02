@@ -293,6 +293,15 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
     treeBox.scrollLeft += a.x * (treeK - a.from);
     window.scrollBy(0, a.y * (treeK - a.from));
   }, [treeK, treeBox]);
+  // Mesh-Baum kompakt: Zugangspunkte mit vielen Geräten eingeklappt (Klick klappt auf)
+  const [treeCompact, setTreeCompact] = useState(() => { try { return localStorage.getItem('fritzportal_mesh_compact') !== '0'; } catch { return true; } });
+  const [treeOpen, setTreeOpen] = useState<Set<string>>(() => new Set());
+  const setCompact = (v: boolean) => { setTreeCompact(v); try { localStorage.setItem('fritzportal_mesh_compact', v ? '1' : '0'); } catch {} };
+  const toggleFold = (uid: string) => setTreeOpen(prev => {
+    const next = new Set(prev);
+    if (next.has(uid)) next.delete(uid); else next.add(uid);
+    return next;
+  });
   const isOriginallyHosts = meshData?._source === 'hosts-fallback';
   const [viewMode, setViewMode] = useState<'mesh' | 'hosts'>(isOriginallyHosts ? 'hosts' : 'mesh');
   const [hostsData, setHostsData] = useState<any>(null);
@@ -733,10 +742,14 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
   // ── Vertikaler Tree (indentierte Baumansicht) ──
   type TreeNode = MeshNode & {
     children: TreeNode[];
+    shown: TreeNode[];   // sichtbare Kinder (im Kompakt-Modus ggf. ohne Endgeräte)
     linkType: string;
     depth: number;
     rowIdx: number;
+    foldRow?: number;    // Zeile des „Geräte anzeigen"-Eintrags
   };
+  type FoldRow = { parent: TreeNode; count: number; open: boolean; depth: number; rowIdx: number };
+  const TREE_FOLD = 10; // ab so vielen Endgeräten je Zugangspunkt eingeklappt (Kompakt)
 
   const NODE_W = 360;
   const NODE_H = 52;
@@ -748,7 +761,7 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
 
   const masterNode = nodes.find(n => n.role === 'master') || nodes[0];
   const byUid = new Map<string, TreeNode>(
-    nodes.map(n => [n.uid, { ...n, children: [], linkType: 'LAN', depth: 0, rowIdx: 0 }])
+    nodes.map(n => [n.uid, { ...n, children: [], shown: [], linkType: 'LAN', depth: 0, rowIdx: 0 }])
   );
   const parentByChild = new Map<string, { parent: string; type: string }>();
   for (const l of links) {
@@ -781,19 +794,30 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
   };
   sortChildren(rootTree);
 
-  // Depth-first flachen, rowIdx und depth zuweisen
+  // Depth-first flachen, rowIdx und depth zuweisen; im Kompakt-Modus Endgeräte großer
+  // Zugangspunkte durch eine „Geräte anzeigen"-Zeile ersetzen
   const flat: TreeNode[] = [];
+  const folds: FoldRow[] = [];
   const flatten = (n: TreeNode, depth: number) => {
     n.depth = depth;
-    n.rowIdx = flat.length;
+    n.rowIdx = flat.length + folds.length;
     flat.push(n);
-    for (const c of n.children) flatten(c, depth + 1);
+    const clients = n.children.filter(c => !isInfraNode(c));
+    const foldable = treeCompact && clients.length > TREE_FOLD;
+    const open = treeOpen.has(n.uid);
+    n.shown = foldable && !open ? n.children.filter(isInfraNode) : n.children;
+    for (const c of n.shown) flatten(c, depth + 1);
+    if (foldable) {
+      n.foldRow = flat.length + folds.length;
+      folds.push({ parent: n, count: clients.length, open, depth: depth + 1, rowIdx: n.foldRow });
+    }
   };
   flatten(rootTree, 0);
+  const allTree = [...byUid.values()];
 
   const maxDepth = flat.reduce((m, n) => Math.max(m, n.depth), 0);
   const svgW = Math.max(600, PAD_X * 2 + maxDepth * INDENT + NODE_W);
-  const svgH = flat.length * ROW_H + PAD_Y * 2;
+  const svgH = (flat.length + folds.length) * ROW_H + PAD_Y * 2;
 
   const xOf = (n: TreeNode) => PAD_X + n.depth * INDENT;
   const yOf = (n: TreeNode) => PAD_Y + n.rowIdx * ROW_H;
@@ -807,10 +831,10 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
   };
 
   const treeZoomBtn = { padding: '2px 9px', fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', cursor: 'pointer', background: 'var(--bg-card)', color: 'var(--text-secondary)' } as const;
-  const infraCount = flat.filter(n => n !== rootTree && isInfraNode(n)).length;
+  const infraCount = allTree.filter(n => n !== rootTree && isInfraNode(n)).length;
   // Nur echte FRITZ!-Mesh-Geräte (Box + Mesh-Repeater) für „getrennt"-Vergleich mit meshTotal
-  const meshConnected = flat.filter(n => n === rootTree || n.role === 'satellite').length;
-  const clientCount = flat.length - 1 - infraCount;
+  const meshConnected = allTree.filter(n => n === rootTree || n.role === 'satellite').length;
+  const clientCount = allTree.length - 1 - infraCount;
 
   return (
     <div className="card">
@@ -819,7 +843,7 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
         {legend}
       </div>
       <div style={{ display: 'flex', justifyContent: 'center', gap: 24, padding: '10px 16px 2px', fontSize: 13, color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
-        <span>{t('{n} Geräte').replace('{n}', String(flat.length))}</span>
+        <span>{t('{n} Geräte').replace('{n}', String(allTree.length))}</span>
         {infraCount > 0 && <span style={{ color: '#f59e0b' }}>● {t('{n} Infrastruktur').replace('{n}', String(infraCount))}</span>}
         <span style={{ color: 'var(--text-primary)' }}>● {t('{n} Clients').replace('{n}', String(clientCount))}</span>
         {isOfficial && typeof currentData?.meshTotal === 'number' && currentData.meshTotal > meshConnected && (
@@ -829,6 +853,16 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
         )}
         <span style={{ fontSize: 11, opacity: 0.7 }} title={isOfficial ? t('Offizielle Mesh-Liste der FRITZ!Box (TR-064)') : t('Ersatzdaten aus der Weboberfläche')}>
           {isOfficial ? t('Quelle: Mesh-Liste') : t('Quelle: Weboberfläche')}
+        </span>
+        <span style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}
+          title={t('Zugangspunkte mit vielen Geräten einklappen')}>
+          {([[true, 'Kompakt'], [false, 'Vollständig']] as const).map(([v, label]) => (
+            <button key={label} onClick={() => setCompact(v)} style={{
+              padding: '2px 10px', fontSize: 12, border: 'none', cursor: 'pointer',
+              background: treeCompact === v ? 'var(--accent)' : 'var(--bg-card)',
+              color: treeCompact === v ? '#fff' : 'var(--text-secondary)',
+            }}>{t(label)}</button>
+          ))}
         </span>
         <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }} title={t('Strg + Mausrad: zoomen')}>
           <button style={treeZoomBtn} onClick={() => zoomTree(1 / 1.25)}>−</button>
@@ -841,11 +875,11 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
         <svg width={svgW * treeK} height={svgH * treeK} viewBox={`0 0 ${svgW} ${svgH}`} style={{ display: 'block' }}>
           {/* Vertikale "Pipes" pro Elternknoten (ein Strich von Eltern-Bottom zur Mitte des letzten Kindes) */}
           {flat.map(parent => {
-            if (parent.children.length === 0) return null;
-            const lastChild = parent.children[parent.children.length - 1];
+            if (parent.shown.length === 0 && parent.foldRow === undefined) return null;
+            const lastRow = parent.foldRow ?? parent.shown[parent.shown.length - 1].rowIdx;
             const px = xOf(parent) + CONNECTOR_OFF;
             const y1 = yOf(parent) + NODE_H;
-            const y2 = yOf(lastChild) + NODE_H / 2;
+            const y2 = PAD_Y + lastRow * ROW_H + NODE_H / 2;
             return (
               <line key={`v-${parent.uid}`}
                 x1={px} y1={y1} x2={px} y2={y2}
@@ -855,7 +889,7 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
           })}
           {/* Horizontale L-Abzweige: pro Kind vom Eltern-Connector zur linken Kante der Kind-Box,
               eingefärbt nach Verbindungstyp (LAN blau / WLAN grün gestrichelt) */}
-          {flat.flatMap(parent => parent.children.map(child => {
+          {flat.flatMap(parent => parent.shown.map(child => {
             const wlan = isWlanType(child.linkType);
             const color = wlan ? '#10b981' : '#3b82f6';
             const dash = wlan ? '5 3' : '0';
@@ -874,6 +908,22 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
               />
             );
           }))}
+
+          {/* Kompakt-Modus: „Geräte anzeigen" / „einklappen" je großem Zugangspunkt */}
+          {folds.map(f => {
+            const x1 = xOf(f.parent) + CONNECTOR_OFF;
+            const x2 = PAD_X + f.depth * INDENT;
+            const cy = PAD_Y + f.rowIdx * ROW_H + NODE_H / 2;
+            return (
+              <g key={`fold-${f.parent.uid}`} style={{ cursor: 'pointer' }} onClick={() => toggleFold(f.parent.uid)}>
+                <line x1={x1} y1={cy} x2={x2} y2={cy} stroke="var(--text-secondary)" strokeOpacity="0.35" strokeWidth="1.5" strokeDasharray="3 3" />
+                <rect x={x2} y={cy - 15} width={NODE_W} height={30} rx={8} fill="var(--bg-card)" stroke="var(--border)" strokeDasharray="4 4" />
+                <text x={x2 + 14} y={cy + 4} fontSize="12" fill="var(--accent)">
+                  {f.open ? t('▴ einklappen') : t('▾ {n} Geräte anzeigen', { n: f.count })}
+                </text>
+              </g>
+            );
+          })}
 
           {/* Knoten als abgerundete Rechtecke, links ausgerichtet */}
           {flat.map(n => {

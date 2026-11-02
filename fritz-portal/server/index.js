@@ -5,7 +5,8 @@ import WebSocket from 'ws';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { createHash, pbkdf2Sync } from 'crypto';
+import { createHash, pbkdf2Sync, randomBytes } from 'crypto';
+import { networkInterfaces } from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -123,6 +124,53 @@ try {
 })();
 
 const app = express();
+
+// ── Zugriffsschutz (Sicherheitsmeldung GHSA-h565-vx6r-3rhv) ──
+// Als HA-Add-on läuft der Server im Host-Netz (host_network) und war damit unter
+// http://<HA-IP>:3003 für jedes Gerät im LAN erreichbar – an der Anmeldung von Home
+// Assistant vorbei, mit vollem Zugriff auf die FRITZ!Box. Jetzt gilt:
+//  - HA-Add-on: nur Anfragen über HA-Ingress (Supervisor-Proxy 172.30.32.2) und von
+//    localhost. Ingress setzt eine HA-Anmeldung als Administrator voraus (panel_admin).
+//  - Docker ohne HA: optional auf bestimmte Adressen einschränken, z. B.
+//    FRITZPORTAL_ALLOWED_IPS=192.168.178.20,192.168.178.0/28
+const IS_ADDON = !!(process.env.SUPERVISOR_TOKEN || process.env.HASSIO_TOKEN);
+const INGRESS_PROXY_IP = '172.30.32.2';
+const normIp = (ip) => String(ip || '').replace(/^::ffff:/, '');
+const isLoopback = (ip) => ip === '127.0.0.1' || ip === '::1';
+const ipv4Int = (ip) => ip.split('.').reduce((a, p) => ((a << 8) >>> 0) + (parseInt(p, 10) & 255), 0) >>> 0;
+const ALLOWED_IP_RULES = String(process.env.FRITZPORTAL_ALLOWED_IPS || '').split(',').map(e => e.trim()).filter(Boolean).map(entry => {
+  const [base, bits] = entry.split('/');
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(base)) {
+    const b = Math.min(32, Math.max(0, bits === undefined ? 32 : parseInt(bits, 10) || 0));
+    const mask = b === 0 ? 0 : (0xffffffff << (32 - b)) >>> 0;
+    return (ip) => /^\d{1,3}(\.\d{1,3}){3}$/.test(ip) && ((ipv4Int(ip) & mask) >>> 0) === ((ipv4Int(base) & mask) >>> 0);
+  }
+  return (ip) => ip === entry.toLowerCase();
+});
+const blockedIpsLogged = new Set();
+app.use((req, res, next) => {
+  const ip = normIp(req.socket.remoteAddress);
+  const allowed = isLoopback(ip) || (IS_ADDON
+    ? ip === INGRESS_PROXY_IP
+    : ALLOWED_IP_RULES.length === 0 || ALLOWED_IP_RULES.some(rule => rule(ip)));
+  if (allowed) return next();
+  if (!blockedIpsLogged.has(ip) && blockedIpsLogged.size < 50) {
+    blockedIpsLogged.add(ip);
+    console.log(`Zugriff von ${ip} abgelehnt – ${IS_ADDON ? 'FRITZ!Portal ist nur über Home Assistant (Seitenleiste/Ingress) erreichbar' : 'Adresse nicht in FRITZPORTAL_ALLOWED_IPS'}`);
+  }
+  res.status(403).type('text/plain').send(IS_ADDON
+    ? 'FRITZ!Portal ist nur über Home Assistant erreichbar (Seitenleiste). / FRITZ!Portal is only available through Home Assistant (sidebar).'
+    : 'Forbidden');
+});
+// Zweite Absicherung: API-Aufrufe von fremden Webseiten (Cross-Site) ablehnen. Das Panel
+// selbst ruft die API immer von derselben Herkunft auf.
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api') && req.headers['sec-fetch-site'] === 'cross-site') {
+    return res.status(403).json({ error: 'Cross-Site-Anfrage abgelehnt' });
+  }
+  next();
+});
+
 app.use(express.json());
 
 // Aktivitäts-Tracker: Bei jeder API-Anfrage `lastUsed` der Session bumpen.
@@ -176,7 +224,9 @@ if (staticPath) {
 }
 
 const sessions = new Map();
-const AUTO_SID = 'auto-session-ha-addon';
+// Zufällig pro Start (GHSA-h565-vx6r-3rhv) – vorher fest „auto-session-ha-addon" und damit
+// für jeden bekannt, der den Server erreichen konnte
+const AUTO_SID = randomBytes(24).toString('hex');
 const APP_VERSION = (() => {
   try { return JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf-8')).version || '0'; } catch { return '0'; }
 })();
@@ -382,27 +432,27 @@ async function getAddonInfos(session) {
 // Liefert zusätzlich den Verlauf (falls die Quelle einen hat) und die GetAddonInfos-
 // Antwort (Gesamt-Bytes), damit Aufrufer sie nicht erneut abfragen müssen.
 async function getLiveRates(session, key) {
-  let downBps = 0, upBps = 0, dsHistory = [], usHistory = [], addon = null;
+  let downBps = 0, upBps = 0, dsHistory = [], usHistory = [], addon = null, haveMonitor = false;
+  // 1. Online-Monitor (data.lua netMon/netMoni, sonst TR-064 GetOnlineMonitor): Reihenfolge
+  //    erkannt (s. detectOmOrder), alle Kategorien summiert – je nach Box landet der Upload
+  //    fast komplett in „Hintergrund" statt „Normal" – und über die letzten 30 s gemittelt
+  //    (Collector-Takt). Eine einzelne 5-s-Probe ist bei stoßweisem Verkehr (Video) Zufall.
   try {
-    const webSid = await getCachedWebSid(session);
-    if (webSid) {
-      const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page: 'netMon', xhrId: 'all' });
-      const r = await fetch(`http://${session.host}/data.lua`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: params.toString(),
-      });
-      const text = await r.text();
-      if (text.trim().startsWith('{')) {
-        const group = JSON.parse(text)?.data?.sync_groups?.[0];
-        dsHistory = (group?.ds_bps_curr || []).map(Number);
-        usHistory = (group?.us_default_bps_curr || []).map(Number);
-        downBps = dsHistory[dsHistory.length - 1] || 0;
-        upBps   = usHistory[usHistory.length - 1] || 0;
+    if (await ensureOnlineMonitor(session)) {
+      const pts = [...onlineMonitor.buckets.entries()].sort((x, y) => x[0] - y[0]).slice(-20).map(e => e[1]);
+      const down = (p) => p.home + p.guest + p.iptv;
+      const up = (p) => p.realtime + p.high + p.normal + p.low;
+      const recent = pts.slice(-6);
+      if (recent.length) {
+        haveMonitor = true;
+        dsHistory = pts.map(down);
+        usHistory = pts.map(up);
+        downBps = Math.round(recent.reduce((sum, p) => sum + down(p), 0) / recent.length);
+        upBps   = Math.round(recent.reduce((sum, p) => sum + up(p), 0) / recent.length);
       }
     }
   } catch {}
-  if (!downBps && !upBps) {
+  if (!haveMonitor && !downBps && !upBps) {
     try {
       const link = await soapRequest(session.host, 'urn:dslforum-org:service:WANCommonInterfaceConfig:1', 'GetCommonLinkProperties', session.username, session.password, session.controlUrls);
       const list = (v) => String(v || '').split(',').map(x => parseInt(x, 10)).filter(Number.isFinite);
@@ -415,7 +465,7 @@ async function getLiveRates(session, key) {
       }
     } catch {}
   }
-  if (!downBps && !upBps) {
+  if (!haveMonitor && !downBps && !upBps) {
     addon = await getAddonInfos(session);
     downBps = parseInt(addon.NewByteReceiveRate || '0', 10) || 0;
     upBps   = parseInt(addon.NewByteSendRate    || '0', 10) || 0;
@@ -436,6 +486,141 @@ async function getLiveRates(session, key) {
   }
   return { downBps, upBps, dsHistory, usHistory, addon };
 }
+
+// ── Online-Monitor (Traffic › Online-Monitor) ──
+// netMon/netMoni liefert je Kategorie die letzten 20 Werte im 5-s-Raster (Bytes/s).
+// Jede Abfrage überlappt die vorige – wir legen die Werte in 5-s-Buckets ab (neuere
+// überschreiben ältere) und erhalten so einen lückenlosen Verlauf, solange mindestens
+// alle 100 s abgefragt wird (Collector 30 s, offene Seite 10 s).
+const OM_STEP = 5000;
+const OM_KEEP_MS = 60 * 60 * 1000;
+const OM_NETMON_FIELDS = {
+  home: 'ds_bps_curr', guest: 'ds_guest_bps_curr', iptv: 'ds_mc_bps_curr',
+  realtime: 'us_realtime_bps_curr', high: 'us_important_bps_curr', normal: 'us_default_bps_curr', low: 'us_background_bps_curr',
+};
+const OM_KEYS = Object.keys(OM_NETMON_FIELDS);
+const onlineMonitor = { buckets: new Map(), last: 0, source: '', pending: null, order: {}, prev: {} };
+
+// Ob der neueste Wert vorne oder hinten steht, ist nicht dokumentiert (Quellen widersprechen
+// sich). Wir erkennen es am Überlapp zweier Abrufe: bei „neuester zuletzt" ist der neue Block
+// gegenüber dem alten nach links verschoben, sonst nach rechts. Bis zur Erkennung gilt
+// „zuletzt" – so liest getLiveRates die aktuelle Rate schon immer.
+function shiftMatches(older, newer, k) {
+  let distinct = new Set();
+  for (let i = 0; i + k < older.length && i < newer.length; i++) {
+    if (newer[i] !== older[i + k]) return false;
+    if (newer[i] > 0) distinct.add(newer[i]);
+  }
+  return distinct.size >= 3;
+}
+function detectOmOrder(source, sig) {
+  const prev = onlineMonitor.prev[source];
+  onlineMonitor.prev[source] = sig;
+  if (onlineMonitor.order[source] || !prev || prev.length !== sig.length) return;
+  let last = false, first = false;
+  for (let k = 1; k <= sig.length - 4; k++) {
+    last ||= shiftMatches(prev, sig, k);
+    first ||= shiftMatches(sig, prev, k);
+  }
+  if (last === first) return;
+  onlineMonitor.order[source] = last ? 'last' : 'first';
+  // Vorher (evtl. falsch herum) abgelegte Werte verwerfen
+  if (first) onlineMonitor.buckets.clear();
+  console.log(`Online-Monitor: ${source} liefert den neuesten Wert ${last ? 'zuletzt' : 'zuerst'}`);
+}
+
+function recordOnlineMonitor(series, source) {
+  const n = Math.max(0, ...OM_KEYS.map(k => series[k]?.length || 0));
+  if (!n) return false;
+  const norm = {};
+  for (const k of OM_KEYS) {
+    const a = (series[k] || []).map(Number);
+    norm[k] = a.length === n ? a : [...Array(n - a.length).fill(0), ...a];
+  }
+  detectOmOrder(source, Array.from({ length: n }, (_, i) => OM_KEYS.reduce((sum, k) => sum + (norm[k][i] || 0), 0)));
+  if (onlineMonitor.order[source] === 'first') for (const k of OM_KEYS) norm[k].reverse();
+  const now = Math.floor(Date.now() / OM_STEP) * OM_STEP;
+  for (let i = 0; i < n; i++) {
+    const p = {};
+    for (const k of OM_KEYS) { const v = norm[k][i]; p[k] = Number.isFinite(v) && v > 0 ? v : 0; }
+    onlineMonitor.buckets.set(now - (n - 1 - i) * OM_STEP, p);
+  }
+  for (const t of onlineMonitor.buckets.keys()) if (t < now - OM_KEEP_MS) onlineMonitor.buckets.delete(t);
+  onlineMonitor.last = Date.now();
+  onlineMonitor.source = source;
+  return true;
+}
+
+function recordOnlineMonitorGroup(group, page = 'netMon') {
+  const series = {};
+  for (const k of OM_KEYS) series[k] = Array.isArray(group[OM_NETMON_FIELDS[k]]) ? group[OM_NETMON_FIELDS[k]] : [];
+  return recordOnlineMonitor(series, `data.lua ${page}`);
+}
+
+// Seitenname je nach FRITZ!OS netMon oder netMoni – der funktionierende wird gemerkt
+let omPages = ['netMon', 'netMoni'];
+async function fetchNetMonGroup(session) {
+  const webSid = await getCachedWebSid(session);
+  if (!webSid) return null;
+  for (const page of omPages) {
+    try {
+      const params = new URLSearchParams({ xhr: '1', sid: webSid, lang: 'de', page, xhrId: 'all' });
+      const r = await fetch(`http://${session.host}/data.lua`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() });
+      const text = await r.text();
+      const group = text.trim().startsWith('{') ? JSON.parse(text)?.data?.sync_groups?.[0] : null;
+      if (group) {
+        if (omPages[0] !== page) omPages = [page, ...omPages.filter(p => p !== page)];
+        return { group, page };
+      }
+    } catch {}
+  }
+  return null;
+}
+
+async function fetchOnlineMonitor(session) {
+  const nm = await fetchNetMonGroup(session).catch(() => null);
+  if (nm && recordOnlineMonitorGroup(nm.group, nm.page)) return true;
+  // Fallback ohne Web-Login: offizielle TR-064-Aktion (kein Gastnetz-Anteil)
+  try {
+    const m = await soapRequest(session.host, 'urn:dslforum-org:service:WANCommonInterfaceConfig:1', 'X_AVM-DE_GetOnlineMonitor', session.username, session.password, session.controlUrls, { NewSyncGroupIndex: 0 });
+    const list = (v) => String(v || '').split(',').map(x => parseInt(x, 10)).filter(Number.isFinite);
+    return recordOnlineMonitor({
+      home: list(m?.Newds_current_bps), iptv: list(m?.Newmc_current_bps),
+      realtime: list(m?.Newprio_realtime_bps), high: list(m?.Newprio_high_bps),
+      normal: list(m?.Newprio_default_bps), low: list(m?.Newprio_low_bps),
+    }, 'TR-064 GetOnlineMonitor');
+  } catch { return false; }
+}
+
+// Gemeinsamer Abruf für Live-Rate (Dashboard/HA) und Online-Monitor-Seite: höchstens alle 8 s,
+// parallele Aufrufer warten auf denselben Request
+async function ensureOnlineMonitor(session, maxAge = 8000) {
+  if (Date.now() - onlineMonitor.last <= maxAge) return true;
+  onlineMonitor.pending ||= fetchOnlineMonitor(session).finally(() => { onlineMonitor.pending = null; });
+  return onlineMonitor.pending;
+}
+
+app.get('/api/fritz/online-monitor', async (req, res) => {
+  const session = sessions.get(req.headers['x-fritz-sid']);
+  if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  const minutes = [10, 30, 60].includes(Number(req.query.range)) ? Number(req.query.range) : 10;
+  await ensureOnlineMonitor(session);
+  // Längere Zeiträume zu 15-/30-s-Balken mitteln, damit es bei ~120 Balken bleibt
+  const step = minutes <= 10 ? OM_STEP : minutes <= 30 ? 15000 : 30000;
+  const from = Date.now() - minutes * 60000;
+  const agg = new Map();
+  for (const [t, p] of onlineMonitor.buckets) {
+    if (t < from) continue;
+    const b = Math.floor(t / step) * step;
+    const a = agg.get(b) || { n: 0, sum: Object.fromEntries(OM_KEYS.map(k => [k, 0])) };
+    a.n++;
+    for (const k of OM_KEYS) a.sum[k] += p[k];
+    agg.set(b, a);
+  }
+  const points = [...agg.entries()].sort((x, y) => x[0] - y[0])
+    .map(([t, a]) => ({ t, ...Object.fromEntries(OM_KEYS.map(k => [k, Math.round(a.sum[k] / a.n)])) }));
+  return res.json({ source: onlineMonitor.source, step, points });
+});
 
 setInterval(async () => {
   // Nur EINE Session pro Tick abfragen – bei mehreren offenen Sessions entstanden sonst
@@ -1219,7 +1404,7 @@ app.get('/api/fritz/auto-session', async (req, res) => {
   try {
     const controlUrls = await discoverControlUrls(host);
     sessions.set(AUTO_SID, { host, username, password, controlUrls, isAutoSession: true, lastUsed: Date.now() });
-    console.log('Auto-session: Created session with SID:', AUTO_SID);
+    console.log('Auto-session: Sitzung angelegt');
     // WebSID im Hintergrund vorab cachen, damit eco-stats und network-stats sofort bereit sind
     const autoSession = sessions.get(AUTO_SID);
     getCachedWebSid(autoSession).catch(() => {});
@@ -1588,6 +1773,7 @@ app.post('/api/fritz/device/override', (req, res) => {
   saveDeviceOverrides();
   // Nur abgeleitete Daten neu berechnen – die Rohdaten der Box bleiben gültig
   for (const k of ['hosts', 'ip-stats', 'mesh-topology', 'mesh-hosts-fallback']) cache.delete(k);
+  pushTopologySoon(); // Netzwerk-Grafik der Card ohne Wartezeit aktualisieren
   return res.json({ success: true, override: ov });
 });
 
@@ -1770,6 +1956,14 @@ app.post('/api/fritz/device-log/clear', async (req, res) => {
   }
 });
 
+// Gemeinsam für Panel und HA (MQTT-Button)
+async function wakeHost(session, macRaw) {
+  const mac = String(macRaw || '').trim().toUpperCase();
+  if (!/^[0-9A-F]{2}(:[0-9A-F]{2}){5}$/.test(mac)) throw new Error('Ungültige MAC-Adresse');
+  await soapRequest(session.host, 'urn:dslforum-org:service:Hosts:1', 'X_AVM-DE_WakeOnLANByMACAddress', session.username, session.password, session.controlUrls, { NewMACAddress: mac });
+  console.log(`Wake-on-LAN an ${mac} gesendet`);
+}
+
 app.post('/api/fritz/device/wol', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   const session = sessions.get(sid);
@@ -1777,8 +1971,7 @@ app.post('/api/fritz/device/wol', async (req, res) => {
   const mac = String(req.body?.mac || '').trim().toUpperCase();
   if (!/^[0-9A-F]{2}(:[0-9A-F]{2}){5}$/.test(mac)) return res.status(400).json({ error: 'Ungültige MAC-Adresse' });
   try {
-    await soapRequest(session.host, 'urn:dslforum-org:service:Hosts:1', 'X_AVM-DE_WakeOnLANByMACAddress', session.username, session.password, session.controlUrls, { NewMACAddress: mac });
-    console.log(`Wake-on-LAN an ${mac} gesendet`);
+    await wakeHost(session, mac);
     return res.json({ success: true });
   } catch (err) {
     console.error('Wake-on-LAN error:', err.message);
@@ -1973,17 +2166,23 @@ app.delete('/api/fritz/device/static-dhcp', async (req, res) => {
   }
 });
 
+// Internetzugang sperren/freigeben – gemeinsam für Panel und HA (MQTT-Schalter)
+async function setHostBlocked(session, mac, blocked) {
+  const hosts = getCached('hosts', 60000) || await getHostsViaSoap(session.host, session.username, session.password, session.controlUrls);
+  const host = hosts.find(h => h.mac === mac);
+  if (!host?.ip) throw new Error('IP-Adresse des Geräts nicht gefunden');
+  await soapRequest(session.host, 'urn:dslforum-org:service:X_AVM-DE_HostFilter:1', 'DisallowWANAccessByIP', session.username, session.password, session.controlUrls, { NewIPv4Address: host.ip, NewDisallow: blocked ? '1' : '0' });
+  invalidateHosts();
+  haDeviceStateSoon(); // freigegebene HA-Geräte sofort aktualisieren
+}
+
 app.post('/api/fritz/device/block', async (req, res) => {
   const sid = req.headers['x-fritz-sid'];
   const session = sessions.get(sid);
   if (!session) return res.status(401).json({ error: 'Nicht eingeloggt' });
   const { mac, blocked } = req.body;
   try {
-    const hosts = getCached('hosts', 60000) || await getHostsViaSoap(session.host, session.username, session.password, session.controlUrls);
-    const host = hosts.find(h => h.mac === mac);
-    if (!host?.ip) return res.json({ success: false, error: 'IP-Adresse des Geräts nicht gefunden' });
-    await soapRequest(session.host, 'urn:dslforum-org:service:X_AVM-DE_HostFilter:1', 'DisallowWANAccessByIP', session.username, session.password, session.controlUrls, { NewIPv4Address: host.ip, NewDisallow: blocked ? '1' : '0' });
-    invalidateHosts();
+    await setHostBlocked(session, mac, blocked);
     return res.json({ success: true });
   } catch (err) {
     console.error('Block device error:', err.message);
@@ -3618,6 +3817,18 @@ app.get('/api/fritz/traffic-raw', async (req, res) => {
         : `HTTP ${r.status}, ${text.length} Zeichen ${text.includes('const data') ? '(HTML mit Daten)' : '(keine Daten)'}`;
     } catch (e) { out['data.lua netCnt'] = `Fehler: ${e.message}`; }
   }
+  const describe = (obj) => Object.entries(obj || {})
+    .map(([k, v]) => Array.isArray(v) ? `${k}[${v.length}]=${v[v.length - 1]}` : `${k}=${typeof v === 'object' ? '{…}' : v}`)
+    .join(', ') || '—';
+  if (webSid) {
+    const nm = await fetchNetMonGroup(session).catch(() => null);
+    out['data.lua netMon/netMoni'] = nm ? `${nm.page}: ${describe(nm.group)}` : 'keine sync_groups';
+  }
+  out['Online-Monitor Reihenfolge'] = JSON.stringify(onlineMonitor.order);
+  try {
+    const m = await soapRequest(session.host, 'urn:dslforum-org:service:WANCommonInterfaceConfig:1', 'X_AVM-DE_GetOnlineMonitor', session.username, session.password, session.controlUrls, { NewSyncGroupIndex: 0 });
+    out['TR-064 GetOnlineMonitor'] = describe(m);
+  } catch (e) { out['TR-064 GetOnlineMonitor'] = `Fehler: ${e.message}`; }
   try {
     const a = await getAddonInfos(session);
     const down = parseInt(a.NewX_AVM_DE_TotalBytesReceived64 || a.NewTotalBytesReceived || '0', 10) || 0;
@@ -3749,6 +3960,7 @@ async function publishMqttDiscovery() {
   mqttAvailable = true;
   // Lazy-Entitäten beim nächsten Push neu registrieren (z. B. nach Broker-Neustart)
   lazyDiscovered.clear();
+  haDevPublished.clear();
   console.log('MQTT Discovery: Broker erreichbar – registriere Sensoren...');
   const device = fritzboxDevice();
   let registered = 0;
@@ -3861,12 +4073,13 @@ async function connectMqttBroker() {
 
   client.on('connect', () => {
     console.log(`MQTT-Broker: verbunden (${url}) – abonniere WLAN-Schaltbefehle`);
-    client.subscribe('fritzportal/wlan/+/set', (err) => {
+    client.subscribe(['fritzportal/wlan/+/set', 'fritzportal/dev/+/internet/set', 'fritzportal/dev/+/wol'], (err) => {
       if (err) console.error('MQTT-Broker: subscribe-Fehler:', err.message);
     });
   });
 
   client.on('message', async (topic, payload) => {
+    if (await handleHaDeviceCommand(topic, payload)) return;
     const m = topic.match(/^fritzportal\/wlan\/(\d+)\/set$/);
     if (!m) return;
     const index = parseInt(m[1], 10);
@@ -3889,6 +4102,181 @@ async function connectMqttBroker() {
   client.on('error', (e) => console.error('MQTT-Broker Fehler:', e.message));
   client.on('close', () => console.log('MQTT-Broker: Verbindung getrennt – Reconnect läuft'));
 }
+
+// ── Einzelne Netzwerkgeräte als eigene HA-Geräte (MQTT) ──
+// Pro Gerät in den Gerätedetails freischaltbar (deviceOverrides[mac].ha, liegt in /data und
+// übersteht Updates). Je Gerät: Schalter „Internetzugang", Button „Aufwecken (WoL)",
+// Online-Status (Attribute: IP, MAC, Verbindung, Zugangspunkt) sowie IP und Verbindung als
+// Diagnose-Sensoren – als Untergerät der FRITZ!Box (via_device). Befehle aus HA werden nur
+// für freigegebene Geräte ausgeführt. Verschwindet ein Gerät aus der FRITZ!Box (nicht nur
+// offline), werden seine Discovery-Einträge gelöscht – sonst blieben tote Geräte in HA.
+const haDevId = (mac) => String(mac || '').toLowerCase().replace(/[^0-9a-f]/g, '');
+const HA_DEV_PARTS = [
+  ['switch', 'internet'], ['button', 'wol'], ['binary_sensor', 'online'], ['sensor', 'ip'], ['sensor', 'conn'],
+];
+const haDevConfigTopic = (id, [component, key]) => `homeassistant/${component}/fritzportal_dev_${id}_${key}/config`;
+const haDevPublished = new Map(); // id → Name/Modell, mit dem die Discovery zuletzt gesendet wurde
+const haDevMissing = new Map();   // mac → { n: Prüfungen in Folge, since: erstmals vermisst }
+// Erst entfernen, wenn das Gerät mehrmals in Folge UND seit mindestens 5 min fehlt – ein
+// einzelner Aussetzer der Geräteliste darf kein Gerät aus HA löschen
+const HA_DEV_MISSING_LIMIT = 3;
+const HA_DEV_MISSING_MS = 5 * 60 * 1000;
+
+const haExportedMacs = () => Object.entries(deviceOverrides).filter(([, o]) => o?.ha).map(([mac]) => mac);
+const haDevicesAvailable = () => !!HA_TOKEN && mqttAvailable;
+
+async function publishHaDeviceDiscovery(host) {
+  const id = haDevId(host.mac);
+  const base = `fritzportal/dev/${id}`;
+  const device = {
+    identifiers: [`fritzportal_dev_${id}`],
+    connections: [['mac', host.mac]],
+    name: host.name || host.mac,
+    manufacturer: 'FRITZ!Portal',
+    model: host.model || 'Netzwerkgerät',
+    via_device: 'fritzportal_fritzbox',
+  };
+  // Entity-IDs leitet HA aus Geräte- und Entitätsname ab (z. B. switch.kinder_tablet_internetzugang)
+  const ent = (key, extra) => ({ unique_id: `fritzportal_dev_${id}_${key}`, device, ...extra });
+  const configs = {
+    internet: ent('internet', { name: 'Internetzugang', icon: 'mdi:web', state_topic: `${base}/internet`,
+      command_topic: `${base}/internet/set`, payload_on: 'ON', payload_off: 'OFF' }),
+    wol: ent('wol', { name: 'Aufwecken (WoL)', icon: 'mdi:power', command_topic: `${base}/wol`, payload_press: 'PRESS' }),
+    online: ent('online', { name: 'Online', device_class: 'connectivity', state_topic: `${base}/online`,
+      json_attributes_topic: `${base}/attributes` }),
+    ip: ent('ip', { name: 'IP-Adresse', icon: 'mdi:ip-network', entity_category: 'diagnostic', state_topic: `${base}/ip` }),
+    conn: ent('conn', { name: 'Verbindung', icon: 'mdi:lan-connect', entity_category: 'diagnostic', state_topic: `${base}/conn` }),
+  };
+  for (const part of HA_DEV_PARTS) await publishMqtt(haDevConfigTopic(id, part), configs[part[1]], true);
+  haDevPublished.set(id, `${device.name}|${device.model}`);
+}
+
+async function publishHaDeviceState(host) {
+  const base = `fritzportal/dev/${haDevId(host.mac)}`;
+  const via = host.viaName || 'FRITZ!Box';
+  await publishMqtt(`${base}/internet`, host.blocked ? 'OFF' : 'ON', true);
+  await publishMqtt(`${base}/online`, host.active ? 'ON' : 'OFF', true);
+  await publishMqtt(`${base}/ip`, host.ip || '-', true);
+  await publishMqtt(`${base}/conn`, host.connDisplay || host.connType || '-', true);
+  await publishMqtt(`${base}/attributes`, {
+    mac: host.mac, ip: host.ip || '', connection: host.connType || '', connection_detail: host.connDisplay || '',
+    access_point: via, guest: !!host.guest, last_activity: host.lastActivity || '',
+  }, true);
+}
+
+// Discovery- und Zustands-Einträge (retained) leeren → HA entfernt Entitäten und Gerät
+async function removeHaDevice(mac) {
+  const id = haDevId(mac);
+  for (const part of HA_DEV_PARTS) await publishMqtt(haDevConfigTopic(id, part), '', true);
+  for (const t of ['internet', 'online', 'ip', 'conn', 'attributes']) await publishMqtt(`fritzportal/dev/${id}/${t}`, '', true);
+  haDevPublished.delete(id);
+  haDevMissing.delete(mac);
+}
+
+let haDevSyncRunning = false;
+async function syncHaDevices() {
+  const macs = haExportedMacs();
+  if (!macs.length || !haDevicesAvailable() || haDevSyncRunning) return;
+  const session = [...sessions.values()][0];
+  if (!session) return;
+  haDevSyncRunning = true;
+  try {
+    const hosts = await getEnrichedHosts(session).catch(() => null);
+    // Ohne gültige Geräteliste nichts ändern – ein Abruffehler darf keine Geräte löschen
+    if (!Array.isArray(hosts) || hosts.length === 0) return;
+    const byMac = new Map(hosts.filter(h => h.mac).map(h => [h.mac, h]));
+    let changed = false;
+    for (const mac of macs) {
+      const host = byMac.get(mac);
+      if (!host) {
+        const miss = haDevMissing.get(mac) || { n: 0, since: Date.now() };
+        miss.n++;
+        haDevMissing.set(mac, miss);
+        if (miss.n >= HA_DEV_MISSING_LIMIT && Date.now() - miss.since >= HA_DEV_MISSING_MS) {
+          await removeHaDevice(mac);
+          delete deviceOverrides[mac].ha;
+          if (!Object.keys(deviceOverrides[mac]).length) delete deviceOverrides[mac];
+          changed = true;
+          console.log(`HA-Gerät ${mac} entfernt – nicht mehr in der Geräteliste der FRITZ!Box`);
+        }
+        continue;
+      }
+      haDevMissing.delete(mac);
+      const id = haDevId(mac);
+      if (haDevPublished.get(id) !== `${host.name || host.mac}|${host.model || 'Netzwerkgerät'}`) await publishHaDeviceDiscovery(host);
+      await publishHaDeviceState(host);
+    }
+    if (changed) saveDeviceOverrides();
+  } finally {
+    haDevSyncRunning = false;
+  }
+}
+// Nach Änderungen (Panel oder HA-Befehl) zeitnah den neuen Zustand senden
+let haDevTimer = null;
+function haDeviceStateSoon() {
+  if (!haExportedMacs().length) return;
+  clearTimeout(haDevTimer);
+  haDevTimer = setTimeout(() => { syncHaDevices().catch(() => {}); }, 1500);
+}
+
+// Befehle aus HA (über die Broker-Verbindung) – nur für freigegebene Geräte
+async function handleHaDeviceCommand(topic, payload) {
+  const m = topic.match(/^fritzportal\/dev\/([0-9a-f]{12})\/(internet\/set|wol)$/);
+  if (!m) return false;
+  const mac = haExportedMacs().find(x => haDevId(x) === m[1]);
+  if (!mac) { console.log(`MQTT-Broker: Befehl für nicht freigegebenes Gerät ignoriert (${topic})`); return true; }
+  const session = [...sessions.values()][0];
+  if (!session) { console.log(`MQTT-Broker: Befehl für ${mac} ignoriert – keine aktive FRITZ!Box-Session (keep_session_alive aktivieren)`); return true; }
+  try {
+    if (m[2] === 'wol') await wakeHost(session, mac);
+    else {
+      const allow = String(payload).trim().toUpperCase() === 'ON';
+      await setHostBlocked(session, mac, !allow);
+      console.log(`MQTT-Broker: Internetzugang für ${mac} ${allow ? 'freigegeben' : 'gesperrt'}`);
+    }
+  } catch (e) {
+    console.error(`MQTT-Broker: Befehl für ${mac} fehlgeschlagen:`, e.message);
+    haDeviceStateSoon(); // tatsächlichen Zustand zurückspiegeln
+  }
+  return true;
+}
+
+app.get('/api/fritz/device/ha-export', (req, res) => {
+  if (!sessions.get(req.headers['x-fritz-sid'])) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  const mac = String(req.query.mac || '').toLowerCase();
+  return res.json({
+    enabled: !!deviceOverrides[mac]?.ha,
+    available: haDevicesAvailable(),
+    commands: !!mqttBrokerClient?.connected,
+  });
+});
+
+app.post('/api/fritz/device/ha-export', async (req, res) => {
+  if (!sessions.get(req.headers['x-fritz-sid'])) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  const mac = String(req.body?.mac || '').toLowerCase();
+  const enabled = !!req.body?.enabled;
+  if (!/^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/.test(mac)) return res.status(400).json({ error: 'Ungültige MAC-Adresse' });
+  if (enabled && !haDevicesAvailable()) return res.json({ success: false, error: 'MQTT ist nicht verfügbar' });
+  try {
+    if (enabled) {
+      deviceOverrides[mac] = { ...(deviceOverrides[mac] || {}), ha: true };
+      saveDeviceOverrides();
+      await syncHaDevices();
+      console.log(`HA-Gerät ${mac} freigegeben`);
+    } else {
+      if (deviceOverrides[mac]) {
+        delete deviceOverrides[mac].ha;
+        if (!Object.keys(deviceOverrides[mac]).length) delete deviceOverrides[mac];
+        saveDeviceOverrides();
+      }
+      await removeHaDevice(mac);
+      console.log(`HA-Gerät ${mac} entfernt`);
+    }
+    return res.json({ success: true, enabled });
+  } catch (err) {
+    return res.json({ success: false, error: err.message });
+  }
+});
 
 async function setState(entityId, state, attributes = {}) {
   try {
@@ -4103,6 +4491,49 @@ async function pushWanSensorsToHA() {
 }
 
 // Mesh + Firmware im langsamen (Traffic-)Intervall – ändern sich selten
+// Topologie für die Mesh-/Netzwerk-Grafik der Dashboard-Card – dieselben Daten wie die
+// Mesh-Ansicht im Panel (offizielle Mesh-Liste + Zugangspunkte/Korrekturen). Läuft im
+// schnellen Sensor-Takt, sendet aber nur bei Änderungen; nach einer Korrektur im Panel
+// sofort (pushTopologySoon), damit die Card nicht minutenlang den alten Stand zeigt.
+let lastTopologyJson = '';
+async function pushTopologyToHA(force = false) {
+  if (!HA_TOKEN) return;
+  const session = [...sessions.values()][0];
+  if (!session) return;
+  try {
+    const mesh = await getOfficialMesh(session).catch(() => null);
+    const enriched = await getEnrichedHosts(session).catch(() => []);
+    const base = mesh?.nodes?.length > 1 ? mesh : await buildHostsMesh(session, enriched, true);
+    if (!base) return;
+    const topo = applyTopologyToMesh(structuredClone(base), enriched);
+    const parentOf = new Map();
+    for (const l of topo.links) if (l.from && l.to && l.from !== l.to && !parentOf.has(l.to)) parentOf.set(l.to, l);
+    const isWlan = (t) => /wlan|802\.11|wireless|wifi/i.test(t || '');
+    const nodes = topo.nodes.map(n => {
+      const l = parentOf.get(n.uid);
+      return {
+        id: n.uid, name: n.name || n.ip || n.mac || '',
+        role: n.role === 'master' ? 'master' : n.role === 'satellite' ? 'repeater' : n.infra ? 'ap' : 'client',
+        parent: n.role === 'master' ? '' : (l?.from || ''),
+        link: isWlan(l?.type || n.interfaces?.[0]?.type) ? 'WLAN' : 'LAN',
+        ip: n.ip || '',
+      };
+    });
+    const attrs = { source: topo._source || '', nodes };
+    const json = JSON.stringify(attrs);
+    if (!force && json === lastTopologyJson) return;
+    await pushNetEntity(NET_ENTITIES.topology, nodes.length - 1, attrs);
+    lastTopologyJson = json;
+  } catch (e) {
+    debugLog('Topologie-Sensor:', e.message);
+  }
+}
+let topologyTimer = null;
+function pushTopologySoon() {
+  clearTimeout(topologyTimer);
+  topologyTimer = setTimeout(() => { pushTopologyToHA(true).catch(() => {}); }, 2000);
+}
+
 async function pushInfraSensorsToHA() {
   if (!HA_TOKEN) return;
   const session = [...sessions.values()][0];
@@ -4120,29 +4551,6 @@ async function pushInfraSensorsToHA() {
       })),
     });
   }
-  // Topologie für die Mesh-/Netzwerk-Grafik der Dashboard-Card – dieselben Daten wie die
-  // Mesh-Ansicht im Panel (offizielle Mesh-Liste + Zugangspunkte/Korrekturen)
-  try {
-    const enriched = await getEnrichedHosts(session).catch(() => []);
-    const base = mesh?.nodes?.length > 1 ? mesh : await buildHostsMesh(session, enriched, true);
-    if (base) {
-      const topo = applyTopologyToMesh(structuredClone(base), enriched);
-      const parentOf = new Map();
-      for (const l of topo.links) if (l.from && l.to && l.from !== l.to && !parentOf.has(l.to)) parentOf.set(l.to, l);
-      const isWlan = (t) => /wlan|802\.11|wireless|wifi/i.test(t || '');
-      const nodes = topo.nodes.map(n => {
-        const l = parentOf.get(n.uid);
-        return {
-          id: n.uid, name: n.name || n.ip || n.mac || '',
-          role: n.role === 'master' ? 'master' : n.role === 'satellite' ? 'repeater' : n.infra ? 'ap' : 'client',
-          parent: n.role === 'master' ? '' : (l?.from || ''),
-          link: isWlan(l?.type || n.interfaces?.[0]?.type) ? 'WLAN' : 'LAN',
-          ip: n.ip || '',
-        };
-      });
-      await pushNetEntity(NET_ENTITIES.topology, nodes.length - 1, { source: topo._source || '', nodes });
-    }
-  } catch {}
   try {
     const fw = await getFirmwareStatus(session);
     await pushNetEntity(NET_ENTITIES.firmware_update, fw.updateAvailable, {
@@ -4298,13 +4706,15 @@ function startHaTimers() {
     pushPhoneSensorsToHA().catch(() => {});
     pushWanSensorsToHA().catch(() => {});
     pushSmartHomeSensorToHA().catch(() => {});
+    pushTopologyToHA().catch(() => {});
+    syncHaDevices().catch(() => {});
   }, haFastIntervalSec * 1000);
   haTrafficTimer = setInterval(() => {
     pushTrafficSensorsToHA().catch(() => {});
     pushInfraSensorsToHA().catch(() => {});
   }, haTrafficIntervalSec * 1000);
   // Mesh/Firmware einmal kurz nach dem Start, nicht erst nach dem ersten Traffic-Intervall
-  setTimeout(() => { pushInfraSensorsToHA().catch(() => {}); }, 45000);
+  setTimeout(() => { pushInfraSensorsToHA().catch(() => {}); pushTopologyToHA(true).catch(() => {}); syncHaDevices().catch(() => {}); }, 45000);
 }
 
 startHaTimers();
@@ -4314,7 +4724,10 @@ startHaTimers();
 // 2. Als Lovelace-Ressource registrieren (WebSocket-API über den Supervisor-Proxy).
 //    Klappt nur im Storage-Modus von Lovelace; im YAML-Modus geben wir einen Hinweis aus.
 // Abschaltbar über die Add-on-Option dashboard_card: false.
-const CARD_RESOURCE_URL = `/local/fritz-portal/fritz-portal-card.js?v=${APP_VERSION}`;
+// Version + Prüfwert des Inhalts: Jede Änderung an der Card ergibt eine neue URL, damit kein
+// Browser (bzw. die HA-App) eine zwischengespeicherte ältere Card weiterverwendet
+const CARD_HASH = (() => { try { return createHash('md5').update(readFileSync(CARD_FILE)).digest('hex').slice(0, 8); } catch { return ''; } })();
+const CARD_RESOURCE_URL = `/local/fritz-portal/fritz-portal-card.js?v=${APP_VERSION}${CARD_HASH ? `-${CARD_HASH}` : ''}`;
 
 // Führt eine Folge von WebSocket-Kommandos gegen die HA-Core-API aus. Jedes Kommando
 // ist eine Funktion (bisherigeErgebnisse) => message. Ergebnis: Array der Antworten.
@@ -4508,12 +4921,26 @@ app.post('/api/fritz/ha-settings', async (req, res) => {
 });
 
 const PORT = 3003;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`FritzBox Proxy Server läuft auf http://0.0.0.0:${PORT}`);
-}).on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`Port ${PORT} ist bereits belegt – läuft FRITZ!Portal schon (z. B. in einem anderen Terminal)? Den anderen Prozess beenden (Strg+C) und erneut starten.`);
-    process.exit(1);
-  }
-  throw err;
-});
+// Als Add-on nur auf localhost und dem Supervisor-Gateway (172.30.32.1, über das Ingress das
+// Add-on im Host-Netz erreicht) lauschen – der Port ist dann aus dem LAN gar nicht erreichbar.
+// Fehlt die Schnittstelle (ungewöhnliche Installation), bleibt es bei 0.0.0.0; die IP-Prüfung
+// oben lässt dann trotzdem nur Ingress und localhost durch.
+const SUPERVISOR_GATEWAY_IP = '172.30.32.1';
+const hasGateway = Object.values(networkInterfaces()).flat().some(a => a?.address === SUPERVISOR_GATEWAY_IP);
+const BIND_ADDRESSES = IS_ADDON && hasGateway ? ['127.0.0.1', SUPERVISOR_GATEWAY_IP] : ['0.0.0.0'];
+console.log(IS_ADDON
+  ? `Zugriffsschutz: nur über Home Assistant (Ingress) – direkter Zugriff aus dem LAN ist gesperrt (lauscht auf ${BIND_ADDRESSES.join(', ')})`
+  : ALLOWED_IP_RULES.length
+    ? `Zugriffsschutz: nur für FRITZPORTAL_ALLOWED_IPS (${process.env.FRITZPORTAL_ALLOWED_IPS})`
+    : 'Hinweis: Ohne FRITZPORTAL_ALLOWED_IPS kann jedes Gerät, das diesen Port erreicht, die FRITZ!Box steuern');
+for (const addr of BIND_ADDRESSES) {
+  app.listen(PORT, addr, () => {
+    console.log(`FritzBox Proxy Server läuft auf http://${addr}:${PORT}`);
+  }).on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`Port ${PORT} ist bereits belegt – läuft FRITZ!Portal schon (z. B. in einem anderen Terminal)? Den anderen Prozess beenden (Strg+C) und erneut starten.`);
+      process.exit(1);
+    }
+    throw err;
+  });
+}

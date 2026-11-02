@@ -9,7 +9,7 @@ Dashboard für Ihre FRITZ!Box, direkt in Home Assistant integriert.
 - **Dashboard**: Übersicht über FRITZ!Box-Status, CPU, RAM, Temperatur, aktueller Traffic
 - **Geräte**: Alle verbundenen Geräte anzeigen und verwalten, inkl. freie IP-Adressen
 - **Netzwerk**: LAN, WAN, WLAN-Einstellungen einsehen und ändern
-- **Traffic**: Datenverbrauch (Tag, Woche, Monat, Vormonat)
+- **Traffic**: Datenverbrauch (Tag, Woche, Monat, Vormonat) und Online-Monitor (Auslastung nach Heimnetz/IPTV/Gastnetz und Priorisierungsklassen)
 - **Telefonie**: Anrufliste und DECT-Telefonie
 - **System**: FRITZ!Box-Informationen, Neustart, FRITZ!Portal Version
 
@@ -41,11 +41,19 @@ Dashboard für Ihre FRITZ!Box, direkt in Home Assistant integriert.
 
 - FRITZ!Portal nutzt zuerst die **offizielle Schnittstelle TR-064**. Die **Weboberfläche** der Box ergänzt nur, was TR-064 nicht liefert (z. B. CPU/RAM/Temperatur, Traffic-Zähler, feste IP-Adressen) – gedrosselt auf höchstens 2 gleichzeitige Abfragen.
 - Daten werden kurz zwischengespeichert (15–60 s); das Panel zeigt beim Öffnen sofort die zuletzt geladene Ansicht und aktualisiert im Hintergrund.
-- HA-Sensoren: System alle 60 s, Traffic alle 300 s; Mesh, Firmware und die Netzwerk-Grafik der Card erstmals ca. 45 s nach dem Start.
+- HA-Sensoren: System alle 60 s, Traffic alle 300 s; Mesh und Firmware erstmals ca. 45 s nach dem Start. Die Netzwerk-Grafik der Card übernimmt Korrekturen aus „Verbindung & Zuordnung" sofort, sonst jede Minute bei Änderungen.
 - **Feste IP-Adressen erscheinen nach und nach:** Aktuelle FRITZ!OS-Versionen melden sie nur pro Gerät. FRITZ!Portal fragt das im Hintergrund ab (ab ca. 60 s nach dem Start, nur wenn sonst nichts ansteht), speichert das Ergebnis dauerhaft und frischt es alle 12 h auf. Die Gerätedetails fragen immer frisch ab; Zuweisen/Entfernen im Panel wirkt sofort.
 - Mit **„Sitzung dauerhaft aktiv halten"** laufen Sensoren und Hintergrund-Abgleich auch ohne geöffnetes Panel.
 
 Ausführlich: [README – So holt FRITZ!Portal die Daten](https://github.com/jayjojayson/FRITZ-Portal#-so-holt-fritzportal-die-daten-von-der-fritzbox)
+
+## Einzelne Geräte in Home Assistant
+
+In den Gerätedetails lässt sich jedes Gerät per Schalter **„In Home Assistant bereitstellen"** als eigenes HA-Gerät anlegen (MQTT): Schalter Internetzugang, Button Aufwecken (WoL), Online-Status, IP und Verbindung – z. B. für Automationen. Ausschalten entfernt es wieder. Für Befehle aus HA „Sitzung dauerhaft aktiv halten" einschalten.
+
+## Sicherheit
+
+FRITZ!Portal ist nur über die Seitenleiste von Home Assistant erreichbar (Ingress, Anmeldung als HA-Administrator). Direkte Aufrufe aus dem Heimnetz, z. B. `http://<HA-IP>:3003`, sind seit v1.5.2 bewusst nicht mehr möglich: Dieser Weg lief ohne Anmeldung und hätte jedem Gerät im Netz die Steuerung der FRITZ!Box erlaubt (GHSA-h565-vx6r-3rhv).
 
 ## Support
 
