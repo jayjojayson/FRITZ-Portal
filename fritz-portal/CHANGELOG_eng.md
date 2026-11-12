@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.5.3
+
+Please, if you like FRITZ!Portal, I would appreciate a Star rating ⭐ from you.
+This helps the algorithm to boost the Add-on and motivates me. 
+Thank you and thanks for nearly 3000 users and over 40k Downloads. 
+You can also support me with a coffee via ko-fi or PayPal.
+
+---
+
+[![README English](https://img.shields.io/badge/README-English-orange)](https://github.com/jayjojayson/FRITZ-Portal/blob/main/README_eng.md) [![README Deutsch](https://img.shields.io/badge/README-Deutsch-orange)](https://github.com/jayjojayson/FRITZ-Portal) 
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/G2G01VCROJ) [![Support](https://img.shields.io/badge/%20-Support%20Me-steelblue?style=flat&logo=paypal&logoColor=white)](https://www.paypal.me/quadFlyerFW)
+
+---
+
+- New (**telephony sensors – name, number and time as separate entities**, [#43](https://github.com/jayjojayson/FRITZ-Portal/issues/43), requested by [@ms1958](https://github.com/ms1958)): For the last incoming, missed and outgoing call there are now three separate sensors each – `…_name`, `…_number` and `…_time` (e.g. `sensor.fritzportal_last_incoming_call_number`). The time is a real timestamp in Home Assistant's time zone and can be formatted freely in automations and on displays. Also new: `sensor.fritzportal_last_outgoing_call` (last outgoing call). The existing sensors additionally get a `timestamp` attribute. All part of the "Telephony sensors" option – disabling it removes the new entities as well.
+- Improved (**less write load on the HA database**): The device list in "Devices online" used to be re-sorted by activity on every push – so the attribute changed almost every minute and HA stored a new copy of the whole list each time. It is now re-sorted only every 15 minutes; in between the order stays stable (newly added devices go first).
+- Docs (**dashboard card with example pictures**): the README (DE/EN) and the add-on docs now show the dashboard card with pictures – overview on three cards, compact tile in light and HA style, and the network graphic as mesh tree and clusters – plus matching YAML examples. The two dashboard screenshots (light/dark) are updated and now also show the "Recent calls" and "Smart home" boxes; the add-on docs show a preview picture again (the image link was broken).
+- New (**dashboard card – network graphic adapts to its size**, forum request): The graphic was limited to 560 px height and stayed small, e.g. on a wall tablet. It now grows with the card width up to 80 % of the screen height. New option `topology_height` (px, 0 = automatic) sets a fixed limit if needed.
+- New (**dashboard card – longer device names**, forum request): Names were cut after 12 characters. New option `topology_name_length` (8–40, default 16) sets the length; the spacing between devices grows with it so the names don't overlap. Both options are also available in the card's visual editor.
+- Fix (**large networks – attributes over 16 KB**, [#42](https://github.com/jayjojayson/FRITZ-Portal/issues/42), reported by [@rolli-d](https://github.com/rolli-d)): With many devices (e.g. 200+ devices, 40 DECT devices) the attributes of "Devices online", "Network topology" and "Smart home" exceeded the 16 KB the HA recorder stores – HA logged a warning on every update. Long lists are now split across part entities (`sensor.fritzportal_online_devices_2`, `_3` …, as diagnostic entities); the main entity holds part 1 and the number of parts in the `parts` attribute. The dashboard card merges the parts automatically. Parts that are no longer needed are removed as soon as the list gets shorter again.
+- Fix (**network graphic – panel and dashboard card show the same**, forum): The network view in the panel (Network → Topology → Network) built its clusters from the FRITZ!Box device list. That list does not know which FRITZ!Repeater a WLAN device is connected through – so in the panel almost everything hung off the box and the repeaters showed 0 or 1 device, while the dashboard card (official mesh list of the box) distributed the devices correctly. The panel's network view now uses the same data as the mesh view and the card: the mesh list plus your assignments from "Connection & assignment". Only if the box provides no mesh list is the device list used as before. Note: WLAN devices move between box and repeaters on their own depending on reception (roaming) – a distribution that changes over the day is expected and matches the mesh overview of the FRITZ!Box.
+
 ## 1.5.2
 
 Please, if you like FRITZ!Portal, I would appreciate a Star rating ⭐ from you.

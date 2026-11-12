@@ -9,10 +9,10 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Home%20Assistant-App-41BDF5?logo=home-assistant&logoColor=white" alt="HA App"/>
-  <img src="https://img.shields.io/badge/Version-1.5.2-blue" alt="Version"/>
+  <img src="https://img.shields.io/badge/Version-1.5.3-blue" alt="Version"/>
   <img src="https://img.shields.io/badge/Architecture-amd64%20%7C%20aarch64%20%7C%20armhf-green" alt="Arch"/>
   <img src="https://img.shields.io/badge/License-MIT-lightgrey" alt="License"/>
-  <img src="https://img.shields.io/badge/Downloads-39.2K-blue" alt="Downloads"/>
+  <img src="https://img.shields.io/badge/Downloads-42.1K-blue" alt="Downloads"/>
   <a href="README.md"><img src="https://img.shields.io/badge/README-De-lightblue" alt="Deutsch"/></a>
 </p>
 <p align="center">
@@ -26,13 +26,14 @@ If you like the App, I would appreciate a Star rating ⭐ from you. 🤗
 </div>
 
 <p align="center">
-  <img src="fritz-portal/docs/images/screenshot-fritzportal-lite.png" alt="FRITZ!Portal Screenshot" width="800"/>  
-  <img src="fritz-portal/docs/images/screenshot-fritzportal-dark.png" alt="FRITZ!Portal traffic" width="800"/> 
+  <img src="fritz-portal/docs/images/screenshot-fritzportal-lite.png" alt="FRITZ!Portal dashboard (light) with calls and smart home" width="800"/>  
+  <img src="fritz-portal/docs/images/screenshot-fritzportal-dark.png" alt="FRITZ!Portal dashboard (dark) with calls and smart home" width="800"/> 
   <img src="fritz-portal/docs/images/fritzportal-devices.png" alt="FRITZ!Portal network" width="800"/>
   <img src="fritz-portal/docs/images/fritzportal-device.png" alt="FRITZ!Portal network" width="800"/>
   <img src="fritz-portal/docs/images/fritzportal-mesh.png" alt="FRITZ!Portal network" width="800"/>
   <img src="fritz-portal/docs/images/fritzportal-telefon.png" alt="FRITZ!Portal network" width="800"/>
   <img src="fritz-portal/docs/images/fritzportal-traffic.png" alt="FRITZ!Portal network" width="800"/>
+  <img src="fritz-portal/docs/images/fritzportal-card-dark.png" alt="FRITZ!Portal dashboard card" width="800"/>
 </p>
 
 ---
@@ -86,7 +87,7 @@ If you like the App, I would appreciate a Star rating ⭐ from you. 🤗
 | `ha_sensors` | Enable REST API fallback (only needed without MQTT broker) | `false` |
 | `ha_sensors_interval` | System sensor interval (seconds) | `60` |
 | `ha_sensors_traffic_interval` | Traffic sensor interval (seconds) | `300` |
-| `ha_phone_sensors` | Enable telephony sensors: last call, last missed call and last incoming call (with number & name) as HA sensors – only useful if telephony runs through the FRITZ!Box | `false` |
+| `ha_phone_sensors` | Enable telephony sensors: last call plus last incoming, missed and outgoing call (with number & name, each also as separate name/number/time sensors) as HA sensors – only useful if telephony runs through the FRITZ!Box | `false` |
 | `keep_session_alive` | Keep the FRITZ!Box session permanently open – required for continuous HA sensor updates even when the portal is not actively opened. **Increases load on the FRITZ!Box and can compete with HA's built-in Fritz!SmartHome integration** – only enable when the sensors really must be updated 24/7. **Also required to switch WLAN from HA while the portal is not open.** | `false` |
 | `traffic_history_server` | Continuously collect the download/upload history (last 30 min) on the server so the dashboard chart is fully filled immediately when you return – regardless of whether the portal was open. Costs slightly more FRITZ!Box load. Without this option the history is stored in the browser (localStorage) only. | `false` |
 | `debug_logging` | Log all API requests (TR-064, data.lua) to the protocol – useful for troubleshooting, otherwise leave off | `false` |
@@ -128,6 +129,11 @@ FRITZ!Portal ships its own card for your HA dashboards – in the same terminal 
 **installed automatically** when the add-on starts (file copied to `/config/www/fritz-portal/`, registered as a
 Lovelace resource). Then pick **"Add card" → "FRITZ!Portal"** in your dashboard or use YAML:
 
+<p align="center">
+  <img src="fritz-portal/docs/images/fritzportal-card-dark.png" alt="FRITZ!Portal dashboard card – all sections spread across three cards" width="900"/><br/>
+  <sub>All sections spread across three cards (terminal look, dark) – sample data</sub>
+</p>
+
 ```yaml
 type: custom:fritz-portal-card
 title: FRITZ!Box                 # optional
@@ -140,6 +146,8 @@ ha_style: false                  # true = Home Assistant's standard design inste
 topology_view: network           # network graphic: network (clusters) | mesh (tree) – v1.5.1+
 topology_names: false            # network graphic: show device names
 topology_clients: true           # mesh tree: also show devices
+topology_height: 0               # network graphic: max. height in px (0 = automatic, up to 80 % of the screen height) – v1.5.3+
+topology_name_length: 16         # network graphic: characters per device name (8–40) – v1.5.3+
 theme: auto                      # auto | dark | light
 ```
 
@@ -160,6 +168,73 @@ All options can also be set in the card's **visual editor** (native HA controls)
 
 Sections without data are hidden automatically. Lovelace in **YAML mode**? Then add the resource yourself:
 `url: /local/fritz-portal/fritz-portal-card.js`, `type: module`.
+
+#### Examples
+
+**1. Overview on three cards** (as in the picture above): instead of one long card, spread the sections across
+several cards side by side – e.g. in a sections dashboard or a `horizontal-stack`:
+
+```yaml
+type: horizontal-stack
+cards:
+  - type: custom:fritz-portal-card
+    sections: [system, wan, traffic, traffic_stats]
+  - type: custom:fritz-portal-card
+    sections: [hosts, mesh, wlan, phone]
+  - type: custom:fritz-portal-card
+    sections: [topology, smarthome]
+```
+
+**2. Compact tile, light or in HA style:** just the essentials – left in the light terminal look
+(`theme: light`), right with `ha_style: true`, which makes the card use the fonts, colours and borders of the
+active HA theme so it blends in like a standard card.
+
+<p align="center">
+  <img src="fritz-portal/docs/images/fritzportal-card-light.png" alt="FRITZ!Portal dashboard card – light and in Home Assistant style" width="800"/>
+</p>
+
+```yaml
+type: custom:fritz-portal-card
+title: FRITZ!Box
+sections: [system, traffic, hosts]
+hosts_limit: 8
+theme: light          # or instead: ha_style: true
+```
+
+**3. Network graphic:** left the **Mesh** view as a tree (FRITZ!Box → repeaters → devices, LAN blue, WLAN green
+dashed), right the **Network** view with one cluster per access point and names shown. Switch views at any time
+with the buttons in the card and zoom with `–`/`+`; clicking a device opens its web UI.
+
+<p align="center">
+  <img src="fritz-portal/docs/images/fritzportal-card-topology.png" alt="FRITZ!Portal dashboard card – network graphic as mesh tree and as clusters" width="800"/>
+</p>
+
+```yaml
+type: custom:fritz-portal-card
+sections: [topology]
+topology_view: mesh   # or network
+topology_names: true  # names in the network view
+```
+
+**4. Calls only or smart home only** – e.g. for a wall tablet in the hallway:
+
+```yaml
+type: custom:fritz-portal-card
+title: Calls
+sections: [phone]
+phone_count: 10
+```
+
+```yaml
+type: custom:fritz-portal-card
+title: Smart Home
+sections: [smarthome]
+smarthome_group: group   # by room; category = by device type
+```
+
+> 💡 Clicking a value (CPU, traffic, calls, smart home counter …) opens the entity's HA more-info dialog with its
+> history. The card shows the data the add-on sends to HA – if a section stays empty, check the matching option
+> in the add-on or in the panel under **System** (e.g. `ha_phone_sensors` for calls).
 
 ### Embedding sparkline tiles & traffic into your own HA dashboards
 
@@ -212,6 +287,13 @@ surface it in HA:
        data: active_hosts
        modify: x.type
    ```
+   **Large networks (v1.5.3+):** Home Assistant only stores attributes up to 16 KB per entity. With many
+   devices (from about 80–100) FRITZ!Portal therefore splits the list across part entities:
+   `sensor.fritzportal_online_devices` holds part 1 and the number of parts in the `parts` attribute,
+   further devices are in `sensor.fritzportal_online_devices_2`, `_3` … (diagnostic entities). The same
+   applies to `sensor.fritzportal_topology` (`nodes`) and `sensor.fritzportal_smarthome` (`devices`). The
+   dashboard card merges the parts automatically; for your own cards include the part entities
+   (e.g. `include: sensor.fritzportal_online_devices*`).
    Or simply as a markdown list without an extra card:
    ```yaml
    type: markdown
@@ -304,16 +386,30 @@ On the very first start FRITZ!Portal only remembers the existing devices – eve
 ### Telephony sensors: recent calls in Home Assistant (v1.4.6+)
 
 With the **"Telephony sensors"** option (System page or `ha_phone_sensors: true`) FRITZ!Portal pushes
-three sensors to Home Assistant – via MQTT Discovery and/or the REST API fallback:
+these sensors to Home Assistant – via MQTT Discovery and/or the REST API fallback:
 
 | Sensor | Content |
 |---|---|
 | `sensor.fritzportal_last_call` | Last call (incoming or outgoing); attribute `recent_calls` with the last 20 calls (v1.4.8+) |
-| `sensor.fritzportal_last_missed_call` | Last missed call |
 | `sensor.fritzportal_last_incoming_call` | Last accepted incoming call |
+| `sensor.fritzportal_last_missed_call` | Last missed call |
+| `sensor.fritzportal_last_outgoing_call` | Last outgoing call (v1.5.3+) |
+
+**Individual values (v1.5.3+):** For incoming, missed and outgoing there are three additional sensors
+each – handy e.g. to send the values to a display via MQTT or to use them directly in automations
+without reading attributes:
+
+| Sensor | Content |
+|---|---|
+| `sensor.fritzportal_last_incoming_call_name` | Name from the phone book (`Unbekannt` if there is no entry) |
+| `sensor.fritzportal_last_incoming_call_number` | Phone number (`Unbekannt` if withheld) |
+| `sensor.fritzportal_last_incoming_call_time` | Time as a timestamp (`device_class: timestamp`, time zone from HA) |
+
+The same with `last_missed_call_…` and `last_outgoing_call_…`. Without a matching call in the list the
+value is `-`, or "unknown" for the time.
 
 The **sensor value** is the name of the remote party (from the FRITZ!Box phone book, fallback: phone
-number). Details are available as **attributes**: `number`, `name`, `date`, `duration`, `type`, `device`,
+number). Details are available as **attributes**: `number`, `name`, `date`, `timestamp` (v1.5.3+), `duration`, `type`, `device`,
 `from`, `to`. Example of a small call card:
 
 ```yaml

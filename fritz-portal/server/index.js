@@ -3938,10 +3938,24 @@ const MQTT_SENSORS = [
 // Telefonie-Sensoren: Zustand = Name (oder Nummer) der Gegenstelle, Details
 // (Nummer, Name, Datum, Dauer, eigenes Gerät) als Attribute. Damit kann sich der
 // User in HA eine eigene Anruf-Card bauen.
+// Zusätzlich je Anrufart Name, Nummer und Zeit als eigene Entitäten (Issue #43) – z. B. um
+// sie per MQTT an ein Display zu schicken, ohne Attribute auslesen zu müssen.
+const PHONE_CALL_KINDS = [
+  { id: 'last_incoming_call', name: 'Letzter eingehender Anruf', icon: 'mdi:phone-incoming', types: ['1', '9'] },
+  { id: 'last_missed_call',   name: 'Letzter verpasster Anruf',  icon: 'mdi:phone-missed',   types: ['2'] },
+  { id: 'last_outgoing_call', name: 'Letzter ausgehender Anruf', icon: 'mdi:phone-outgoing', types: ['3', '11'] },
+];
+const PHONE_DETAIL_FIELDS = [
+  { suffix: 'name',   name: 'Name',   icon: 'mdi:account' },
+  { suffix: 'number', name: 'Nummer', icon: 'mdi:pound' },
+  { suffix: 'time',   name: 'Zeit',   icon: 'mdi:clock-outline', device_class: 'timestamp' },
+];
 const MQTT_PHONE_SENSORS = [
-  { id: 'last_call',          name: 'Letzter Anruf',             icon: 'mdi:phone-log' },
-  { id: 'last_missed_call',   name: 'Letzter verpasster Anruf',  icon: 'mdi:phone-missed' },
-  { id: 'last_incoming_call', name: 'Letzter eingehender Anruf', icon: 'mdi:phone-incoming' },
+  { id: 'last_call', name: 'Letzter Anruf', icon: 'mdi:phone-log' },
+  ...PHONE_CALL_KINDS.map(({ id, name, icon }) => ({ id, name, icon })),
+  ...PHONE_CALL_KINDS.flatMap(k => PHONE_DETAIL_FIELDS.map(f => ({
+    id: `${k.id}_${f.suffix}`, name: `${k.name} – ${f.name}`, icon: f.icon, device_class: f.device_class, plain: true,
+  }))),
 ];
 
 const MQTT_TRAFFIC_SENSORS = [
@@ -4002,8 +4016,8 @@ async function publishMqttDiscovery() {
         name: s.name, unique_id: `fritzportal_${s.id}`, object_id: `fritzportal_${s.id}`,
         default_entity_id: `sensor.fritzportal_${s.id}`,
         state_topic: `fritzportal/${s.id}/state`,
-        json_attributes_topic: `fritzportal/${s.id}/attributes`,
-        icon: s.icon,
+        json_attributes_topic: s.plain ? undefined : `fritzportal/${s.id}/attributes`,
+        icon: s.icon, device_class: s.device_class,
         device,
       };
       if (await publishMqtt(`homeassistant/sensor/fritzportal_${s.id}/config`, config, true)) registered++;
@@ -4290,6 +4304,93 @@ async function setState(entityId, state, attributes = {}) {
   }
 }
 
+// ── Große Listen-Attribute (Issue #42) ──
+// Der HA-Recorder speichert Attribute nur bis 16 KB je Entität und warnt bei jedem Update.
+// Lange Listen (aktive Geräte, Topologie, Smart Home) verteilen wir deshalb: Die Haupt-
+// Entität trägt Teil 1 und `parts`, weitere Teile liegen in sensor.fritzportal_<id>_2 … _N
+// (Diagnose-Entitäten). Die Dashboard-Card setzt sie wieder zusammen.
+const ATTR_PAGE_BYTES = 12000; // Puffer für die übrigen Attribute (friendly_name, count …)
+function pageAttrList(list) {
+  const pages = [[]];
+  let size = 0;
+  for (const item of list) {
+    const n = Buffer.byteLength(JSON.stringify(item)) + 1;
+    if (size + n > ATTR_PAGE_BYTES && pages[pages.length - 1].length) { pages.push([]); size = 0; }
+    pages[pages.length - 1].push(item);
+    size += n;
+  }
+  return pages;
+}
+
+const ONLINE_DEVICES_PARTS = { id: 'online_devices', name: 'Geräte online', icon: 'mdi:devices' };
+// Zuletzt gesendete Teilanzahl je Liste und Kanal – beim ersten Lauf nach dem Start räumen
+// wir vorsorglich bis Teil 8 auf (Reste aus der Zeit vor einem Neustart)
+const attrPartsSent = new Map();
+async function publishAttrParts(def, key, pages, { mqtt = false, rest = false }) {
+  const n = pages.length;
+  const sentKey = `${def.id}/${mqtt ? 'mqtt' : 'rest'}`;
+  const prev = attrPartsSent.get(sentKey) ?? 8;
+  for (let k = 2; k <= n; k++) {
+    const id = `${def.id}_${k}`;
+    const attrs = { [key]: pages[k - 1], part: k, parts: n };
+    const name = `${def.name} (Teil ${k})`;
+    if (mqtt) {
+      const lazyKey = `sensor/${id}`;
+      if (!lazyDiscovered.has(lazyKey)) {
+        const ok = await publishMqtt(`homeassistant/sensor/fritzportal_${id}/config`, {
+          name, unique_id: `fritzportal_${id}`, object_id: `fritzportal_${id}`,
+          default_entity_id: `sensor.fritzportal_${id}`,
+          state_topic: `fritzportal/${id}/state`, json_attributes_topic: `fritzportal/${id}/attributes`,
+          icon: def.icon, entity_category: 'diagnostic', device: fritzboxDevice(),
+        }, true);
+        if (ok) lazyDiscovered.add(lazyKey);
+      }
+      await publishMqtt(`fritzportal/${id}/state`, pages[k - 1].length);
+      await publishMqtt(`fritzportal/${id}/attributes`, attrs, true);
+    }
+    if (rest) {
+      await setState(`sensor.fritzportal_${id}`, pages[k - 1].length, {
+        friendly_name: `FRITZ!Portal ${name}`, icon: def.icon, unique_id: `fritzportal_rest_${id}`, ...attrs,
+      });
+    }
+  }
+  // Nicht mehr benötigte Teile entfernen
+  for (let k = n + 1; k <= prev; k++) {
+    const id = `${def.id}_${k}`;
+    if (mqtt) {
+      await publishMqtt(`homeassistant/sensor/fritzportal_${id}/config`, '', true);
+      await publishMqtt(`fritzportal/${id}/attributes`, '', true);
+      lazyDiscovered.delete(`sensor/${id}`);
+    }
+    if (rest) {
+      try { await fetch(`${HA_API}/states/sensor.fritzportal_${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${HA_TOKEN}` } }); } catch {}
+    }
+  }
+  attrPartsSent.set(sentKey, n);
+}
+
+// Reihenfolge der aktiven Geräte (neueste Aktivität zuerst) nur alle 15 min komplett neu
+// sortieren, dazwischen stabil halten (neu hinzugekommene Geräte vorne). Sonst ändert sich
+// die Liste bei jedem Push und HA schreibt jede Minute eine neue Kopie in die Datenbank.
+const HOST_RESORT_MS = 15 * 60 * 1000;
+let haHostOrder = [];
+let haHostOrderAt = 0;
+function orderHostsForHa(hosts) {
+  const key = (h) => h.mac || h.ip || h.name;
+  const byActivity = hosts.slice().sort((a, b) => (parseInt(b.lastActivity || '0', 10) || 0) - (parseInt(a.lastActivity || '0', 10) || 0));
+  let ordered = byActivity;
+  if (Date.now() - haHostOrderAt < HOST_RESORT_MS) {
+    const rank = new Map(haHostOrder.map((k, i) => [k, i]));
+    const fresh = byActivity.filter(h => !rank.has(key(h)));
+    const known = hosts.filter(h => rank.has(key(h))).sort((a, b) => rank.get(key(a)) - rank.get(key(b)));
+    ordered = [...fresh, ...known];
+  } else {
+    haHostOrderAt = Date.now();
+  }
+  haHostOrder = ordered.map(key);
+  return ordered;
+}
+
 async function pushFastSensorsToHA() {
   if (!HA_TOKEN) return;
   const eco     = getCached('eco-stats',     120000) || {};
@@ -4313,9 +4414,7 @@ async function pushFastSensorsToHA() {
   // letzter Aktivität (neueste zuerst) – analog zur HOSTS.ACTIVE-Liste im Dashboard.
   // So sieht der User als Sensor-Wert die Anzahl und in den Attributen die Geräteliste.
   if (online > 0) {
-    lastKnownFast.activeHosts = activeHosts
-      .slice()
-      .sort((a, b) => (parseInt(b.lastActivity || '0', 10) || 0) - (parseInt(a.lastActivity || '0', 10) || 0))
+    lastKnownFast.activeHosts = orderHostsForHa(activeHosts)
       .map(h => ({
         name: h.name || h.ip || h.mac, ip: h.ip || '', mac: h.mac || '',
         type: h.connType || (h.interface?.includes('802.11') ? 'WLAN' : 'LAN'),
@@ -4323,7 +4422,9 @@ async function pushFastSensorsToHA() {
         conn: h.connDisplay || '', guest: !!h.guest,
       }));
   }
-  const hostAttrs = { count: lastKnownFast.online, active_hosts: lastKnownFast.activeHosts || [] };
+  // Lange Listen auf Teil-Entitäten verteilen (HA-Recorder: max. 16 KB Attribute, Issue #42)
+  const hostPages = pageAttrList(lastKnownFast.activeHosts || []);
+  const hostAttrs = { count: lastKnownFast.online, active_hosts: hostPages[0], parts: hostPages.length };
 
   // Download/Upload: 0 ist gültiger Wert (kein Traffic), immer aktuell senden
   const dl = +(( net.currentDown || 0) / 1048576).toFixed(3);
@@ -4336,6 +4437,7 @@ async function pushFastSensorsToHA() {
     await publishMqtt('fritzportal/temperature/state', lastKnownFast.cpu_temp);
     await publishMqtt('fritzportal/online_devices/state', lastKnownFast.online);
     await publishMqtt('fritzportal/online_devices/attributes', hostAttrs, true);
+    await publishAttrParts(ONLINE_DEVICES_PARTS, 'active_hosts', hostPages, { mqtt: true });
     await publishMqtt('fritzportal/free_ips/state', lastKnownFast.free_ips);
     await publishMqtt('fritzportal/download_speed/state', dl);
     await publishMqtt('fritzportal/upload_speed/state', ul);
@@ -4347,7 +4449,8 @@ async function pushFastSensorsToHA() {
     await setState('sensor.fritzportal_cpu',            lastKnownFast.cpu,      { unit_of_measurement: '%',   friendly_name: 'FRITZ!Portal CPU-Auslastung',    icon: 'mdi:chip',            unique_id: 'fritzportal_rest_cpu',            state_class: 'measurement' });
     await setState('sensor.fritzportal_ram',            lastKnownFast.ram,      { unit_of_measurement: '%',   friendly_name: 'FRITZ!Portal RAM-Auslastung',    icon: 'mdi:memory',          unique_id: 'fritzportal_rest_ram',            state_class: 'measurement' });
     await setState('sensor.fritzportal_temperature',    lastKnownFast.cpu_temp, { unit_of_measurement: '°C',  friendly_name: 'FRITZ!Portal CPU-Temperatur',    icon: 'mdi:thermometer',     unique_id: 'fritzportal_rest_temperature',    device_class: 'temperature', state_class: 'measurement' });
-    await setState('sensor.fritzportal_online_devices', lastKnownFast.online,   { unit_of_measurement: '',    friendly_name: 'FRITZ!Portal Geräte online',     icon: 'mdi:devices',         unique_id: 'fritzportal_rest_online_devices', state_class: 'measurement', active_hosts: lastKnownFast.activeHosts || [] });
+    await setState('sensor.fritzportal_online_devices', lastKnownFast.online,   { unit_of_measurement: '',    friendly_name: 'FRITZ!Portal Geräte online',     icon: 'mdi:devices',         unique_id: 'fritzportal_rest_online_devices', state_class: 'measurement', active_hosts: hostPages[0], parts: hostPages.length });
+    await publishAttrParts(ONLINE_DEVICES_PARTS, 'active_hosts', hostPages, { rest: true });
     await setState('sensor.fritzportal_free_ips',       lastKnownFast.free_ips, { unit_of_measurement: '',    friendly_name: 'FRITZ!Portal Freie IP-Adressen', icon: 'mdi:ip-network',      unique_id: 'fritzportal_rest_free_ips',       state_class: 'measurement' });
     await setState('sensor.fritzportal_download_speed', dl, { unit_of_measurement: 'MB/s', friendly_name: 'FRITZ!Portal Download aktuell',  icon: 'mdi:download', device_class: 'data_rate', unique_id: 'fritzportal_rest_download_speed', state_class: 'measurement' });
     await setState('sensor.fritzportal_upload_speed',   ul, { unit_of_measurement: 'MB/s', friendly_name: 'FRITZ!Portal Upload aktuell',    icon: 'mdi:upload',   device_class: 'data_rate', unique_id: 'fritzportal_rest_upload_speed',   state_class: 'measurement' });
@@ -4392,8 +4495,8 @@ const NET_ENTITIES = {
   dsl_upstream:    { component: 'sensor', id: 'dsl_upstream',    name: 'DSL-Sync Upload',   icon: 'mdi:upload-network',   unit: 'Mbit/s', device_class: 'data_rate', state_class: 'measurement' },
   mesh_devices:    { component: 'sensor', id: 'mesh_devices',    name: 'Mesh-Geräte online', icon: 'mdi:access-point-network', state_class: 'measurement', json_attributes: true },
   firmware_update: { component: 'binary_sensor', id: 'firmware_update', name: 'Firmware-Update', icon: 'mdi:package-up', device_class: 'update', json_attributes: true },
-  topology:        { component: 'sensor', id: 'topology',        name: 'Netzwerk-Topologie', icon: 'mdi:lan', state_class: 'measurement', json_attributes: true },
-  smarthome:       { component: 'sensor', id: 'smarthome',       name: 'Smart-Home-Geräte online', icon: 'mdi:home-automation', state_class: 'measurement', json_attributes: true },
+  topology:        { component: 'sensor', id: 'topology',        name: 'Netzwerk-Topologie', icon: 'mdi:lan', state_class: 'measurement', json_attributes: true, paged: 'nodes' },
+  smarthome:       { component: 'sensor', id: 'smarthome',       name: 'Smart-Home-Geräte online', icon: 'mdi:home-automation', state_class: 'measurement', json_attributes: true, paged: 'devices' },
 };
 
 // Smart-Home-Übersicht für die Dashboard-Card: Zustand aller Geräte als Attribut. Ohne
@@ -4443,11 +4546,19 @@ async function ensureMqttEntity(def) {
 // Für binary_sensor ist `value` ein Boolean.
 async function pushNetEntity(def, value, attributes = {}) {
   const isBinary = def.component === 'binary_sensor';
+  // Listen-Attribut ggf. auf Teil-Entitäten verteilen (s. pageAttrList)
+  let pages = null;
+  if (def.paged && Array.isArray(attributes[def.paged])) {
+    pages = pageAttrList(attributes[def.paged]);
+    attributes = { ...attributes, [def.paged]: pages[0], parts: pages.length };
+  }
   if (mqttAvailable) {
     await ensureMqttEntity(def);
     await publishMqtt(`fritzportal/${def.id}/state`, isBinary ? (value ? 'ON' : 'OFF') : value);
     if (def.json_attributes) await publishMqtt(`fritzportal/${def.id}/attributes`, attributes, true);
+    if (pages) await publishAttrParts(def, def.paged, pages, { mqtt: true });
   }
+  if (haSensorsEnabled && pages) await publishAttrParts(def, def.paged, pages, { rest: true });
   if (haSensorsEnabled) {
     await setState(`${def.component}.fritzportal_${def.id}`, isBinary ? (value ? 'on' : 'off') : value, {
       friendly_name: `FRITZ!Portal ${def.name}`, icon: def.icon,
@@ -4568,6 +4679,41 @@ const CALL_TYPE_LABELS = {
   '9': 'incoming_active', '10': 'rejected', '11': 'outgoing_active',
 };
 
+// Zeitzone von Home Assistant (Einstellungen › System › Allgemein) – die Anrufliste der Box
+// liefert Ortszeit ohne Zone („27.10.26 12:27"), HA-Zeitstempel brauchen eine Zone
+let haTimeZone = '';
+let haTimeZoneLoaded = 0;
+async function loadHaTimeZone() {
+  if (Date.now() - haTimeZoneLoaded < 3600000) return;
+  haTimeZoneLoaded = Date.now();
+  try {
+    const r = await fetch(`${HA_API}/config`, { headers: { 'Authorization': `Bearer ${HA_TOKEN}` } });
+    const tz = r.ok ? (await r.json())?.time_zone : '';
+    if (tz) haTimeZone = tz;
+  } catch {}
+}
+
+// „TT.MM.JJ HH:MM" (Ortszeit der Box) → ISO-Zeitstempel mit Zone; null wenn nicht lesbar
+function callTimestamp(date) {
+  const m = String(date || '').match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})\s+(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  const [d, mo, yRaw, h, mi] = m.slice(1).map(Number);
+  const y = yRaw < 100 ? 2000 + yRaw : yRaw;
+  const tz = haTimeZone || process.env.TZ;
+  try {
+    if (!tz) return new Date(y, mo - 1, d, h, mi).toISOString();
+    const fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const offsetAt = (t) => {
+      const p = Object.fromEntries(fmt.formatToParts(new Date(t)).map(x => [x.type, x.value]));
+      return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - t;
+    };
+    const wall = Date.UTC(y, mo - 1, d, h, mi);
+    let t = wall - offsetAt(wall);
+    t = wall - offsetAt(t); // zweiter Schritt korrigiert Zeiten nahe der Sommerzeit-Umstellung
+    return new Date(t).toISOString();
+  } catch { return null; }
+}
+
 function callToSensorPayload(call) {
   if (!call) return { state: '-', attributes: {} };
   const state = call.name || call.number || 'Unbekannt';
@@ -4577,6 +4723,7 @@ function callToSensorPayload(call) {
       number:    call.number || '',
       name:      call.name || '',
       date:      call.date || '',
+      timestamp: callTimestamp(call.date),
       duration:  call.duration || '',
       duration_minutes: call.durationMin ?? null,
       type:      CALL_TYPE_LABELS[call.type] || call.type || '',
@@ -4595,15 +4742,13 @@ async function pushPhoneSensorsToHA() {
   try { calls = await fetchCallList(session); } catch { return; }
   if (!Array.isArray(calls) || calls.length === 0) return;
 
-  // Liste ist absteigend nach Datum sortiert (neuester Eintrag zuerst)
-  const lastCall     = calls[0];
-  const lastMissed   = calls.find(c => c.type === '2');
-  const lastIncoming = calls.find(c => c.type === '1' || c.type === '9');
+  await loadHaTimeZone();
 
+  // Liste ist absteigend nach Datum sortiert (neuester Eintrag zuerst)
+  const kinds = PHONE_CALL_KINDS.map(k => ({ ...k, call: calls.find(c => k.types.includes(c.type)) }));
   const sensors = [
-    { id: 'last_call',          call: lastCall,     friendly: 'FRITZ!Portal Letzter Anruf',             icon: 'mdi:phone-log' },
-    { id: 'last_missed_call',   call: lastMissed,   friendly: 'FRITZ!Portal Letzter verpasster Anruf',  icon: 'mdi:phone-missed' },
-    { id: 'last_incoming_call', call: lastIncoming, friendly: 'FRITZ!Portal Letzter eingehender Anruf', icon: 'mdi:phone-incoming' },
+    { id: 'last_call', call: calls[0], friendly: 'FRITZ!Portal Letzter Anruf', icon: 'mdi:phone-log' },
+    ...kinds.map(k => ({ id: k.id, call: k.call, friendly: `FRITZ!Portal ${k.name}`, icon: k.icon })),
   ];
 
   // Die letzten 20 Anrufe als Attribut am „Letzter Anruf"-Sensor – die Dashboard-Card
@@ -4627,6 +4772,29 @@ async function pushPhoneSensorsToHA() {
         unique_id: `fritzportal_rest_${s.id}`,
         ...attributes,
       });
+    }
+  }
+
+  // Einzelwerte je Anrufart: Name, Nummer, Zeit (Zeitstempel). Ohne passenden Anruf „-"
+  // bzw. bei der Zeit „unbekannt"; ohne Telefonbuch-Eintrag bzw. bei unterdrückter Nummer
+  // „Unbekannt".
+  for (const k of kinds) {
+    const c = k.call;
+    const values = {
+      name:   c ? (c.name || 'Unbekannt') : '-',
+      number: c ? (c.number || 'Unbekannt') : '-',
+      time:   c ? callTimestamp(c.date) : null,
+    };
+    for (const f of PHONE_DETAIL_FIELDS) {
+      const id = `${k.id}_${f.suffix}`;
+      const v = values[f.suffix];
+      if (mqttAvailable) await publishMqtt(`fritzportal/${id}/state`, v ?? 'None');
+      if (haSensorsEnabled) {
+        await setState(`sensor.fritzportal_${id}`, v ?? 'unknown', {
+          friendly_name: `FRITZ!Portal ${k.name} – ${f.name}`, icon: f.icon,
+          device_class: f.device_class, unique_id: `fritzportal_rest_${id}`,
+        });
+      }
     }
   }
 }

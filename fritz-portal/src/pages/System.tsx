@@ -474,7 +474,7 @@ export default function System({ sid }: SystemProps) {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 0', borderTop: '1px solid var(--border)' }}>
               <div>
                 <div style={{ fontWeight: 500, fontSize: 14 }}>{t('Telefonie-Sensoren')}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>{t('Letzter Anruf, letzter verpasster und letzter eingehender Anruf (mit Nummer & Name) an Home Assistant übertragen – nur sinnvoll, wenn Telefonie über die FRITZ!Box genutzt wird.')}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>{t('Letzter Anruf sowie letzter eingehender, verpasster und ausgehender Anruf an Home Assistant übertragen – je mit Name, Nummer und Zeit auch als eigene Sensoren. Nur sinnvoll, wenn Telefonie über die FRITZ!Box genutzt wird.')}</div>
               </div>
               <button
                 onClick={() => setHaSettings(s => s ? { ...s, ha_phone_sensors: !s.ha_phone_sensors } : s)}

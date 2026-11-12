@@ -303,6 +303,10 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
     return next;
   });
   const isOriginallyHosts = meshData?._source === 'hosts-fallback';
+  // Netzwerk- und Mesh-Ansicht zeigen dieselben Daten wie die Dashboard-Card (Mesh-Liste der
+  // Box + Zuordnungen): Die Host-Liste allein kennt den FRITZ!Repeater eines WLAN-Geräts nicht,
+  // dort hing sonst fast alles an der Box. Nur ohne Mesh-Daten auf die Host-Liste ausweichen.
+  const hasMesh = !isOriginallyHosts && (meshData?.nodes?.length || 0) > 1;
   const [viewMode, setViewMode] = useState<'mesh' | 'hosts'>(isOriginallyHosts ? 'hosts' : 'mesh');
   const [hostsData, setHostsData] = useState<any>(null);
   const [hostsLoading, setHostsLoading] = useState(false);
@@ -321,8 +325,8 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
   };
 
   useEffect(() => {
-    if (viewMode === 'hosts' && !hostsData && !isOriginallyHosts) fetchHosts();
-  }, [viewMode]);
+    if (viewMode === 'hosts' && !hostsData && !isOriginallyHosts && !hasMesh) fetchHosts();
+  }, [viewMode, hasMesh]);
 
   if (loading) {
     return (
@@ -336,7 +340,7 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
   }
 
   const currentData = viewMode === 'hosts'
-    ? (hostsData || (isOriginallyHosts ? meshData : null))
+    ? (hasMesh || isOriginallyHosts ? meshData : hostsData)
     : (!isOriginallyHosts ? meshData : null);
 
   const nodes: MeshNode[] = currentData?.nodes || [];
@@ -351,7 +355,7 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
         color: viewMode === 'mesh' ? '#fff' : 'var(--text-secondary)',
         transition: 'all 0.2s',
       }}>{t('Mesh')}</button>
-      <button onClick={() => { setViewMode('hosts'); if (!hostsData && !isOriginallyHosts) fetchHosts(); }} style={{
+      <button onClick={() => { setViewMode('hosts'); if (!hostsData && !isOriginallyHosts && !hasMesh) fetchHosts(); }} style={{
         padding: '4px 14px', fontSize: 12, fontWeight: 500, border: 'none', cursor: 'pointer',
         background: viewMode === 'hosts' ? 'var(--accent)' : 'transparent',
         color: viewMode === 'hosts' ? '#fff' : 'var(--text-secondary)',

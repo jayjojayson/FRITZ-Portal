@@ -18,9 +18,11 @@
  *   topology_view: network  # Netzwerk-Grafik: network (Cluster je Zugangspunkt) | mesh (Baum)
  *   topology_names: false   # Netzwerk-Grafik: Gerätenamen anzeigen
  *   topology_clients: true  # Mesh-Baum: auch Endgeräte zeigen (sonst nur Zugangspunkte)
+ *   topology_height: 0      # Netzwerk-Grafik: max. Höhe in px (0 = automatisch, bis 80 % der Bildschirmhöhe)
+ *   topology_name_length: 16 # Netzwerk-Grafik: Zeichen je Gerätename (8–40)
  */
 
-const CARD_VERSION = '1.5.2';
+const CARD_VERSION = '1.5.3';
 const ALL_SECTIONS = ['system', 'wan', 'traffic', 'traffic_stats', 'hosts', 'mesh', 'topology', 'wlan', 'phone', 'smarthome'];
 const SECTION_LABELS = {
   system: 'System (CPU, RAM, Temperatur, Geräte)',
@@ -195,7 +197,9 @@ const STYLE = `
   svg.topo a.nodelink:hover circle { stroke-width: 3; }
   .badge { font-size: 10px; padding: 1px 6px; border: 1px solid currentColor; white-space: nowrap; border-radius: 9px; }
   /* Netzwerk-Grafik: Cluster-Ansicht (SVG) */
-  svg.topo { width: 100%; height: auto; max-height: 560px; display: block; cursor: grab; touch-action: pan-y; }
+  /* Höhe wächst mit der Kartenbreite (z. B. Wandtablet), begrenzt auf 80 % der Bildschirmhöhe
+     bzw. auf topology_height */
+  svg.topo { width: 100%; height: auto; max-height: 80vh; display: block; cursor: grab; touch-action: pan-y; }
   .zoom { display: inline-flex; gap: 2px; margin-right: 6px; }
   .zoom .zk { min-width: 46px; }
   svg.topo .lbl { fill: var(--fp-text); stroke: var(--fp-bg); paint-order: stroke; font-family: var(--fp-mono); }
@@ -232,6 +236,8 @@ class FritzPortalCard extends HTMLElement {
       topology_view: 'network',
       topology_names: false,
       topology_clients: true,
+      topology_height: 0,
+      topology_name_length: 16,
       ...(config || {}),
     };
     this._ui.topo = this._config.topology_view === 'mesh' ? 'mesh' : 'network';
@@ -301,6 +307,19 @@ class FritzPortalCard extends HTMLElement {
   _id(domain, suffix) { return this._resolve(`${domain}.${this._config.entity_prefix}_${suffix}`); }
   _resolve(id) { return this._hass?.states?.[id] ? id : (this._alias?.[id] || id); }
   _st(domain, suffix) { return this._hass?.states?.[this._id(domain, suffix)]; }
+  // Lange Listen verteilt das Add-on auf Teil-Entitäten <suffix>_2 … _N (HA speichert
+  // Attribute nur bis 16 KB je Entität, Issue #42) – hier wieder zusammensetzen
+  _list(suffix, key) {
+    const st = this._st('sensor', suffix);
+    const first = st?.attributes?.[key];
+    if (!Array.isArray(first)) return null;
+    const out = [...first];
+    for (let k = 2; k <= (Number(st.attributes.parts) || 1); k++) {
+      const more = this._st('sensor', `${suffix}_${k}`)?.attributes?.[key];
+      if (Array.isArray(more)) out.push(...more);
+    }
+    return out;
+  }
   _val(suffix) { const s = this._st('sensor', suffix); return s && !['unknown', 'unavailable'].includes(s.state) ? s.state : null; }
   _show(section) { return (this._config.sections || ALL_SECTIONS).includes(section); }
   _moreInfo(entityId) {
@@ -465,9 +484,8 @@ class FritzPortalCard extends HTMLElement {
   }
 
   _renderHosts() {
-    const st = this._st('sensor', 'online_devices');
-    const hosts = st?.attributes?.active_hosts;
-    if (!Array.isArray(hosts)) return '';
+    const hosts = this._list('online_devices', 'active_hosts');
+    if (!hosts) return '';
     const ui = this._ui;
     const q = ui.search.trim().toLowerCase();
     let list = hosts.filter(h => {
@@ -523,7 +541,7 @@ class FritzPortalCard extends HTMLElement {
   // ── Netzwerk-Grafik: Mesh-Baum oder Cluster je Zugangspunkt (wie im Panel) ──
   // Daten: sensor.fritzportal_topology (nodes: id, name, role, parent, link, ip)
   _topoModel() {
-    const nodes = this._st('sensor', 'topology')?.attributes?.nodes;
+    const nodes = this._list('topology', 'nodes');
     if (!Array.isArray(nodes) || nodes.length === 0) return null;
     const master = nodes.find(n => n.role === 'master') || nodes[0];
     const byId = new Map(nodes.map(n => [n.id, n]));
@@ -668,6 +686,8 @@ class FritzPortalCard extends HTMLElement {
 
   _renderCluster(m) {
     const names = !!this._ui.names;
+    // Länge der Gerätenamen – der Abstand im Ring wächst mit, damit sich Namen nicht überlappen
+    const nameLen = Math.min(40, Math.max(8, Number(this._config.topology_name_length) || 16));
     const hubs = m.nodes.filter(m.isHub);
     const hubSet = new Set(hubs.map(h => h.id));
     const clientsOf = new Map(hubs.map(h => [h.id, []]));
@@ -678,7 +698,7 @@ class FritzPortalCard extends HTMLElement {
     }
     const total = m.nodes.length - hubs.length;
     const nodeR = total <= 15 ? 16 : total <= 40 ? 12 : total <= 80 ? 9 : 7;
-    const spacing = Math.max(nodeR * 3.2, names ? 56 : 24);
+    const spacing = Math.max(nodeR * 3.2, names ? Math.max(56, nameLen * 5.8 + 8) : 24);
     const hubR = (h) => (h === m.master ? 34 : 26);
     // Geräte in Ringen um den Zugangspunkt – LAN und WLAN jeweils zusammenhängend
     const layout = (hub, members) => {
@@ -754,7 +774,7 @@ class FritzPortalCard extends HTMLElement {
         const col = TOPO[node.link === 'WLAN' ? 'WLAN' : 'LAN'];
         parts.push(linkWrap(node, `<g transform="translate(${f(hp.x + x + ox)},${f(hp.y + y + oy)})">${tip(node)}
           <circle r="${nodeR}" fill="${col.fill}" stroke="${col.stroke}" stroke-width="1.5"/>
-          ${names ? `<text class="lbl" y="${nodeR + 12}" text-anchor="middle" font-size="9.5" stroke-width="2.5">${esc(short(node.name, 12))}</text>` : ''}</g>`));
+          ${names ? `<text class="lbl" y="${nodeR + 12}" text-anchor="middle" font-size="9.5" stroke-width="2.5">${esc(short(node.name, nameLen))}</text>` : ''}</g>`));
       }
     }
     for (const c of clusters) {
@@ -763,14 +783,15 @@ class FritzPortalCard extends HTMLElement {
         <circle r="${r}" fill="${col.fill}" stroke="${col.stroke}" stroke-width="2.5"/>
         <text y="2" text-anchor="middle" font-size="${isMaster ? 15 : 13}" fill="#fff" font-weight="700">${c.pos.length}</text>
         <text y="13" text-anchor="middle" font-size="7" fill="rgba(255,255,255,0.75)" letter-spacing="0.5">GERÄTE</text>
-        <text class="lbl" y="${r + 15}" text-anchor="middle" font-size="11" font-weight="600" stroke-width="4">${esc(short(c.hub.name, 24))}</text></g>`));
+        <text class="lbl" y="${r + 15}" text-anchor="middle" font-size="11" font-weight="600" stroke-width="4">${esc(short(c.hub.name, Math.max(24, nameLen)))}</text></g>`));
     }
     const wlan = m.nodes.filter(n => !hubSet.has(n.id) && n.link === 'WLAN').length;
     const sum = `<div class="topo-sum"><span>${total} Geräte</span>
       <span style="color:${TOPO.LAN.stroke}">● ${total - wlan} LAN</span><span style="color:${TOPO.WLAN.stroke}">● ${wlan} WLAN</span>
       ${others.length ? `<span style="color:${TOPO.ap.stroke}">● ${others.length} Zugangspunkte</span>` : ''}</div>`;
     const z = this._ui.zoom;
-    return `${sum}<svg class="topo" viewBox="0 0 ${f(W)} ${f(H)}" role="img" aria-label="Netzwerk-Topologie">
+    const maxH = Number(this._config.topology_height) > 0 ? `${Number(this._config.topology_height)}px` : '';
+    return `${sum}<svg class="topo" viewBox="0 0 ${f(W)} ${f(H)}"${maxH ? ` style="max-height:${maxH}"` : ''} role="img" aria-label="Netzwerk-Topologie">
       <g class="zg" transform="translate(${f(z.x)},${f(z.y)}) scale(${z.k})">${parts.join('')}</g></svg>`;
   }
 
@@ -868,7 +889,7 @@ class FritzPortalCard extends HTMLElement {
   // Smart-Home-Geräte, gruppiert nach FRITZ!Box-Gruppe (meist Räume) oder Gerätetyp
   _renderSmartHome() {
     const st = this._st('sensor', 'smarthome');
-    const devs = st?.attributes?.devices;
+    const devs = this._list('smarthome', 'devices');
     if (!Array.isArray(devs) || devs.length === 0) return '';
     const mode = this._config.smarthome_group || 'group';
     const keyOf = (d) => mode === 'category' ? (SMARTHOME_CATEGORY[d.category] || SMARTHOME_CATEGORY.other)
@@ -947,6 +968,8 @@ const EDITOR_LABELS = {
   topology_view: 'Netzwerk-Grafik: Ansicht beim Laden',
   topology_names: 'Netzwerk-Grafik: Gerätenamen anzeigen',
   topology_clients: 'Mesh-Baum: auch Endgeräte anzeigen',
+  topology_height: 'Netzwerk-Grafik: max. Höhe in px (0 = automatisch)',
+  topology_name_length: 'Netzwerk-Grafik: Zeichen je Gerätename',
   sections: '',
 };
 
@@ -982,6 +1005,10 @@ const EDITOR_SCHEMA = [
         { value: 'network', label: 'Netzwerk (Cluster je Zugangspunkt)' }, { value: 'mesh', label: 'Mesh (Baum)' }] } } },
       { name: 'topology_names', selector: { boolean: {} } },
       { name: 'topology_clients', selector: { boolean: {} } },
+      { type: 'grid', name: 'grp_topo', flatten: true, schema: [
+        { name: 'topology_height', selector: { number: { min: 0, max: 3000, step: 10, mode: 'box', unit_of_measurement: 'px' } } },
+        { name: 'topology_name_length', selector: { number: { min: 8, max: 40, mode: 'box' } } },
+      ] },
     ],
   },
 ];
@@ -1000,6 +1027,7 @@ class FritzPortalCardEditor extends HTMLElement {
       hosts_sort: c.hosts_sort || 'activity', smarthome_group: c.smarthome_group || 'group',
       topology_view: c.topology_view || 'network', topology_names: !!c.topology_names,
       topology_clients: c.topology_clients !== false,
+      topology_height: c.topology_height ?? 0, topology_name_length: c.topology_name_length ?? 16,
       sections: ALL_SECTIONS.filter(k => sections.includes(k)),
     };
   }
@@ -1031,7 +1059,7 @@ class FritzPortalCardEditor extends HTMLElement {
         const config = { ...this._config };
         // Feste Reihenfolge, unabhängig von der Klick-Reihenfolge
         config.sections = ALL_SECTIONS.filter(k => (v.sections || []).includes(k));
-        for (const key of ['title', 'ha_style', 'theme', 'hosts_limit', 'phone_count', 'hosts_sort', 'smarthome_group', 'topology_view', 'topology_names', 'topology_clients']) {
+        for (const key of ['title', 'ha_style', 'theme', 'hosts_limit', 'phone_count', 'hosts_sort', 'smarthome_group', 'topology_view', 'topology_names', 'topology_clients', 'topology_height', 'topology_name_length']) {
           if (v[key] !== undefined) config[key] = v[key];
         }
         this._config = config;

@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.5.3
+
+Please, if you like FRITZ!Portal, I would appreciate a Star rating ⭐ from you.
+This helps the algorithm to boost the Add-on and motivates me. 
+Thank you and thanks for nearly 3000 users and over 40k Downloads.
+You can also support me with a coffee via ko-fi or PayPal.
+
+---
+
+[![README English](https://img.shields.io/badge/README-English-orange)](https://github.com/jayjojayson/FRITZ-Portal/blob/main/README_eng.md) [![README Deutsch](https://img.shields.io/badge/README-Deutsch-orange)](https://github.com/jayjojayson/FRITZ-Portal) 
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/G2G01VCROJ) [![Support](https://img.shields.io/badge/%20-Support%20Me-steelblue?style=flat&logo=paypal&logoColor=white)](https://www.paypal.me/quadFlyerFW)
+
+---
+
+- Neu (**Telefonie-Sensoren – Name, Nummer und Zeit als eigene Entitäten**, [#43](https://github.com/jayjojayson/FRITZ-Portal/issues/43), Wunsch von [@ms1958](https://github.com/ms1958)): Für den letzten eingehenden, verpassten und ausgehenden Anruf gibt es jetzt je drei eigene Sensoren – `…_name`, `…_number` und `…_time` (z. B. `sensor.fritzportal_last_incoming_call_number`). Die Zeit ist ein echter Zeitstempel in der Zeitzone von Home Assistant und lässt sich in Automationen und auf Displays frei formatieren. Neu ist außerdem `sensor.fritzportal_last_outgoing_call` (letzter ausgehender Anruf). Die bisherigen Sensoren bekommen zusätzlich das Attribut `timestamp`. Alles Teil der Option „Telefonie-Sensoren" – beim Deaktivieren werden auch die neuen Entitäten wieder entfernt.
+- Neu (**Dashboard-Card – Netzwerk-Grafik passt sich der Größe an**, Wunsch aus dem Forum): Die Grafik war auf 560 px Höhe begrenzt und blieb z. B. auf einem Wandtablet klein. Jetzt wächst sie mit der Breite der Karte bis 80 % der Bildschirmhöhe. Neue Option `topology_height` (px, 0 = automatisch) begrenzt die Höhe bei Bedarf fest.
+- Neu (**Dashboard-Card – längere Gerätenamen**, Wunsch aus dem Forum): Namen wurden nach 12 Zeichen abgeschnitten. Neue Option `topology_name_length` (8–40, Standard 16) legt die Länge fest; der Abstand der Geräte wächst mit, damit sich die Namen nicht überlappen. Beide Optionen stehen auch im visuellen Editor der Card.
+- Verbessert (**weniger Schreiblast für die HA-Datenbank**): Die Geräteliste in „Geräte online" wurde bisher bei jedem Push neu nach Aktivität sortiert – dadurch änderte sich das Attribut fast jede Minute und HA speicherte jedes Mal eine neue Kopie der ganzen Liste. Jetzt wird nur alle 15 Minuten neu sortiert, dazwischen bleibt die Reihenfolge stabil (neu hinzugekommene Geräte stehen vorne).
+- Doku (**Dashboard-Card mit Beispielbildern**): README (DE/EN) und die Add-on-Doku zeigen die Dashboard-Card jetzt mit Bildern – Übersicht auf drei Karten, kompakte Kachel hell bzw. im HA-Design und die Netzwerk-Grafik als Mesh-Baum und Cluster – samt passender YAML-Beispiele. Die beiden Dashboard-Screenshots (hell/dunkel) sind erneuert und zeigen jetzt auch die Boxen „Letzte Anrufe" und „SmartHome"; die Add-on-Doku zeigt wieder ein Vorschaubild (der Bildlink war defekt).
+- Fix (**große Netze – Attribute über 16 KB**, [#42](https://github.com/jayjojayson/FRITZ-Portal/issues/42), gemeldet von [@rolli-d](https://github.com/rolli-d)): Bei vielen Geräten (z. B. 200+ Geräte, 40 DECT-Geräte) waren die Attribute von „Geräte online", „Netzwerk-Topologie" und „Smart Home" größer als die 16 KB, die der HA-Recorder speichert – HA schrieb bei jedem Update eine Warnung ins Protokoll. Lange Listen werden jetzt auf Teil-Entitäten verteilt (`sensor.fritzportal_online_devices_2`, `_3` …, als Diagnose-Entitäten); die Haupt-Entität trägt Teil 1 und im Attribut `parts` die Anzahl. Die Dashboard-Card setzt die Teile automatisch wieder zusammen. Nicht mehr benötigte Teile werden entfernt, sobald die Liste wieder kürzer wird.
+- Fix (**Netzwerk-Grafik – Panel und Dashboard-Card zeigen dasselbe**, Forum): Die Netzwerk-Ansicht im Panel (Netzwerk → Topologie → Netzwerk) baute ihre Cluster aus der Geräteliste der FRITZ!Box. Die weiß aber nicht, über welchen FRITZ!Repeater ein WLAN-Gerät verbunden ist – im Panel hing deshalb fast alles an der Box und die Repeater zeigten 0 oder 1 Gerät, während die Dashboard-Card (offizielle Mesh-Liste der Box) die Geräte richtig auf die Repeater verteilte. Jetzt nutzt die Netzwerk-Ansicht im Panel dieselben Daten wie die Mesh-Ansicht und die Card: die Mesh-Liste samt deinen Zuordnungen aus „Verbindung & Zuordnung". Nur wenn die Box keine Mesh-Liste liefert, wird wie bisher die Geräteliste verwendet. Hinweis: WLAN-Geräte wechseln je nach Empfang selbstständig zwischen Box und Repeatern (Roaming) – dass sich die Verteilung im Laufe des Tages ändert, ist also gewollt und entspricht der Mesh-Übersicht der FRITZ!Box.
+
 ## 1.5.2
 
 Please, if you like FRITZ!Portal, I would appreciate a Star rating ⭐ from you.

@@ -8,10 +8,10 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Home%20Assistant-App-41BDF5?logo=home-assistant&logoColor=white" alt="HA App"/>
-  <img src="https://img.shields.io/badge/Version-1.5.2-blue" alt="Version"/>
+  <img src="https://img.shields.io/badge/Version-1.5.3-blue" alt="Version"/>
   <img src="https://img.shields.io/badge/Architektur-amd64%20%7C%20aarch64%20%7C%20armv7-green" alt="Arch"/>
   <img src="https://img.shields.io/badge/Lizenz-MIT-lightgrey" alt="Lizenz"/>  
-  <img src="https://img.shields.io/badge/Downloads-39.2K-blue" alt="Downloads"/> 
+  <img src="https://img.shields.io/badge/Downloads-42.1K-blue" alt="Downloads"/> 
   <a href="README_eng.md"><img src="https://img.shields.io/badge/README-Eng-lightblue" alt="English"/></a>
 </p>
 <p align="center">
@@ -25,13 +25,14 @@ Wenn euch die App gefällt, würde ich mich über eine Sternebewertung ⭐ freue
 </div>
 
 <p align="center">
-  <img src="fritz-portal/docs/images/screenshot-fritzportal-lite.png" alt="FRITZ!Portal Screenshot" width="800"/>  
-  <img src="fritz-portal/docs/images/screenshot-fritzportal-dark.png" alt="FRITZ!Portal traffic" width="800"/> 
+  <img src="fritz-portal/docs/images/screenshot-fritzportal-lite.png" alt="FRITZ!Portal Dashboard (hell) mit Anrufen und SmartHome" width="800"/>  
+  <img src="fritz-portal/docs/images/screenshot-fritzportal-dark.png" alt="FRITZ!Portal Dashboard (dunkel) mit Anrufen und SmartHome" width="800"/> 
   <img src="fritz-portal/docs/images/fritzportal-devices.png" alt="FRITZ!Portal network" width="800"/>
   <img src="fritz-portal/docs/images/fritzportal-device.png" alt="FRITZ!Portal network" width="800"/>
   <img src="fritz-portal/docs/images/fritzportal-mesh.png" alt="FRITZ!Portal network" width="800"/>
   <img src="fritz-portal/docs/images/fritzportal-telefon.png" alt="FRITZ!Portal network" width="800"/>
   <img src="fritz-portal/docs/images/fritzportal-traffic.png" alt="FRITZ!Portal network" width="800"/>
+  <img src="fritz-portal/docs/images/fritzportal-card-dark.png" alt="FRITZ!Portal Dashboard-Card" width="800"/>
 </p>
 
 ---
@@ -85,7 +86,7 @@ Wenn euch die App gefällt, würde ich mich über eine Sternebewertung ⭐ freue
 | `ha_sensors` | REST-API Fallback aktivieren (nur ohne MQTT-Broker nötig) | `false` |
 | `ha_sensors_interval` | Intervall Systemsensoren (Sek.) | `60` |
 | `ha_sensors_traffic_interval` | Intervall Traffic-Sensoren (Sek.) | `300` |
-| `ha_phone_sensors` | Telefonie-Sensoren aktivieren: letzter Anruf, letzter verpasster und letzter eingehender Anruf (mit Nummer & Name) als HA-Sensoren – nur sinnvoll, wenn Telefonie über die FRITZ!Box läuft | `false` |
+| `ha_phone_sensors` | Telefonie-Sensoren aktivieren: letzter Anruf sowie letzter eingehender, verpasster und ausgehender Anruf (mit Nummer & Name, je auch als eigene Name-/Nummer-/Zeit-Sensoren) als HA-Sensoren – nur sinnvoll, wenn Telefonie über die FRITZ!Box läuft | `false` |
 | `keep_session_alive` | FRITZ!Box-Session permanent offen halten – nötig für kontinuierliche HA-Sensor-Updates auch wenn das Portal nicht aktiv geöffnet ist. **Erhöht die FRITZ!Box-Last und kann mit der HA-eigenen Fritz!SmartHome-Integration konkurrieren** – nur einschalten wenn die Sensoren wirklich rund um die Uhr aktualisiert werden müssen. **Auch Voraussetzung, um WLAN aus HA zu schalten, wenn das Portal nicht geöffnet ist.** | `false` |
 | `traffic_history_server` | Den Download-/Upload-Verlauf (letzte 30 min) serverseitig durchgehend sammeln, damit das Dashboard-Chart beim Zurückkehren sofort lückenlos gefüllt ist – unabhängig davon ob das Portal offen war. Kostet etwas mehr FRITZ!Box-Last. Ohne diese Option wird der Verlauf nur im Browser (localStorage) gespeichert. | `false` |
 | `debug_logging` | Alle API-Anfragen (TR-064, data.lua) im Protokoll ausgeben – hilfreich zur Fehlerdiagnose, ansonsten ausgeschaltet lassen | `false` |
@@ -127,6 +128,11 @@ FRITZ!Portal bringt eine eigene Karte für deine HA-Dashboards mit – im gleich
 Sie wird beim Start des Add-ons **automatisch installiert** (Datei nach `/config/www/fritz-portal/`, Eintrag als
 Lovelace-Ressource). Danach im Dashboard **„Karte hinzufügen" → „FRITZ!Portal"** wählen oder per YAML:
 
+<p align="center">
+  <img src="fritz-portal/docs/images/fritzportal-card-dark.png" alt="FRITZ!Portal Dashboard-Card – alle Bereiche auf drei Karten verteilt" width="900"/><br/>
+  <sub>Alle Bereiche, auf drei Karten verteilt (Terminal-Look, dunkel) – Beispieldaten</sub>
+</p>
+
 ```yaml
 type: custom:fritz-portal-card
 title: FRITZ!Box                 # optional
@@ -139,6 +145,8 @@ ha_style: false                  # true = Standard-Design von Home Assistant sta
 topology_view: network           # Netzwerk-Grafik: network (Cluster) | mesh (Baum) – ab v1.5.1
 topology_names: false            # Netzwerk-Grafik: Gerätenamen anzeigen
 topology_clients: true           # Mesh-Baum: auch Endgeräte zeigen
+topology_height: 0               # Netzwerk-Grafik: max. Höhe in px (0 = automatisch, bis 80 % der Bildschirmhöhe) – ab v1.5.3
+topology_name_length: 16         # Netzwerk-Grafik: Zeichen je Gerätename (8–40) – ab v1.5.3
 theme: auto                      # auto | dark | light
 ```
 
@@ -159,6 +167,74 @@ Alle Optionen lassen sich auch bequem im **visuellen Editor** der Karte einstell
 
 Bereiche ohne Daten werden automatisch ausgeblendet. Lovelace im **YAML-Modus**? Dann die Ressource selbst
 eintragen: `url: /local/fritz-portal/fritz-portal-card.js`, `type: module`.
+
+#### Beispiele
+
+**1. Übersicht auf drei Karten** (wie im Bild oben): Statt einer langen Karte die Bereiche auf mehrere Karten
+nebeneinander verteilen – z. B. in einem Dashboard mit Abschnitten oder einem `horizontal-stack`:
+
+```yaml
+type: horizontal-stack
+cards:
+  - type: custom:fritz-portal-card
+    sections: [system, wan, traffic, traffic_stats]
+  - type: custom:fritz-portal-card
+    sections: [hosts, mesh, wlan, phone]
+  - type: custom:fritz-portal-card
+    sections: [topology, smarthome]
+```
+
+**2. Kompakte Kachel, hell oder im HA-Design:** Nur das Wichtigste, links im hellen Terminal-Look
+(`theme: light`), rechts mit `ha_style: true` – dann übernimmt die Karte Schrift, Farben und Rahmen des
+aktiven HA-Themes und fügt sich wie eine Standardkarte ein.
+
+<p align="center">
+  <img src="fritz-portal/docs/images/fritzportal-card-light.png" alt="FRITZ!Portal Dashboard-Card – hell und im Home-Assistant-Design" width="800"/>
+</p>
+
+```yaml
+type: custom:fritz-portal-card
+title: FRITZ!Box
+sections: [system, traffic, hosts]
+hosts_limit: 8
+theme: light          # oder statt dessen: ha_style: true
+```
+
+**3. Netzwerk-Grafik:** Links die Ansicht **Mesh** als Baum (FRITZ!Box → Repeater → Endgeräte, LAN blau,
+WLAN grün gestrichelt), rechts **Netzwerk** mit Clustern je Zugangspunkt und eingeblendeten Namen. Die Ansicht
+lässt sich jederzeit über die Schaltflächen in der Karte umschalten, mit `–`/`+` zoomen; ein Klick auf ein Gerät
+öffnet dessen Weboberfläche.
+
+<p align="center">
+  <img src="fritz-portal/docs/images/fritzportal-card-topology.png" alt="FRITZ!Portal Dashboard-Card – Netzwerk-Grafik als Mesh-Baum und als Cluster" width="800"/>
+</p>
+
+```yaml
+type: custom:fritz-portal-card
+sections: [topology]
+topology_view: mesh   # oder network
+topology_names: true  # Namen in der Netzwerk-Ansicht
+```
+
+**4. Nur Telefonie oder nur Smart Home** – z. B. für ein Wand-Tablet im Flur:
+
+```yaml
+type: custom:fritz-portal-card
+title: Anrufe
+sections: [phone]
+phone_count: 10
+```
+
+```yaml
+type: custom:fritz-portal-card
+title: Smart Home
+sections: [smarthome]
+smarthome_group: group   # nach Räumen; category = nach Gerätetyp
+```
+
+> 💡 Ein Klick auf Werte (CPU, Traffic, Anrufe, Smart-Home-Zähler …) öffnet den HA-Detaildialog der Entität mit
+> Verlauf. Die Karte zeigt die Daten, die das Add-on an HA überträgt – ist ein Bereich leer, die zugehörige
+> Option im Add-on bzw. im Panel unter **System** prüfen (z. B. `ha_phone_sensors` für Anrufe).
 
 ### Sparkline-Tiles & Traffic in eigene HA-Dashboards einbinden
 
@@ -211,6 +287,13 @@ Zwei Wege, sie in HA sichtbar zu machen:
        data: active_hosts
        modify: x.type
    ```
+   **Große Netze (ab v1.5.3):** Home Assistant speichert Attribute nur bis 16 KB je Entität. Bei vielen
+   Geräten (ab ca. 80–100) verteilt FRITZ!Portal die Liste deshalb auf Teil-Entitäten:
+   `sensor.fritzportal_online_devices` trägt Teil 1 und im Attribut `parts` die Anzahl der Teile, weitere
+   Geräte stehen in `sensor.fritzportal_online_devices_2`, `_3` … (Diagnose-Entitäten). Ebenso bei
+   `sensor.fritzportal_topology` (`nodes`) und `sensor.fritzportal_smarthome` (`devices`). Die
+   Dashboard-Card setzt die Teile automatisch wieder zusammen; für eigene Karten die Teil-Entitäten
+   mit einbeziehen (z. B. `include: sensor.fritzportal_online_devices*`).
    Oder schlicht als Markdown-Liste ohne Zusatzkarte:
    ```yaml
    type: markdown
@@ -304,16 +387,30 @@ Beim allerersten Start merkt sich FRITZ!Portal nur die vorhandenen Geräte – E
 ### Telefonie-Sensoren: letzte Anrufe in Home Assistant (ab v1.4.6)
 
 Mit der Option **„Telefonie-Sensoren"** (System-Seite bzw. `ha_phone_sensors: true`) überträgt
-FRITZ!Portal drei Sensoren an Home Assistant – via MQTT Discovery und/oder REST-API-Fallback:
+FRITZ!Portal diese Sensoren an Home Assistant – via MQTT Discovery und/oder REST-API-Fallback:
 
 | Sensor | Inhalt |
 |---|---|
 | `sensor.fritzportal_last_call` | Letzter Anruf (egal ob ein-/ausgehend); Attribut `recent_calls` mit den letzten 20 Anrufen (ab v1.4.8) |
-| `sensor.fritzportal_last_missed_call` | Letzter verpasster Anruf |
 | `sensor.fritzportal_last_incoming_call` | Letzter angenommener eingehender Anruf |
+| `sensor.fritzportal_last_missed_call` | Letzter verpasster Anruf |
+| `sensor.fritzportal_last_outgoing_call` | Letzter ausgehender Anruf (ab v1.5.3) |
+
+**Einzelwerte (ab v1.5.3):** Für eingehend, verpasst und ausgehend gibt es zusätzlich je drei eigene
+Sensoren – praktisch z. B., um die Werte per MQTT an ein Display zu schicken oder direkt in Automationen
+zu nutzen, ohne Attribute auszulesen:
+
+| Sensor | Inhalt |
+|---|---|
+| `sensor.fritzportal_last_incoming_call_name` | Name aus dem Telefonbuch (`Unbekannt`, wenn kein Eintrag) |
+| `sensor.fritzportal_last_incoming_call_number` | Rufnummer (`Unbekannt` bei unterdrückter Nummer) |
+| `sensor.fritzportal_last_incoming_call_time` | Zeitpunkt als Zeitstempel (`device_class: timestamp`, Zeitzone aus HA) |
+
+Dasselbe mit `last_missed_call_…` und `last_outgoing_call_…`. Ohne passenden Anruf in der Liste steht
+dort `-` bzw. bei der Zeit „unbekannt".
 
 Der **Sensor-Wert** ist der Name der Gegenstelle (aus dem FRITZ!Box-Telefonbuch, Fallback: Rufnummer).
-Details stehen als **Attribute** bereit: `number`, `name`, `date`, `duration`, `type`, `device`, `from`, `to`.
+Details stehen als **Attribute** bereit: `number`, `name`, `date`, `timestamp` (ab v1.5.3), `duration`, `type`, `device`, `from`, `to`.
 Damit lässt sich z. B. eine kleine Anruf-Card bauen:
 
 ```yaml

@@ -2,7 +2,7 @@
 
 Dashboard für Ihre FRITZ!Box, direkt in Home Assistant integriert.
 
-<img width="80%" height="auto" alt="FRITZ!Portal" src="https://github.com/jayjojayson/FRITZ-Portal/blob/main/fritz-portal/docs/images/screenshot.png" />
+<img width="80%" height="auto" alt="FRITZ!Portal Dashboard" src="https://raw.githubusercontent.com/jayjojayson/FRITZ-Portal/main/fritz-portal/docs/images/screenshot-fritzportal-dark.png" />
 
 ## Funktionen
 
@@ -10,7 +10,7 @@ Dashboard für Ihre FRITZ!Box, direkt in Home Assistant integriert.
 - **Geräte**: Alle verbundenen Geräte anzeigen und verwalten, inkl. freie IP-Adressen
 - **Netzwerk**: LAN, WAN, WLAN-Einstellungen einsehen und ändern
 - **Traffic**: Datenverbrauch (Tag, Woche, Monat, Vormonat) und Online-Monitor (Auslastung nach Heimnetz/IPTV/Gastnetz und Priorisierungsklassen)
-- **Telefonie**: Anrufliste und DECT-Telefonie
+- **Telefonie**: Anrufliste und DECT-Telefonie; optional Telefonie-Sensoren für HA (letzter Anruf, eingehend/verpasst/ausgehend, je mit Name, Nummer und Zeit als eigene Sensoren)
 - **System**: FRITZ!Box-Informationen, Neustart, FRITZ!Portal Version
 
 ## Installation
@@ -46,6 +46,28 @@ Dashboard für Ihre FRITZ!Box, direkt in Home Assistant integriert.
 - Mit **„Sitzung dauerhaft aktiv halten"** laufen Sensoren und Hintergrund-Abgleich auch ohne geöffnetes Panel.
 
 Ausführlich: [README – So holt FRITZ!Portal die Daten](https://github.com/jayjojayson/FRITZ-Portal#-so-holt-fritzportal-die-daten-von-der-fritzbox)
+
+## Dashboard-Card
+
+Das Add-on bringt die Karte **`custom:fritz-portal-card`** für eigene HA-Dashboards mit und installiert sie beim Start automatisch (Option `dashboard_card`). Im Dashboard **„Karte hinzufügen" → „FRITZ!Portal"** wählen – alle Einstellungen gibt es auch im visuellen Editor.
+
+<img width="100%" height="auto" alt="FRITZ!Portal Dashboard-Card" src="https://raw.githubusercontent.com/jayjojayson/FRITZ-Portal/main/fritz-portal/docs/images/fritzportal-card-dark.png" />
+
+Bereiche (frei kombinierbar über `sections`): `system` (CPU, RAM, Temperatur, Geräte, freie IPs), `wan` (Internet, IPs, DSL-Sync), `traffic` (Live-Raten mit 30-min-Verlauf), `traffic_stats` (Heute … Vormonat), `hosts` (aktive Geräte mit Suche/Filter), `mesh` (FRITZ!Box und Repeater), `topology` (Netzwerk-Grafik als Cluster oder Mesh-Baum), `wlan` (WLAN-Schalter), `phone` (letzte Anrufe), `smarthome` (DECT-Geräte nach Raum oder Typ).
+
+```yaml
+type: custom:fritz-portal-card
+title: FRITZ!Box
+sections: [system, traffic, hosts]
+theme: auto          # auto | dark | light
+ha_style: false      # true = Design des aktiven HA-Themes
+```
+
+<img width="80%" height="auto" alt="FRITZ!Portal Dashboard-Card hell und im HA-Design" src="https://raw.githubusercontent.com/jayjojayson/FRITZ-Portal/main/fritz-portal/docs/images/fritzportal-card-light.png" />
+
+<img width="80%" height="auto" alt="FRITZ!Portal Dashboard-Card Netzwerk-Grafik" src="https://raw.githubusercontent.com/jayjojayson/FRITZ-Portal/main/fritz-portal/docs/images/fritzportal-card-topology.png" />
+
+Alle Optionen und weitere Beispiele: [README – Dashboard-Card](https://github.com/jayjojayson/FRITZ-Portal#fritzportal-dashboard-card-ab-v147)
 
 ## Einzelne Geräte in Home Assistant
 
