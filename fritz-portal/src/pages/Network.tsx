@@ -293,11 +293,12 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
     treeBox.scrollLeft += a.x * (treeK - a.from);
     window.scrollBy(0, a.y * (treeK - a.from));
   }, [treeK, treeBox]);
-  // Mesh-Baum kompakt: Zugangspunkte mit vielen Geräten eingeklappt (Klick klappt auf)
+  // Mesh-Baum kompakt: Zugangspunkte mit vielen Geräten eingeklappt (Klick klappt auf/zu)
   const [treeCompact, setTreeCompact] = useState(() => { try { return localStorage.getItem('fritzportal_mesh_compact') !== '0'; } catch { return true; } });
-  const [treeOpen, setTreeOpen] = useState<Set<string>>(() => new Set());
+  // Zugangspunkte, die der Nutzer abweichend vom Standard auf- bzw. zugeklappt hat
+  const [treeFlipped, setTreeFlipped] = useState<Set<string>>(() => new Set());
   const setCompact = (v: boolean) => { setTreeCompact(v); try { localStorage.setItem('fritzportal_mesh_compact', v ? '1' : '0'); } catch {} };
-  const toggleFold = (uid: string) => setTreeOpen(prev => {
+  const toggleFold = (uid: string) => setTreeFlipped(prev => {
     const next = new Set(prev);
     if (next.has(uid)) next.delete(uid); else next.add(uid);
     return next;
@@ -753,7 +754,8 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
     foldRow?: number;    // Zeile des „Geräte anzeigen"-Eintrags
   };
   type FoldRow = { parent: TreeNode; count: number; open: boolean; depth: number; rowIdx: number };
-  const TREE_FOLD = 10; // ab so vielen Endgeräten je Zugangspunkt eingeklappt (Kompakt)
+  const TREE_FOLD = 10;    // mehr Endgeräte je Zugangspunkt → standardmäßig eingeklappt (Kompakt)
+  const TREE_FOLD_MIN = 2; // ab so vielen Endgeräten lässt sich ein Zugangspunkt ein-/ausklappen
 
   const NODE_W = 360;
   const NODE_H = 52;
@@ -807,14 +809,19 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
     n.rowIdx = flat.length + folds.length;
     flat.push(n);
     const clients = n.children.filter(c => !isInfraNode(c));
-    const foldable = treeCompact && clients.length > TREE_FOLD;
-    const open = treeOpen.has(n.uid);
-    n.shown = foldable && !open ? n.children.filter(isInfraNode) : n.children;
-    for (const c of n.shown) flatten(c, depth + 1);
-    if (foldable) {
-      n.foldRow = flat.length + folds.length;
-      folds.push({ parent: n, count: clients.length, open, depth: depth + 1, rowIdx: n.foldRow });
-    }
+    // Jeder Zugangspunkt (auch die FRITZ!Box selbst) mit mehreren Endgeräten ist klappbar;
+    // bis TREE_FOLD Geräte startet er offen, darüber eingeklappt
+    const foldable = treeCompact && clients.length >= TREE_FOLD_MIN;
+    const open = (clients.length <= TREE_FOLD) !== treeFlipped.has(n.uid);
+    const infra = n.children.filter(isInfraNode);
+    n.shown = foldable && !open ? infra : n.children;
+    if (!foldable) { for (const c of n.shown) flatten(c, depth + 1); return; }
+    // Klappzeile direkt über den Endgeräten (nach Repeatern/Zugangspunkten) – so ist
+    // „einklappen" auch bei langen Listen ohne Scrollen erreichbar
+    for (const c of infra) flatten(c, depth + 1);
+    n.foldRow = flat.length + folds.length;
+    folds.push({ parent: n, count: clients.length, open, depth: depth + 1, rowIdx: n.foldRow });
+    if (open) for (const c of clients) flatten(c, depth + 1);
   };
   flatten(rootTree, 0);
   const allTree = [...byUid.values()];
@@ -880,7 +887,7 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
           {/* Vertikale "Pipes" pro Elternknoten (ein Strich von Eltern-Bottom zur Mitte des letzten Kindes) */}
           {flat.map(parent => {
             if (parent.shown.length === 0 && parent.foldRow === undefined) return null;
-            const lastRow = parent.foldRow ?? parent.shown[parent.shown.length - 1].rowIdx;
+            const lastRow = Math.max(parent.foldRow ?? -1, parent.shown.length ? parent.shown[parent.shown.length - 1].rowIdx : -1);
             const px = xOf(parent) + CONNECTOR_OFF;
             const y1 = yOf(parent) + NODE_H;
             const y2 = PAD_Y + lastRow * ROW_H + NODE_H / 2;
@@ -923,7 +930,7 @@ function MeshTopology({ meshData, loading, sid, onSelectDevice }: { meshData: an
                 <line x1={x1} y1={cy} x2={x2} y2={cy} stroke="var(--text-secondary)" strokeOpacity="0.35" strokeWidth="1.5" strokeDasharray="3 3" />
                 <rect x={x2} y={cy - 15} width={NODE_W} height={30} rx={8} fill="var(--bg-card)" stroke="var(--border)" strokeDasharray="4 4" />
                 <text x={x2 + 14} y={cy + 4} fontSize="12" fill="var(--accent)">
-                  {f.open ? t('▴ einklappen') : t('▾ {n} Geräte anzeigen', { n: f.count })}
+                  {f.open ? t('▴ {n} Geräte einklappen', { n: f.count }) : t('▾ {n} Geräte anzeigen', { n: f.count })}
                 </text>
               </g>
             );

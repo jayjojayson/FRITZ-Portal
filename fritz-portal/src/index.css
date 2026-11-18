@@ -1188,3 +1188,87 @@ textarea {
     grid-template-columns: 1fr !important;
   }
 }
+
+/* ══ Home-Assistant-Design (Header-Schalter „HA", wie `ha_style` der Dashboard-Card) ══
+   Farben kommen aus dem aktiven HA-Theme (--hax-*, gesetzt in useTheme), sonst gelten
+   die Standardfarben von Home Assistant. Schrift, Rundungen und Überschriften wie in HA. */
+[data-ui="ha"] {
+  --font-mono: var(--hax-font, Roboto, Noto, -apple-system, system-ui, sans-serif);
+  --font-sans: var(--hax-font, Roboto, Noto, -apple-system, system-ui, sans-serif);
+
+  --bg-primary:   var(--hax-bg, #fafafa);
+  --bg-sidebar:   var(--hax-bg2, #e5e5e5);
+  --bg-card:      var(--hax-card, #ffffff);
+  --bg-elevated:  color-mix(in srgb, var(--text-primary) 5%, var(--bg-card));
+  --bg-hover:     color-mix(in srgb, var(--text-primary) 8%, var(--bg-card));
+
+  --text-primary:   var(--hax-text, #212121);
+  --text-secondary: var(--hax-text2, #727272);
+  --text-muted:     color-mix(in srgb, var(--text-secondary) 75%, var(--bg-card));
+  --text-sidebar:        var(--text-secondary);
+  --text-sidebar-active: var(--text-primary);
+
+  --border:     var(--hax-divider, rgba(0, 0, 0, 0.12));
+  --border-hot: color-mix(in srgb, var(--text-primary) 30%, transparent);
+
+  --accent:       var(--hax-primary, #03a9f4);
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, var(--text-primary));
+  --accent-dim:   color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-soft:  color-mix(in srgb, var(--accent) 40%, transparent);
+  --success: var(--hax-success, #4caf50);
+  --warning: var(--hax-warning, #ff9800);
+  --danger:  var(--hax-error, #db4437);
+
+  --radius:    12px;
+  --radius-lg: 12px;
+}
+
+[data-ui="ha"][data-theme="dark"] {
+  --bg-primary: var(--hax-bg, #111111);
+  --bg-sidebar: var(--hax-bg2, #282828);
+  --bg-card:    var(--hax-card, #1c1c1c);
+  --text-primary:   var(--hax-text, #e1e1e1);
+  --text-secondary: var(--hax-text2, #9b9b9b);
+  --border: var(--hax-divider, rgba(225, 225, 225, 0.12));
+}
+
+[data-ui="ha"] body { letter-spacing: 0; }
+
+/* Terminal-Schmuck ausblenden */
+[data-ui="ha"] .stat-tile .tick,
+[data-ui="ha"] .card-header h3::before,
+[data-ui="ha"] .card-header h4::before,
+[data-ui="ha"] .tpanel-head .title::before,
+[data-ui="ha"] .page-header h2::before,
+[data-ui="ha"] .modal-head .title::before,
+[data-ui="ha"] .action-card h4::before,
+[data-ui="ha"] .login-card .login-head .title::before { content: none; display: none; }
+
+/* Karten wie ha-card: abgerundet, Überschriften in normaler Schreibweise */
+[data-ui="ha"] .stat-tile,
+[data-ui="ha"] .tpanel,
+[data-ui="ha"] .card,
+[data-ui="ha"] .action-card,
+[data-ui="ha"] .modal-card { border-radius: 12px; overflow: hidden; }
+[data-ui="ha"] .stat-tile .label { text-transform: none; letter-spacing: 0; font-size: 13px; }
+[data-ui="ha"] .stat-tile .value { letter-spacing: 0; }
+[data-ui="ha"] .tpanel-head,
+[data-ui="ha"] .card-header { letter-spacing: 0; font-size: 13px; padding: 14px 18px; }
+[data-ui="ha"] .tpanel-head .title,
+[data-ui="ha"] .card-header h3,
+[data-ui="ha"] .card-header h4 { font-size: 16px; font-weight: 500; letter-spacing: 0; }
+[data-ui="ha"] .page-header h2 { letter-spacing: 0; font-weight: 500; }
+[data-ui="ha"] .tpanel-foot,
+[data-ui="ha"] .status-line,
+[data-ui="ha"] .header-version { letter-spacing: 0; }
+
+/* Schalter und Buttons wie in HA */
+[data-ui="ha"] .header-pill,
+[data-ui="ha"] .header-theme-toggle { border-radius: 18px; letter-spacing: 0; }
+[data-ui="ha"] .header-nav-item { border-radius: 18px; }
+[data-ui="ha"] .btn { border-radius: 18px; letter-spacing: 0; }
+[data-ui="ha"] input,
+[data-ui="ha"] select,
+[data-ui="ha"] textarea { border-radius: 8px; }
+
+.header-theme-toggle:disabled { cursor: default; opacity: 0.7; }

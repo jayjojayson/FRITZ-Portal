@@ -1,5 +1,5 @@
 name: "FRITZ!Portal"
-version: "1.5.3"
+version: "1.5.4"
 slug: "fritz-portal"
 description: "FRITZ!Box Dashboard für Home Assistant"
 url: "https://github.com/jayjojayson/FRITZ-Portal"
@@ -20,6 +20,11 @@ panel_title: "FRITZ!Portal"
 panel_admin: true
 hassio_api: true
 homeassistant_api: true
+# Zugangsdaten des MQTT-Brokers (Mosquitto-Add-on) vom Supervisor – nötig, um Schaltbefehle
+# aus HA zu empfangen (WLAN-Schalter, Internetzugang/WoL einzelner Geräte). Ohne diesen
+# Eintrag antwortet der Supervisor mit HTTP 403. „want" = nutzen, falls vorhanden.
+services:
+  - mqtt:want
 host_network: true
 # Schreibzugriff auf die HA-Konfiguration – nur für die Dashboard-Card
 # (wird nach /config/www/fritz-portal/ kopiert, abschaltbar per dashboard_card: false)

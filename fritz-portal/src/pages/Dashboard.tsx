@@ -5,6 +5,7 @@ import { getApiCache, setApiCache } from '../App';
 import { useT } from '../lib/i18n';
 import StatTile from '../components/StatTile';
 import TerminalPanel from '../components/TerminalPanel';
+import { useTheme } from '../hooks/useTheme';
 
 interface Host {
   mac: string;
@@ -149,6 +150,7 @@ function EcoHistoryModal({ type, sid, onClose }: { type: EcoModal; sid: string; 
 
 export default function Dashboard({ sid, onSelectDevice, onNavigate }: DashboardProps) {
   const t = useT();
+  const haStyle = useTheme().uiStyle === 'ha';
   const [deviceInfo, setDeviceInfo] = useState<any>(getApiCache('device-info'));
   const [hosts, setHosts] = useState<Host[]>(getApiCache('hosts') || []);
   // Chart-Verlauf aus dem persistierten Cache initialisieren (überlebt iframe-Reload) –
@@ -493,7 +495,7 @@ export default function Dashboard({ sid, onSelectDevice, onNavigate }: Dashboard
         {/* TRAFFIC.LIVE */}
         <TerminalPanel
           title="TRAFFIC.LIVE"
-          subtitle={<>tail -f wan0</>}
+          subtitle={haStyle ? undefined : <>tail -f wan0</>}
           right={
             <span style={{ display: 'flex', gap: 18, fontSize: 12, color: 'var(--text-secondary)' }}>
               <span><span style={{ color: 'var(--accent)' }}>▰</span> DOWN <span style={{ color: 'var(--text-primary)' }}>{liveDownMb} Mbit/s</span></span>

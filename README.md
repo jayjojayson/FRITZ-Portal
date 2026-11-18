@@ -8,10 +8,10 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Home%20Assistant-App-41BDF5?logo=home-assistant&logoColor=white" alt="HA App"/>
-  <img src="https://img.shields.io/badge/Version-1.5.3-blue" alt="Version"/>
+  <img src="https://img.shields.io/badge/Version-1.5.4-blue" alt="Version"/>
   <img src="https://img.shields.io/badge/Architektur-amd64%20%7C%20aarch64%20%7C%20armv7-green" alt="Arch"/>
   <img src="https://img.shields.io/badge/Lizenz-MIT-lightgrey" alt="Lizenz"/>  
-  <img src="https://img.shields.io/badge/Downloads-42.1K-blue" alt="Downloads"/> 
+  <img src="https://img.shields.io/badge/Downloads-47.9K-blue" alt="Downloads"/> 
   <a href="README_eng.md"><img src="https://img.shields.io/badge/README-Eng-lightblue" alt="English"/></a>
 </p>
 <p align="center">
@@ -55,7 +55,7 @@ Wenn euch die App gefällt, würde ich mich über eine Sternebewertung ⭐ freue
 | **MQTT Discovery** | Standard-Übertragungsweg: Alle Sensoren werden via MQTT als gruppiertes „FRITZ!Portal"-Gerät in HA registriert |
 | **REST-API Fallback** | Optional aktivierbar für Nutzer ohne MQTT-Broker – Sensoren erscheinen dann als einzelne Entitäten |
 | **Sprache** | **Deutsch / Englisch / Italienisch** – umschaltbar über die Sprach-Pille im Header (DE → EN → IT), Auswahl bleibt erhalten; beim ersten Aufruf wird die Browsersprache übernommen |
-| **Dark / Light Mode** | Reaktives Theme (TERMINAL.OS Slate · Blue) ohne Reload |
+| **Design & Dark / Light Mode** | Reaktives Theme (TERMINAL.OS Slate · Blue) ohne Reload; per Knopf **„▣ PORTAL" / „⌂ HA"** im Header auch im **Home-Assistant-Design** – dann mit Schrift, Farben und Hell/Dunkel des aktiven HA-Themes (ab v1.5.4) |
 | **Ingress** | Vollständige Integration in die Home Assistant Oberfläche, kein Port-Forwarding nötig |
 
 ---
@@ -529,7 +529,7 @@ Der Dev-Server läuft auf **http://localhost:5173** und proxyt API-Anfragen auto
 
 ## 📋 Changelog
 
-Die vollständige Versionshistorie ist in [CHANGELOG.md](fritz-portal/CHANGELOG.md) zu finden.
+Die vollständige Versionshistorie ist in [CHANGELOG_de.md](fritz-portal/CHANGELOG_de.md) zu finden (englisch: [CHANGELOG.md](fritz-portal/CHANGELOG.md)).
 
 ---
 

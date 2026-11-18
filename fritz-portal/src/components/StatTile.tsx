@@ -1,4 +1,11 @@
 import { ReactNode, CSSProperties } from 'react';
+import { useTheme } from '../hooks/useTheme';
+import { useT } from '../lib/i18n';
+
+// Im Home-Assistant-Design lesbare Beschriftungen statt der Terminal-Labels
+const HA_LABELS: Record<string, string> = {
+  MODEL: 'Modell', TEMP: 'Temperatur', HOSTS: 'Geräte', 'IP POOL': 'IP-Pool',
+};
 
 interface StatTileProps {
   label: string;
@@ -25,6 +32,8 @@ export default function StatTile({
   title,
   style,
 }: StatTileProps) {
+  const ha = useTheme().uiStyle === 'ha';
+  const t = useT();
   return (
     <div
       className={`stat-tile ${onClick ? 'clickable' : ''}`}
@@ -37,7 +46,7 @@ export default function StatTile({
       <span className="tick bl" style={{ color: accent }}>└</span>
       <span className="tick br" style={{ color: accent }}>┘</span>
 
-      <div className="label">{label}</div>
+      <div className="label">{ha && HA_LABELS[label] ? t(HA_LABELS[label]) : label}</div>
       <div className="value">
         {value}
         {unit && <span className="unit">{unit}</span>}

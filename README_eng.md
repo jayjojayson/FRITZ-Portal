@@ -9,10 +9,10 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Home%20Assistant-App-41BDF5?logo=home-assistant&logoColor=white" alt="HA App"/>
-  <img src="https://img.shields.io/badge/Version-1.5.3-blue" alt="Version"/>
+  <img src="https://img.shields.io/badge/Version-1.5.4-blue" alt="Version"/>
   <img src="https://img.shields.io/badge/Architecture-amd64%20%7C%20aarch64%20%7C%20armhf-green" alt="Arch"/>
   <img src="https://img.shields.io/badge/License-MIT-lightgrey" alt="License"/>
-  <img src="https://img.shields.io/badge/Downloads-42.1K-blue" alt="Downloads"/>
+  <img src="https://img.shields.io/badge/Downloads-47.9K-blue" alt="Downloads"/>
   <a href="README.md"><img src="https://img.shields.io/badge/README-De-lightblue" alt="Deutsch"/></a>
 </p>
 <p align="center">
@@ -56,7 +56,7 @@ If you like the App, I would appreciate a Star rating ⭐ from you. 🤗
 | **MQTT Discovery** | Default transfer method: all sensors are registered via MQTT as a grouped „FRITZ!Portal" device in the HA device overview |
 | **REST API Fallback** | Optionally enabled for users without an MQTT broker – sensors then appear as individual entities |
 | **Languages** | **German / English / Italian** – switchable via the language pill in the header (DE → EN → IT), selection is persisted; on first visit the browser language is used |
-| **Dark / Light Mode** | Reactive theme (TERMINAL.OS Slate · Blue) without page reload |
+| **Design & dark / light mode** | Reactive theme (TERMINAL.OS Slate · Blue) without page reload; with the **"▣ PORTAL" / "⌂ HA"** button in the header also in **Home Assistant style** – then using the fonts, colours and light/dark mode of the active HA theme (v1.5.4+) |
 | **Ingress** | Full integration into the Home Assistant interface, no port forwarding required |
 
 ---
@@ -530,7 +530,7 @@ The dev server runs at **http://localhost:5173** and proxies API requests automa
 
 ## 📋 Changelog
 
-The full version history can be found in [CHANGELOG.md](fritz-portal/CHANGELOG.md).
+The full version history can be found in [CHANGELOG.md](fritz-portal/CHANGELOG.md) (German: [CHANGELOG_de.md](fritz-portal/CHANGELOG_de.md)).
 
 
 ---

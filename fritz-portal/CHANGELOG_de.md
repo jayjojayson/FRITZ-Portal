@@ -1,4 +1,24 @@
-# Changelog
+# Changelog (Deutsch)
+
+## 1.5.4
+
+Please, if you like FRITZ!Portal, I would appreciate a Star rating ⭐ from you.
+This helps the algorithm to boost the Add-on and motivates me. 
+Thank you and thanks for nearly 3000 users and over 40k Downloads.
+You can also support me with a coffee via ko-fi or PayPal.
+
+---
+
+[![README English](https://img.shields.io/badge/README-English-orange)](https://github.com/jayjojayson/FRITZ-Portal/blob/main/README_eng.md) [![README Deutsch](https://img.shields.io/badge/README-Deutsch-orange)](https://github.com/jayjojayson/FRITZ-Portal) 
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/G2G01VCROJ) [![Support](https://img.shields.io/badge/%20-Support%20Me-steelblue?style=flat&logo=paypal&logoColor=white)](https://www.paypal.me/quadFlyerFW)
+
+---
+
+- Neu (**Panel im Home-Assistant-Design**): Wie die Dashboard-Card lässt sich jetzt auch das Panel im Design von Home Assistant anzeigen – umschaltbar über den neuen Knopf **„▣ PORTAL" / „⌂ HA"** oben rechts im Header (vor Hell/Dunkel). Im HA-Design übernimmt das Panel Schrift, Farben und Hell/Dunkel des aktiven HA-Themes (auch eigene Themes); Karten sind abgerundet, Überschriften und Kacheln in normaler Schreibweise („Traffic live", „Aktive Geräte" …). Der Hell/Dunkel-Knopf zeigt dann „AUTO". Die Auswahl bleibt im Browser gespeichert.
+- Verbessert (**Mesh-Baum – auch Geräte direkt an der FRITZ!Box einklappbar**): Bisher ließen sich nur Zugangspunkte mit mehr als 10 Geräten einklappen; hingen genau 10 oder weniger Geräte an der Box oder einem Repeater, gab es keine Möglichkeit dazu. Jetzt ist jeder Zugangspunkt ab 2 Geräten auf- und zuklappbar – bis 10 Geräte startet er offen, darüber eingeklappt. Die Klappzeile („▴ 10 Geräte einklappen") steht direkt über der Geräteliste statt darunter, ist also ohne Scrollen erreichbar. Gilt für das Panel (Netzwerk → Mesh-Topologie, Ansicht „Kompakt") und die Dashboard-Card.
+- Fix (**Schalten aus Home Assistant – WLAN-Schalter, Internetzugang und WoL reagierten nicht**, gemeldet im Forum): Die Schalter ließen sich in HA und in der Dashboard-Card zwar betätigen, sprangen aber sofort zurück; im Panel ging das Schalten dagegen. Ursache: Dem Add-on fehlte die Freigabe für den MQTT-Dienst, der Supervisor verweigerte daher die Broker-Zugangsdaten (Log: „Service-Discovery nicht verfügbar (HTTP 403)"), und die Befehle aus HA kamen nie an. Das Add-on meldet jetzt `mqtt:want` an und empfängt die Befehle über das Mosquitto-Add-on. Betraf auch die Schalter „Internetzugang" und den Button „Aufwecken (WoL)" einzelner Geräte (ab v1.5.2). Ist der Broker beim Start noch nicht bereit, versucht es das Add-on alle 5 Minuten erneut, statt bis zum nächsten Neustart aufzugeben.
+- Verbessert (**Infoseite der App in Home Assistant**): Die Infoseite unter Einstellungen → Apps → FRITZ!Portal zeigt jetzt das FRITZ!Portal-Logo über dem Namen, Badges (GitHub-Sterne, Version, README Deutsch/Englisch), eine kurze Vorstellung, die wichtigsten Funktionen und Screenshots. Der Reiter **Dokumentation** ist komplett überarbeitet: alle Optionen der App, die nötigen Rechte des FRITZ!Box-Benutzers, ein Überblick über Sensoren, Schalter und Events sowie eine Tabelle zur Fehlersuche.
 
 ## 1.5.3
 

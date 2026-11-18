@@ -4060,21 +4060,39 @@ async function publishWlanDiscovery(states) {
 // Sensor-/State-Publishes laufen weiterhin über den Supervisor-Proxy (publishMqtt).
 // Broker-Zugangsdaten kommen aus der Supervisor-Service-Discovery.
 let mqttBrokerClient = null;
+let mqttBrokerRetry = null;
+let mqttBrokerFails = 0;
+const MQTT_BROKER_RETRY_MS = 5 * 60 * 1000;
+// Nur den ersten Fehlversuch protokollieren – sonst stünde er alle 5 min im Log
+const logBrokerFail = (msg) => { if (mqttBrokerFails++ === 0) console.log(msg); };
+
+// Erneuter Versuch, z. B. wenn das Mosquitto-Add-on beim Start noch nicht bereit war
+function retryMqttBroker() {
+  if (mqttBrokerRetry || mqttBrokerClient) return;
+  mqttBrokerRetry = setTimeout(() => { mqttBrokerRetry = null; connectMqttBroker().catch(() => {}); }, MQTT_BROKER_RETRY_MS);
+}
 
 async function connectMqttBroker() {
   if (!HA_TOKEN || mqttBrokerClient) return;
+  const inactive = 'Schaltbefehle aus HA (WLAN, Internetzugang, WoL) inaktiv, weitere Versuche alle 5 min';
   let info;
   try {
     const r = await fetch('http://supervisor/services/mqtt', {
       headers: { 'Authorization': `Bearer ${HA_TOKEN}` },
     });
-    if (!r.ok) { console.log(`MQTT-Broker: Service-Discovery nicht verfügbar (HTTP ${r.status}) – WLAN-Schalter inaktiv`); return; }
+    if (!r.ok) {
+      logBrokerFail(`MQTT-Broker: Service-Discovery nicht verfügbar (HTTP ${r.status}) – ${inactive}`);
+      return retryMqttBroker();
+    }
     info = (await r.json())?.data;
   } catch (e) {
-    console.log('MQTT-Broker: Service-Discovery fehlgeschlagen – WLAN-Schalter inaktiv:', e.message);
-    return;
+    logBrokerFail(`MQTT-Broker: Service-Discovery fehlgeschlagen (${e.message}) – ${inactive}`);
+    return retryMqttBroker();
   }
-  if (!info?.host) { console.log('MQTT-Broker: keine Broker-Daten – WLAN-Schalter inaktiv'); return; }
+  if (!info?.host) {
+    logBrokerFail(`MQTT-Broker: keine Broker-Daten (Mosquitto-Add-on installiert?) – ${inactive}`);
+    return retryMqttBroker();
+  }
   const proto = info.ssl ? 'mqtts' : 'mqtt';
   const url = `${proto}://${info.host}:${info.port || 1883}`;
   const client = mqtt.connect(url, {

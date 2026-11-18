@@ -1,7 +1,7 @@
 # FRITZ!Portal
 
 [![GitHub Stars](https://img.shields.io/github/stars/jayjojayson/FRITZ-Portal?style=flat&logo=github&label=Stars&color=yellow)](https://github.com/jayjojayson/FRITZ-Portal/stargazers)
-[![Version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fjayjojayson%2FFRITZ-Portal%2Fmain%2Ffritz-portal%2Fconfig.yaml&query=%24.version&label=Version&color=blue)](https://github.com/jayjojayson/FRITZ-Portal/blob/main/fritz-portal/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fjayjojayson%2FFRITZ-Portal%2Fmain%2Ffritz-portal%2Fconfig.yaml&query=%24.version&label=Version&color=blue)](https://github.com/jayjojayson/FRITZ-Portal/blob/main/fritz-portal/CHANGELOG_de.md)
 [![README Deutsch](https://img.shields.io/badge/README-Deutsch-orange)](https://github.com/jayjojayson/FRITZ-Portal)
 [![README English](https://img.shields.io/badge/README-English-orange)](https://github.com/jayjojayson/FRITZ-Portal/blob/main/README_eng.md)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Buy%20Me%20a%20Coffee-darkgreen?style=flat&logo=ko-fi&logoColor=white)](https://ko-fi.com/jayjojayson)

@@ -7,11 +7,13 @@
     <title>FRITZ!Portal</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <script>
       (function() {
-        var saved = localStorage.getItem('theme');
+        var saved = null, ui = null;
+        try { saved = localStorage.getItem('theme'); ui = localStorage.getItem('ui_style'); } catch (e) {}
         document.documentElement.setAttribute('data-theme', saved || 'dark');
+        document.documentElement.setAttribute('data-ui', ui === 'ha' ? 'ha' : 'portal');
       })();
     </script>
   </head>

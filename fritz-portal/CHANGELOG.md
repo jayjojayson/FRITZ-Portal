@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.5.4
+
+Please, if you like FRITZ!Portal, I would appreciate a Star rating ⭐ from you.
+This helps the algorithm to boost the Add-on and motivates me. 
+Thank you and thanks for nearly 3000 users and over 40k Downloads. 
+You can also support me with a coffee via ko-fi or PayPal.
+
+---
+
+[![README English](https://img.shields.io/badge/README-English-orange)](https://github.com/jayjojayson/FRITZ-Portal/blob/main/README_eng.md) [![README Deutsch](https://img.shields.io/badge/README-Deutsch-orange)](https://github.com/jayjojayson/FRITZ-Portal) 
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/G2G01VCROJ) [![Support](https://img.shields.io/badge/%20-Support%20Me-steelblue?style=flat&logo=paypal&logoColor=white)](https://www.paypal.me/quadFlyerFW)
+
+---
+
+- New (**panel in Home Assistant style**): Like the dashboard card, the panel can now also be shown in Home Assistant's design – toggled with the new **"▣ PORTAL" / "⌂ HA"** button at the top right of the header (before light/dark). In HA style the panel takes over the fonts, colours and light/dark mode of the active HA theme (custom themes too); cards are rounded, headings and tiles use normal wording ("Live traffic", "Active devices" …). The light/dark button then shows "AUTO". The choice is remembered in the browser.
+- Improved (**mesh tree – devices directly on the FRITZ!Box can be collapsed too**): Previously only access points with more than 10 devices could be collapsed; with 10 or fewer devices on the box or a repeater there was no way to do so. Now every access point with 2 or more devices can be expanded and collapsed – up to 10 devices it starts expanded, above that collapsed. The toggle row ("▴ Collapse 10 devices") sits directly above the device list instead of below it, so it can be reached without scrolling. Applies to the panel (Network → Mesh topology, "Compact" view) and the dashboard card.
+- Fix (**switching from Home Assistant – WLAN switches, internet access and WoL did not react**, reported in the forum): The switches could be toggled in HA and in the dashboard card but jumped back immediately, while switching in the panel worked. Cause: the add-on lacked permission for the MQTT service, so the Supervisor refused the broker credentials (log: "Service-Discovery nicht verfügbar (HTTP 403)") and commands from HA never arrived. The add-on now declares `mqtt:want` and receives the commands via the Mosquitto add-on. This also affected the "Internet access" switch and the "Wake up (WoL)" button of individual devices (v1.5.2+). If the broker is not ready at start-up, the add-on now retries every 5 minutes instead of giving up until the next restart.
+- Improved (**app info page in Home Assistant**): The info page under Settings → Apps → FRITZ!Portal now shows the FRITZ!Portal logo above the name, badges (GitHub stars, version, README German/English), a short introduction, the main features and screenshots. The **Documentation** tab has been fully revised: all app options, the required FRITZ!Box user permissions, an overview of sensors, switches and events, and a troubleshooting table.
+
 ## 1.5.3
 
 Please, if you like FRITZ!Portal, I would appreciate a Star rating ⭐ from you.

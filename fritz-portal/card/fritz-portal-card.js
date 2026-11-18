@@ -22,7 +22,7 @@
  *   topology_name_length: 16 # Netzwerk-Grafik: Zeichen je Gerätename (8–40)
  */
 
-const CARD_VERSION = '1.5.3';
+const CARD_VERSION = '1.5.4';
 const ALL_SECTIONS = ['system', 'wan', 'traffic', 'traffic_stats', 'hosts', 'mesh', 'topology', 'wlan', 'phone', 'smarthome'];
 const SECTION_LABELS = {
   system: 'System (CPU, RAM, Temperatur, Geräte)',
@@ -45,7 +45,8 @@ const TOPO = {
   master: { stroke: '#06b6d4', fill: '#0e7490' }, ap: { stroke: '#f59e0b', fill: '#78350f' },
   LAN: { stroke: '#3b82f6', fill: '#1e3a5f', dash: '0' }, WLAN: { stroke: '#10b981', fill: '#065f46', dash: '6 3' },
 };
-const TREE_FOLD = 10; // Mesh-Baum: ab so vielen Endgeräten je Zugangspunkt eingeklappt
+const TREE_FOLD = 10;    // Mesh-Baum: mehr Endgeräte je Zugangspunkt → standardmäßig eingeklappt
+const TREE_FOLD_MIN = 2; // Mesh-Baum: ab so vielen Endgeräten ist ein Zugangspunkt klappbar
 const SMARTHOME_CATEGORY = {
   socket: 'Steckdosen', thermostat: 'Heizung', lamp: 'Licht', blind: 'Rollläden',
   sensor: 'Sensoren', control: 'Taster', other: 'Sonstige',
@@ -214,7 +215,7 @@ class FritzPortalCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
-    this._ui = { search: '', filter: 'all', sort: 'activity', expanded: false, treeOpen: new Set(),
+    this._ui = { search: '', filter: 'all', sort: 'activity', expanded: false, treeFlip: new Set(),
       zoom: { k: 1, x: 0, y: 0 }, treeK: 1 };
     this._history = { down: [], up: [], fetched: 0 };
     this._renderPending = false;
@@ -668,16 +669,18 @@ class FritzPortalCard extends HTMLElement {
       const kids = sortKids(m.children.get(n.id));
       const hubKids = kids.filter(c => m.isHub(c));
       const clientKids = showClients ? kids.filter(c => !m.isHub(c)) : [];
-      const foldable = clientKids.length > TREE_FOLD;
-      const open = !foldable || this._ui.treeOpen.has(n.id);
-      const items = [...hubKids, ...(open ? clientKids : [])];
-      if (foldable) items.push(null);
+      // Jeder Zugangspunkt (auch die FRITZ!Box) mit mehreren Endgeräten ist klappbar;
+      // treeFlip merkt sich, wo der Nutzer vom Standard (offen bis TREE_FOLD) abweicht
+      const foldable = clientKids.length >= TREE_FOLD_MIN;
+      const open = !foldable || ((clientKids.length <= TREE_FOLD) !== this._ui.treeFlip.has(n.id));
+      // Klappzeile direkt über den Endgeräten – „einklappen" ohne Scrollen erreichbar
+      const items = [...hubKids, ...(foldable ? [null] : []), ...(open ? clientKids : [])];
       items.forEach((c, i) => {
         const last = i === items.length - 1;
         if (c) return walk(c, [...lasts, last]);
         const cells = [...lasts, last].map((l, j, arr) => `<span class="tc ${j === arr.length - 1 ? 'end' : l ? '' : 'pipe'}"></span>`).join('');
         rows.push(`<div class="trow">${cells}<button class="more" data-tree="${esc(n.id)}" style="margin:0 0 0 6px">${open
-          ? '▴ einklappen' : `▾ ${clientKids.length} Geräte anzeigen`}</button></div>`);
+          ? `▴ ${clientKids.length} Geräte einklappen` : `▾ ${clientKids.length} Geräte anzeigen`}</button></div>`);
       });
     };
     walk(m.master, []);
@@ -941,8 +944,8 @@ class FritzPortalCard extends HTMLElement {
       this._ui.search = e.target.value; this._render();
     });
     root.querySelectorAll('[data-tree]').forEach(el => el.addEventListener('click', () => {
-      const open = this._ui.treeOpen;
-      if (open.has(el.dataset.tree)) open.delete(el.dataset.tree); else open.add(el.dataset.tree);
+      const flip = this._ui.treeFlip;
+      if (flip.has(el.dataset.tree)) flip.delete(el.dataset.tree); else flip.add(el.dataset.tree);
       this._render();
     }));
     this._bindZoom(root);

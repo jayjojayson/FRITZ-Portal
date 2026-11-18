@@ -23,7 +23,7 @@ const navItems: { page: Page; label: string }[] = [
 const NEXT_LANG: Record<Lang, Lang> = { de: 'en', en: 'it', it: 'de' };
 
 export default function Header({ currentPage, onNavigate }: HeaderProps) {
-  const { theme, toggleTheme } = useTheme();
+  const { theme, toggleTheme, uiStyle, toggleUiStyle, followsHa } = useTheme();
   const { lang, setLang, t } = useI18n();
   const isDark = theme === 'dark';
 
@@ -58,11 +58,19 @@ export default function Header({ currentPage, onNavigate }: HeaderProps) {
           {lang.toUpperCase()}
         </button>
         <button
-          className="header-theme-toggle"
-          onClick={toggleTheme}
-          title={isDark ? t('Light Mode') : t('Dark Mode')}
+          className="header-pill"
+          onClick={toggleUiStyle}
+          title={uiStyle === 'ha' ? t('FRITZ!Portal-Terminal-Look verwenden') : t('Home-Assistant-Design verwenden')}
         >
-          ◐ {isDark ? 'DARK' : 'LIGHT'}
+          {uiStyle === 'ha' ? '⌂ HA' : '▣ PORTAL'}
+        </button>
+        <button
+          className="header-theme-toggle"
+          onClick={followsHa ? undefined : toggleTheme}
+          disabled={followsHa}
+          title={followsHa ? t('Hell/Dunkel folgt dem Home-Assistant-Theme') : isDark ? t('Light Mode') : t('Dark Mode')}
+        >
+          ◐ {followsHa ? 'AUTO' : isDark ? 'DARK' : 'LIGHT'}
         </button>
       </div>
     </header>
