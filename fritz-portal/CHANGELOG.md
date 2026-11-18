@@ -4,7 +4,7 @@
 
 Please, if you like FRITZ!Portal, I would appreciate a Star rating ⭐ from you.
 This helps the algorithm to boost the Add-on and motivates me. 
-Thank you and thanks for nearly 3000 users and over 40k Downloads.
+Thank you and thanks for nearly 3000 users and over 40k Downloads. 
 You can also support me with a coffee via ko-fi or PayPal.
 
 ---
@@ -15,13 +15,13 @@ You can also support me with a coffee via ko-fi or PayPal.
 
 ---
 
-- Neu (**Telefonie-Sensoren – Name, Nummer und Zeit als eigene Entitäten**, [#43](https://github.com/jayjojayson/FRITZ-Portal/issues/43), Wunsch von [@ms1958](https://github.com/ms1958)): Für den letzten eingehenden, verpassten und ausgehenden Anruf gibt es jetzt je drei eigene Sensoren – `…_name`, `…_number` und `…_time` (z. B. `sensor.fritzportal_last_incoming_call_number`). Die Zeit ist ein echter Zeitstempel in der Zeitzone von Home Assistant und lässt sich in Automationen und auf Displays frei formatieren. Neu ist außerdem `sensor.fritzportal_last_outgoing_call` (letzter ausgehender Anruf). Die bisherigen Sensoren bekommen zusätzlich das Attribut `timestamp`. Alles Teil der Option „Telefonie-Sensoren" – beim Deaktivieren werden auch die neuen Entitäten wieder entfernt.
-- Neu (**Dashboard-Card – Netzwerk-Grafik passt sich der Größe an**, Wunsch aus dem Forum): Die Grafik war auf 560 px Höhe begrenzt und blieb z. B. auf einem Wandtablet klein. Jetzt wächst sie mit der Breite der Karte bis 80 % der Bildschirmhöhe. Neue Option `topology_height` (px, 0 = automatisch) begrenzt die Höhe bei Bedarf fest.
-- Neu (**Dashboard-Card – längere Gerätenamen**, Wunsch aus dem Forum): Namen wurden nach 12 Zeichen abgeschnitten. Neue Option `topology_name_length` (8–40, Standard 16) legt die Länge fest; der Abstand der Geräte wächst mit, damit sich die Namen nicht überlappen. Beide Optionen stehen auch im visuellen Editor der Card.
-- Verbessert (**weniger Schreiblast für die HA-Datenbank**): Die Geräteliste in „Geräte online" wurde bisher bei jedem Push neu nach Aktivität sortiert – dadurch änderte sich das Attribut fast jede Minute und HA speicherte jedes Mal eine neue Kopie der ganzen Liste. Jetzt wird nur alle 15 Minuten neu sortiert, dazwischen bleibt die Reihenfolge stabil (neu hinzugekommene Geräte stehen vorne).
-- Doku (**Dashboard-Card mit Beispielbildern**): README (DE/EN) und die Add-on-Doku zeigen die Dashboard-Card jetzt mit Bildern – Übersicht auf drei Karten, kompakte Kachel hell bzw. im HA-Design und die Netzwerk-Grafik als Mesh-Baum und Cluster – samt passender YAML-Beispiele. Die beiden Dashboard-Screenshots (hell/dunkel) sind erneuert und zeigen jetzt auch die Boxen „Letzte Anrufe" und „SmartHome"; die Add-on-Doku zeigt wieder ein Vorschaubild (der Bildlink war defekt).
-- Fix (**große Netze – Attribute über 16 KB**, [#42](https://github.com/jayjojayson/FRITZ-Portal/issues/42), gemeldet von [@rolli-d](https://github.com/rolli-d)): Bei vielen Geräten (z. B. 200+ Geräte, 40 DECT-Geräte) waren die Attribute von „Geräte online", „Netzwerk-Topologie" und „Smart Home" größer als die 16 KB, die der HA-Recorder speichert – HA schrieb bei jedem Update eine Warnung ins Protokoll. Lange Listen werden jetzt auf Teil-Entitäten verteilt (`sensor.fritzportal_online_devices_2`, `_3` …, als Diagnose-Entitäten); die Haupt-Entität trägt Teil 1 und im Attribut `parts` die Anzahl. Die Dashboard-Card setzt die Teile automatisch wieder zusammen. Nicht mehr benötigte Teile werden entfernt, sobald die Liste wieder kürzer wird.
-- Fix (**Netzwerk-Grafik – Panel und Dashboard-Card zeigen dasselbe**, Forum): Die Netzwerk-Ansicht im Panel (Netzwerk → Topologie → Netzwerk) baute ihre Cluster aus der Geräteliste der FRITZ!Box. Die weiß aber nicht, über welchen FRITZ!Repeater ein WLAN-Gerät verbunden ist – im Panel hing deshalb fast alles an der Box und die Repeater zeigten 0 oder 1 Gerät, während die Dashboard-Card (offizielle Mesh-Liste der Box) die Geräte richtig auf die Repeater verteilte. Jetzt nutzt die Netzwerk-Ansicht im Panel dieselben Daten wie die Mesh-Ansicht und die Card: die Mesh-Liste samt deinen Zuordnungen aus „Verbindung & Zuordnung". Nur wenn die Box keine Mesh-Liste liefert, wird wie bisher die Geräteliste verwendet. Hinweis: WLAN-Geräte wechseln je nach Empfang selbstständig zwischen Box und Repeatern (Roaming) – dass sich die Verteilung im Laufe des Tages ändert, ist also gewollt und entspricht der Mesh-Übersicht der FRITZ!Box.
+- New (**telephony sensors – name, number and time as separate entities**, [#43](https://github.com/jayjojayson/FRITZ-Portal/issues/43), requested by [@ms1958](https://github.com/ms1958)): For the last incoming, missed and outgoing call there are now three separate sensors each – `…_name`, `…_number` and `…_time` (e.g. `sensor.fritzportal_last_incoming_call_number`). The time is a real timestamp in Home Assistant's time zone and can be formatted freely in automations and on displays. Also new: `sensor.fritzportal_last_outgoing_call` (last outgoing call). The existing sensors additionally get a `timestamp` attribute. All part of the "Telephony sensors" option – disabling it removes the new entities as well.
+- Improved (**less write load on the HA database**): The device list in "Devices online" used to be re-sorted by activity on every push – so the attribute changed almost every minute and HA stored a new copy of the whole list each time. It is now re-sorted only every 15 minutes; in between the order stays stable (newly added devices go first).
+- Docs (**dashboard card with example pictures**): the README (DE/EN) and the add-on docs now show the dashboard card with pictures – overview on three cards, compact tile in light and HA style, and the network graphic as mesh tree and clusters – plus matching YAML examples. The two dashboard screenshots (light/dark) are updated and now also show the "Recent calls" and "Smart home" boxes; the add-on docs show a preview picture again (the image link was broken).
+- New (**dashboard card – network graphic adapts to its size**, forum request): The graphic was limited to 560 px height and stayed small, e.g. on a wall tablet. It now grows with the card width up to 80 % of the screen height. New option `topology_height` (px, 0 = automatic) sets a fixed limit if needed.
+- New (**dashboard card – longer device names**, forum request): Names were cut after 12 characters. New option `topology_name_length` (8–40, default 16) sets the length; the spacing between devices grows with it so the names don't overlap. Both options are also available in the card's visual editor.
+- Fix (**large networks – attributes over 16 KB**, [#42](https://github.com/jayjojayson/FRITZ-Portal/issues/42), reported by [@rolli-d](https://github.com/rolli-d)): With many devices (e.g. 200+ devices, 40 DECT devices) the attributes of "Devices online", "Network topology" and "Smart home" exceeded the 16 KB the HA recorder stores – HA logged a warning on every update. Long lists are now split across part entities (`sensor.fritzportal_online_devices_2`, `_3` …, as diagnostic entities); the main entity holds part 1 and the number of parts in the `parts` attribute. The dashboard card merges the parts automatically. Parts that are no longer needed are removed as soon as the list gets shorter again.
+- Fix (**network graphic – panel and dashboard card show the same**, forum): The network view in the panel (Network → Topology → Network) built its clusters from the FRITZ!Box device list. That list does not know which FRITZ!Repeater a WLAN device is connected through – so in the panel almost everything hung off the box and the repeaters showed 0 or 1 device, while the dashboard card (official mesh list of the box) distributed the devices correctly. The panel's network view now uses the same data as the mesh view and the card: the mesh list plus your assignments from "Connection & assignment". Only if the box provides no mesh list is the device list used as before. Note: WLAN devices move between box and repeaters on their own depending on reception (roaming) – a distribution that changes over the day is expected and matches the mesh overview of the FRITZ!Box.
 
 ## 1.5.2
 
@@ -37,554 +37,542 @@ You can also support me with a coffee via ko-fi or PayPal.
 
 ---
 
-- **Sicherheit** (**wichtiges Update**, [GHSA-h565-vx6r-3rhv](https://github.com/jayjojayson/FRITZ-Portal/security/advisories/GHSA-h565-vx6r-3rhv), gemeldet von [**@Trizompa**](https://github.com/Trizompa) – vielen Dank!): Das Add-on läuft im Host-Netz und war dadurch unter `http://<HA-IP>:3003` für jedes Gerät im Heimnetz erreichbar – an der Anmeldung von Home Assistant vorbei. Zusätzlich gab `/api/fritz/auto-session` jedem Aufrufer eine feste Sitzungs-ID heraus, mit der sich die komplette FRITZ!Box-Steuerung nutzen ließ (z. B. Geräte sperren, WLAN-Passwörter lesen, Neustart). Behoben:
-  - Als HA-Add-on nimmt der Server nur noch Anfragen über HA-Ingress (Supervisor-Proxy) und von localhost an; alle anderen Anfragen aus dem Netz werden mit 403 abgelehnt und im Protokoll vermerkt. Zugriff ist damit nur noch über die HA-Seitenleiste möglich (setzt eine HA-Anmeldung als Administrator voraus).
-  - Die Sitzungs-ID wird bei jedem Start zufällig erzeugt statt fest vorgegeben und erscheint nicht mehr im Protokoll.
-  - API-Aufrufe von fremden Webseiten (Cross-Site) werden zusätzlich abgelehnt.
-  - Die Port-Freigabe `3003/tcp` wurde aus der Add-on-Konfiguration entfernt.
-  - Docker ohne Home Assistant: neue Umgebungsvariable `FRITZPORTAL_ALLOWED_IPS` (einzelne IPs oder IPv4-Bereiche) schränkt den Zugriff ein; ohne sie weist das Protokoll beim Start auf den offenen Zugriff hin.
-  - **Hinweis:** Der direkte Zugriff über `http://<HA-IP>:3003` (z. B. in einer iframe-Karte) war bewusst als Komfortfunktion gedacht, lief aber ohne Anmeldung und ist deshalb nicht mehr möglich. Bitte stattdessen die Seitenleiste, die Ingress-URL oder die Dashboard-Card nutzen.
-- Neu (**Einzelne Geräte in Home Assistant steuern**): In den Gerätedetails gibt es die Karte „Home Assistant" mit dem Schalter „In Home Assistant bereitstellen". Eingeschaltet legt FRITZ!Portal per MQTT ein eigenes HA-Gerät an (Untergerät der FRITZ!Box) mit Schalter **Internetzugang** (sperren/freigeben), Button **Aufwecken (WoL)**, Binärsensor **Online** (Attribute: IP, MAC, Verbindung, Zugangspunkt, Gast) sowie IP und Verbindung als Diagnose-Sensoren – z. B. für Automationen wie „Kinder-Tablet um 20 Uhr offline". Änderungen im Panel erscheinen sofort in HA und umgekehrt; Befehle aus HA werden nur für freigegebene Geräte ausgeführt. Ausschalten entfernt das Gerät wieder aus HA; wird es aus der FRITZ!Box gelöscht, räumt FRITZ!Portal die Einträge nach 5 Minuten automatisch auf. Die Freigabe liegt in `/data` und übersteht Updates. Voraussetzung: MQTT.
-- Neu (**Dashboard-Card – IP-Adressen anklickbar**): Im Mesh-Baum sind die IP-Adressen Links, in der Netzwerk-Ansicht öffnet ein Klick auf ein Gerät bzw. einen Zugangspunkt dessen IP – jeweils in einem neuen Tab. Verschieben per Ziehen löst keinen Klick aus.
-- Neu (**Traffic › Online-Monitor**): Die Traffic-Seite hat jetzt zwei Unterseiten – „Traffic" (Online-Zähler wie bisher) und „Online-Monitor". Der Online-Monitor zeigt die Auslastung der Internetverbindung wie in der FRITZ!Box als gestapelte Balken: Downstream nach Heimnetz, IPTV und Gastnetz, Upstream nach Echtzeit-, priorisierten, normalen und Hintergrundanwendungen. Zeitraum 10, 30 oder 60 min; einzelne Kategorien lassen sich per Klick aus- und einblenden. Die Box liefert nur die letzten 100 Sekunden – längere Zeiträume zeichnet FRITZ!Portal selbst auf, solange es aktiv ist.
-- Geändert (**Gerätedetails – Reihenfolge**): „IPv4-Adresse dauerhaft zuweisen" steht jetzt direkt unter „Verbindung & Zuordnung", danach folgen „Zugangsprofil (Kindersicherung)" und „Home Assistant".
-- Fix (**Dashboard – Download/Upload-Rate**): Die Live-Rate zeigte bei manchen Boxen einen veralteten bzw. zu niedrigen Wert. Ursachen: Neuere Firmwares (z. B. 6591 Cable) nennen die Datenquelle `netMoni` statt `netMon`, der Rückfallweg lieferte den Wert von vor ca. 100 Sekunden (die Box sortiert die Werte neuester zuerst), und beim Upload zählte nur die Kategorie „Normale Anwendungen" – bei vielen Boxen landet der Upload aber fast komplett unter „Hintergrundanwendungen". Jetzt nutzen Dashboard, Card und HA-Sensoren dieselben Daten wie der Online-Monitor: Reihenfolge wird automatisch erkannt, alle Kategorien werden summiert und über die letzten 30 Sekunden gemittelt (bei stoßweisem Verkehr wie Video-Streaming war eine einzelne 5-s-Probe reiner Zufall).
-- Neu (**Mesh-Baum im Panel kompakt**): Wie in der Dashboard-Card lassen sich Zugangspunkte mit vielen Geräten (mehr als 10) einklappen – „▾ 49 Geräte anzeigen" klappt auf, „▴ einklappen" wieder zu. Umschaltbar zwischen **Kompakt** und **Vollständig** (bisherige Ansicht); die Wahl wird im Browser gemerkt. Die Zähler (Geräte, Infrastruktur, Clients) zählen weiterhin alle Geräte.
-- Neu (**Dashboard-Card – Namen in der Netzwerk-Ansicht**): Button „Namen" direkt in der Karte blendet die Gerätenamen ein und aus (Voreinstellung weiterhin über `topology_names`).
-- Verbessert (**Dashboard-Card – Zoom mit dem Mausrad**): In der Netzwerk-Ansicht zoomt jetzt das normale Mausrad, wie im Panel. Im Mesh-Baum bleibt es bei Strg/⌘ + Mausrad, damit sich das Dashboard über dem Baum weiter scrollen lässt.
-- Fix (**Dashboard-Card – Netzwerk-Grafik übernimmt Änderungen sofort**): Korrekturen unter „Verbindung & Zuordnung" erschienen in der Card erst nach dem nächsten Traffic-Intervall (Standard 5 min, je nach Einstellung länger). Jetzt sendet das Add-on die neue Topologie wenige Sekunden nach der Änderung an Home Assistant. Zusätzlich wird sie jede Minute geprüft und nur bei Änderungen gesendet – auch Änderungen an der FRITZ!Box selbst kommen damit schnell an. Der Topologie-Sensor ist außerdem von Mesh- und Firmware-Sensor entkoppelt: Ein Fehler dort hält ihn nicht mehr auf.
-- Fix (**Dashboard-Card – alte Version im Browser**): Die Card wird jetzt mit Version **und** Prüfwert ihres Inhalts eingebunden (`?v=1.5.2-…`). Vorher konnte ein Browser bzw. die HA-App eine ältere Card aus dem Zwischenspeicher weiterverwenden – z. B. fehlten dann die Zoom-Buttons, während sie auf einem anderen Gerät schon zu sehen waren.
+- **Security** (**important update**, [GHSA-h565-vx6r-3rhv](https://github.com/jayjojayson/FRITZ-Portal/security/advisories/GHSA-h565-vx6r-3rhv), reported by [**@Trizompa**](https://github.com/Trizompa) – thank you!): The add-on runs in the host network and was therefore reachable at `http://<HA-IP>:3003` from every device on the home network – bypassing Home Assistant's authentication. In addition, `/api/fritz/auto-session` handed out a fixed session id to any caller, which gave access to the full FRITZ!Box control (e.g. blocking devices, reading WLAN passwords, reboot). Fixed:
+  - As an HA add-on, the server now only accepts requests via HA Ingress (Supervisor proxy) and from localhost; all other requests from the network are rejected with 403 and logged. Access is therefore only possible through the HA sidebar (requires an HA login as administrator).
+  - The session id is generated randomly on every start instead of being fixed, and no longer appears in the log.
+  - API requests from foreign websites (cross-site) are rejected as well.
+  - The `3003/tcp` port mapping was removed from the add-on configuration.
+  - Docker without Home Assistant: new environment variable `FRITZPORTAL_ALLOWED_IPS` (single IPs or IPv4 ranges) restricts access; without it the log points out the open access at startup.
+  - **Note:** Direct access via `http://<HA-IP>:3003` (e.g. in an iframe card) was intended as a convenience, but it worked without any login and is therefore no longer possible. Please use the sidebar, the Ingress URL or the dashboard card instead.
+- New (**control individual devices from Home Assistant**): The device details have a new "Home Assistant" card with the switch "Provide in Home Assistant". When enabled, FRITZ!Portal creates its own HA device via MQTT (sub-device of the FRITZ!Box) with an **internet access** switch (block/allow), a **Wake up (WoL)** button, an **Online** binary sensor (attributes: IP, MAC, connection, access point, guest) plus IP and connection as diagnostic sensors – e.g. for automations like "kids' tablet offline at 8 pm". Changes in the panel show up in HA immediately and vice versa; commands from HA are only executed for enabled devices. Switching off removes the device from HA; if it is deleted from the FRITZ!Box, FRITZ!Portal cleans up the entries automatically after 5 minutes. The setting is stored in `/data` and survives updates. Requires MQTT.
+- New (**dashboard card – clickable IP addresses**): In the mesh tree the IP addresses are links, in the network view clicking a device or access point opens its IP – each in a new tab. Panning by dragging doesn't trigger a click.
+- New (**Traffic › Online monitor**): The Traffic page now has two sub-pages – "Traffic" (online counter as before) and "Online monitor". The online monitor shows the internet connection's utilization as stacked bars, like the FRITZ!Box: downstream split into home network, IPTV and guest network, upstream into real-time, prioritized, normal and background applications. Period 10, 30 or 60 min; individual categories can be hidden and shown with a click. The box only provides the last 100 seconds – FRITZ!Portal records longer periods itself while it is active.
+- Changed (**device details – order**): "Permanently assign IPv4 address" now sits directly below "Connection & assignment", followed by "Access profile (parental controls)" and "Home Assistant".
+- Fix (**dashboard – download/upload rate**): On some boxes the live rate showed an outdated or too low value. Causes: newer firmwares (e.g. 6591 Cable) name the data source `netMoni` instead of `netMon`, the fallback returned the value from about 100 seconds ago (the box lists values newest first), and upload only counted the "Normal applications" category – yet on many boxes upload lands almost entirely under "Background applications". Dashboard, card and HA sensors now use the same data as the online monitor: the order is detected automatically, all categories are summed and averaged over the last 30 seconds (with bursty traffic such as video streaming a single 5 s sample was pure chance).
+- New (**compact mesh tree in the panel**): Like in the dashboard card, access points with many devices (more than 10) can be collapsed – "▾ Show 49 devices" expands, "▴ Collapse" folds again. Switchable between **Compact** and **Full** (previous view); the choice is remembered in the browser. The counters (devices, infrastructure, clients) still count all devices.
+- New (**dashboard card – names in the network view**): A "Namen" button right in the card shows and hides the device names (default still via `topology_names`).
+- Improved (**dashboard card – zoom with the mouse wheel**): In the network view the plain mouse wheel now zooms, like in the panel. In the mesh tree it stays Ctrl/⌘ + mouse wheel so the dashboard can still be scrolled over the tree.
+- Fix (**dashboard card – network graphic picks up changes immediately**): Corrections under "Connection & assignment" only showed up in the card after the next traffic interval (default 5 min, longer depending on settings). Now the add-on sends the new topology to Home Assistant a few seconds after the change. In addition it is checked every minute and only sent when something changed – so changes on the FRITZ!Box itself also arrive quickly. The topology sensor is also decoupled from the mesh and firmware sensors: an error there no longer holds it up.
+- Fix (**dashboard card – old version in the browser**): The card is now included with version **and** a checksum of its content (`?v=1.5.2-…`). Previously a browser or the HA app could keep using an older card from its cache – e.g. the zoom buttons were missing while another device already showed them.
 
 ## 1.5.1
 
-- Neu (**Dashboard-Card – Netzwerk-Grafik - beta**): Neuer Bereich `topology` zeigt das Netzwerk wie im Panel unter Netzwerk → Topologie – umschaltbar direkt in der Karte zwischen **Netzwerk** (Cluster je Zugangspunkt, FRITZ!Box in der Mitte, LAN blau / WLAN grün) und **Mesh** (Baum mit FRITZ!Box, Repeatern, eigenen Routern/Access Points und Endgeräten). Im Mesh-Baum werden Zugangspunkte mit vielen Geräten eingeklappt und lassen sich per Klick aufklappen. Fremd-Router und manuelle Zuordnungen aus „Verbindung & Zuordnung" werden übernommen. Neue Optionen im Editor: Ansicht beim Laden (`topology_view: network | mesh`), Gerätenamen anzeigen (`topology_names`), Endgeräte im Mesh-Baum (`topology_clients`). Dafür neu: `sensor.fritzportal_topology` (Anzahl der Geräte, Attribut `nodes` mit Name, Rolle, Zugangspunkt, LAN/WLAN und IP – Aktualisierung im Traffic-Intervall).
-- Neu (**Zoom in der Mesh-Ansicht**): Der Mesh-Baum im Panel lässt sich zoomen – Buttons −/%/+ (Klick auf % setzt zurück) sowie Strg/⌘ + Mausrad bzw. Trackpad-Geste; der Punkt unter dem Mauszeiger bleibt stehen. Das normale Mausrad scrollt weiter, da der Baum oft länger als der Bildschirm ist. Auch die Netzwerk-Grafik der Dashboard-Card ist zoombar (beide Ansichten): Buttons, Strg/⌘ + Mausrad und in der Netzwerk-Ansicht Verschieben per Ziehen.
-- Neu (**Ereignisprotokoll leeren**): Unter System lässt sich das Ereignisprotokoll der FRITZ!Box löschen (mit Rückfrage) – wie „Liste löschen" in der Box-Oberfläche. Zusätzlich blendet „Nur letzter Monat" ältere Einträge aus; die Box selbst kann nur das gesamte Protokoll löschen. Die Auswahl wird im Browser gemerkt.
-- Fix (**WAN: Leitung zeigte 1,0 Mbit/s bei Glasfaser**, Forum): Glasfaser-Boxen liefern die Leitungs-/Sync-Raten teils in kbit/s statt bit/s – 1 Gbit/s erschien so als 1 Mbit/s. Die Raten werden jetzt plausibilisiert (Vergleich der Quellen, bei Glasfaser/Kabel/Ethernet/Mobilfunk sind Werte unter 2 Mbit/s unplausibel); DSL-Leitungen bleiben unverändert. Mit aktivem Debug-Logging stehen die Rohwerte im Protokoll.
-- Fix (**feste IP-Adressen wurden nicht angezeigt**, „FEST" in der Geräteliste, 🔒 in der Detailansicht verschwand nach dem Speichern wieder): Aktuelle Firmwares (z. B. FRITZ!OS 8 auf der 6591 Cable) melden Reservierungen weder in der Geräteliste der Weboberfläche noch per TR-064 – nur auf der Bearbeiten-Seite jedes einzelnen Geräts („Diesem Netzwerkgerät immer die gleiche IPv4-Adresse zuweisen"). FRITZ!Portal gleicht diese Kennung jetzt im Hintergrund ab (40 Geräte je Durchlauf, aktive zuerst; strikt nachrangig – nur wenn gerade keine andere Abfrage an die Weboberfläche wartet, erster Abgleich 60 s nach dem Start, damit Panel, Mesh- und Netzwerk-Ansicht nicht ausgebremst werden), speichert das Ergebnis in `/data` (nach Neustart sofort verfügbar) und frischt es alle 12 h auf. Die Detailansicht fragt das Gerät immer frisch ab; Zuweisen/Entfernen wird sofort übernommen. Zusätzlich wird die offizielle TR-064-Liste `NewReservedAddresses` ausgewertet, falls die Box sie befüllt.
-- Fix (**Web-Login beim Start**): Gleichzeitige Abfragen beim Start (Geräte, Mesh, Sensoren) teilen sich jetzt einen Login, statt parallel mehrere Sessions anzulegen – der erste Login nach dem Start schlug dadurch teils fehl.
-- Fix (**Geräteliste: Scrollbalken auf großen Bildschirmen**): In der letzten Spalte stand bei Online-Geräten statt „×" der Text „\u00d7" – breiter als das Kästchen, wodurch die Tabelle immer 10 px zu breit war und einen (hellen) Scrollbalken zeigte. Scrollbalken erscheinen jetzt nur noch, wenn die Tabelle wirklich nicht passt (kleine Bildschirme), und sind dezent in den Theme-Farben gehalten.
-- Verbessert (#34, **DECT-Status**): Die Telefonie-Seite lädt den DECT-Status alle 15 s nach (vorher nur beim Öffnen, serverseitig 60 s gecacht) – ein Gespräch wird so zeitnah sichtbar, sofern die Box es meldet. Die Akku-Spalte wird ausgeblendet, wenn die Box keine Akkuwerte liefert (die offizielle DECT-Schnittstelle kennt keinen Akkustand). Debug-Logging protokolliert die Rohwerte der DECT-Liste.
-- Fix (**Dashboard: Verlauf von CPU/RAM/Temperatur**): Die Detailansicht war mit „letzte 3h" beschriftet, zeigte aber je nach Laufzeit kürzere Zeiträume. Verlauf und Beschriftung sind jetzt einheitlich 30 min – wie die Sparklines der Kacheln.
-- Doku (README DE/EN, Add-on-Dokumentation): Neuer Abschnitt „So holt FRITZ!Portal die Daten von der FRITZ!Box" – Quellen (TR-064 vs. Weboberfläche), Ablauf nach dem Start, Zwischenspeicher-Zeiten und warum feste IP-Adressen nach und nach erscheinen.
-- Verbessert (**Italienisch**): Überarbeitete Übersetzung von [@Mistergatti](https://github.com/Mistergatti) – danke! Einheitliche Schreibweise (Mesh, Repeater) und präzisere Begriffe (u. a. Anschlussart, Funkband, Tarif).
+- New (**dashboard card – network graphic - beta**): New section `topology` shows your network like the panel under Network → Topology – switchable right in the card between **Network** (cluster per access point, FRITZ!Box in the middle, LAN blue / Wi-Fi green) and **Mesh** (tree with FRITZ!Box, repeaters, your own routers/access points and devices). In the mesh tree, access points with many devices are collapsed and expand with a click. Third-party routers and manual assignments from "Connection & assignment" are included. New editor options: view on load (`topology_view: network | mesh`), show device names (`topology_names`), devices in the mesh tree (`topology_clients`). New for this: `sensor.fritzportal_topology` (number of devices, attribute `nodes` with name, role, access point, LAN/Wi-Fi and IP – updated at the traffic interval).
+- New (**zoom in the mesh view**): The mesh tree in the panel can be zoomed – buttons −/%/+ (clicking % resets) plus Ctrl/⌘ + mouse wheel or trackpad gesture; the point under the cursor stays in place. The plain mouse wheel keeps scrolling, since the tree is often longer than the screen. The dashboard card's network graphic is zoomable too (both views): buttons, Ctrl/⌘ + mouse wheel and, in the network view, panning by dragging.
+- New (**clear event log**): Under System the FRITZ!Box event log can be deleted (with confirmation) – like "Delete list" in the box's interface. Additionally, "Last month only" hides older entries; the box itself can only delete the entire log. The choice is remembered in the browser.
+- Fix (**WAN: line showed 1.0 Mbit/s on fiber**, forum): Fiber boxes partly report line/sync rates in kbit/s instead of bit/s – 1 Gbit/s showed up as 1 Mbit/s. Rates are now checked for plausibility (comparing sources; on fiber/cable/Ethernet/mobile, values below 2 Mbit/s are implausible); DSL lines stay unchanged. With debug logging enabled, the raw values appear in the log.
+- Fix (**static IP addresses were not shown**, "STATIC" in the device list, 🔒 in the device details disappeared again after saving): Current firmwares (e.g. FRITZ!OS 8 on the 6591 Cable) report reservations neither in the web interface device list nor via TR-064 – only on each device's edit page ("Always assign this network device the same IPv4 address"). FRITZ!Portal now syncs this flag in the background (40 devices per run, active ones first; strictly low priority – only when no other web interface request is waiting, first sync 60 s after startup, so the panel, mesh and network views aren't slowed down), stores the result in `/data` (available right after a restart) and refreshes it every 12 h. The device details always query the device fresh; assigning/removing takes effect immediately. The official TR-064 list `NewReservedAddresses` is evaluated as well, if the box fills it.
+- Fix (**web login at startup**): Simultaneous requests at startup (devices, mesh, sensors) now share one login instead of creating several sessions in parallel – this sometimes made the first login after a start fail.
+- Fix (**device list: scrollbar on large screens**): The last column showed the text "\u00d7" instead of "×" for online devices – wider than its box, so the table was always 10 px too wide and showed a (bright) scrollbar. Scrollbars now only appear when the table really doesn't fit (small screens) and use subtle theme colours.
+- Improved (#34, **DECT status**): The telephony page refreshes the DECT status every 15 s (previously only on open, cached for 60 s on the server) – a call becomes visible promptly, if the box reports it. The battery column is hidden when the box provides no battery values (the official DECT interface has no battery level). Debug logging records the raw DECT list values.
+- Fix (**dashboard: CPU/RAM/temperature history**): The detail view was labelled "last 3h" but showed shorter periods depending on uptime. History and label are now consistently 30 min – like the tiles' sparklines.
+- Docs (README DE/EN, add-on documentation): New section "How FRITZ!Portal fetches data from the FRITZ!Box" – sources (TR-064 vs. web interface), sequence after startup, cache times and why static IP addresses show up gradually.
+- Improved (**Italian**): Revised translation by [@Mistergatti](https://github.com/Mistergatti) – thank you! Consistent spelling (Mesh, Repeater) and more precise terms (e.g. access type, band, tariff).
 
 ## 1.5.0
 
-- Fix (**Dashboard-Card zeigt nichts / „keine Sensoren"**): Seit Home Assistant 2026.4 wird das Feld `object_id` der MQTT-Discovery ignoriert. Neu angelegte Entitäten bekamen dadurch IDs aus Gerätename und Sensorname (z. B. `sensor.fritz_portal_cpu_auslastung` statt `sensor.fritzportal_cpu`) – die Card fand sie nicht und blieb leer. Das Add-on sendet jetzt zusätzlich `default_entity_id`, neue Installationen erhalten wieder die dokumentierten IDs. Die Card findet bereits anders benannte Entitäten über ihre `unique_id` in der Entity-Registry – bestehende Installationen funktionieren ohne Umbenennen.
-- Danke an Nicknol für das Feedback zur neuen Dashboard-Card
-
----
-
-If you like FRITZ!Portal, I would appreciate a Star rating ⭐ from you.
-This helps the algorithm to boost the Add-on. Thank you.
-You can also support me with a coffee via ko-fi or PayPal.
-
----
-
-[![README English](https://img.shields.io/badge/README-English-orange)](https://github.com/jayjojayson/FRITZ-Portal/blob/main/README_eng.md) [![README Deutsch](https://img.shields.io/badge/README-Deutsch-orange)](https://github.com/jayjojayson/FRITZ-Portal) 
-
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/G2G01VCROJ) [![Support](https://img.shields.io/badge/%20-Support%20Me-steelblue?style=flat&logo=paypal&logoColor=white)](https://www.paypal.me/quadFlyerFW)
+- Fix (**dashboard card shows nothing / "no sensors"**): Since Home Assistant 2026.4 the MQTT discovery field `object_id` is ignored. Newly created entities therefore got IDs built from the device and sensor name (e.g. `sensor.fritz_portal_cpu_auslastung` instead of `sensor.fritzportal_cpu`) – the card couldn't find them and stayed empty. The add-on now also sends `default_entity_id`, so new installations get the documented IDs again. The card finds entities that were already named differently via their `unique_id` in the entity registry – existing installations work without renaming anything.
+- Thanks to Nicknol for the feedback on the new dashboard card.
 
 ## 1.4.9
 
-- Fix (**Dashboard-Card – Editor**): Die Felder „Aktive Geräte: Anzahl" und „Anrufe: Anzahl" wurden nicht übernommen – nach dem Bestätigen war das Feld wieder leer und der Wert fehlte in der Konfiguration.
-- Verbessert (**Dashboard-Card – Editor**): Die Bereiche werden als kompakte Checkbox-Liste statt als einzelne Schalter angezeigt – der Editor ist dadurch deutlich kürzer.
+- Fix (**dashboard card – editor**): The fields "Active devices: count" and "Calls: count" were not applied – after confirming, the field was empty again and the value was missing from the configuration.
+- Improved (**dashboard card – editor**): The sections are shown as a compact checkbox list instead of individual toggles, making the editor much shorter.
 
 ## 1.4.8
 
-- Neu (**Dashboard-Card – Traffic-Statistik**): Neuer Bereich `traffic_stats` mit einer Tabelle für Heute, Gestern, aktuelle Woche, aktueller Monat und Vormonat (empfangen/gesendet, automatisch in MB bzw. GB).
-- Neu (**Dashboard-Card – Smart Home**): Neuer Bereich `smarthome` – die Geräte werden nach den Gruppen der FRITZ!Box sortiert (meist als Räume angelegt), wahlweise nach Gerätetyp oder ungruppiert. Angezeigt werden Schaltzustand, Temperatur/Soll-Temperatur, Leistung und Akku. Hinweis: Die FRITZ!Box-Schnittstellen kennen keine „Räume" – genutzt werden die Gruppen aus Smart Home → Gruppen. Dafür neu: `sensor.fritzportal_smarthome` (Anzahl erreichbarer Geräte, Attribut `devices` mit Name, Gruppe, Typ und Messwerten).
-- Neu (**Dashboard-Card – Anrufe**): Die Anzahl der letzten Anrufe ist im Editor einstellbar (`phone_count`, 1–20, Standard 5; vorher fest 3). Dafür hat `sensor.fritzportal_last_call` das neue Attribut `recent_calls` mit den letzten 20 Anrufen.
-- Neu (**Dashboard-Card – Home-Assistant-Design**): Mit `ha_style: true` (Editor: „Home-Assistant-Design verwenden") übernimmt die Karte Farben, Schrift und Rundungen des aktiven HA-Themes statt des Terminal-Looks.
-- Verbessert (**Dashboard-Card – Editor**): Der visuelle Editor nutzt jetzt die nativen HA-Bedienelemente (Schalter, Zahlenfelder, Auswahllisten, aufklappbare Gruppen).
-- Fix (Dashboard-Card): Die Kachel „freie IPs" brach um, die Zahl stand dadurch tiefer als bei den anderen Kacheln. Die Beschriftungen sind jetzt einzeilig („IP-Pool"), auf schmalen Karten werden die Kacheln dreispaltig angeordnet.
-- Verbessert (#31, **WLAN-Schalter in HA**): Die Schalter tragen jetzt das Frequenzband im Namen, z. B. „WLAN Zuhause (5 GHz)" – bei gleicher SSID auf allen Bändern waren sie vorher nicht zu unterscheiden. Die Entity-IDs bleiben unverändert.
-- Verbessert (**schneller Panel-Start**): Beim erneuten Öffnen des Panels erscheint sofort die zuletzt geladene Ansicht aus dem Cache, aktualisiert wird im Hintergrund – kein Ladebildschirm mehr (im Test 60 ms statt 1,4 s bis zum ersten Inhalt). Der Server verwendet dabei die bestehende Sitzung weiter, statt jedes Mal die Dienste der FRITZ!Box neu zu ermitteln.
-- Fix (**Ladeanzeige**): Die Ladeanzeige war seit einem früheren Design-Umbau unsichtbar – jetzt erscheint wieder ein Hinweis im Terminal-Stil (`$ loading …`). Die Traffic-Seite zeigt beim ersten Laden eine Ladeanzeige und danach sofort die zuletzt geladenen Zähler aus dem Cache.
+- New (**dashboard card – traffic statistics**): New section `traffic_stats` with a table for today, yesterday, current week, current month and last month (received/sent, automatically in MB or GB).
+- New (**dashboard card – smart home**): New section `smarthome` – devices are grouped by the FRITZ!Box groups (usually set up as rooms), optionally by device type or not grouped at all. Shows switch state, temperature/target temperature, power and battery. Note: the FRITZ!Box interfaces have no concept of "rooms" – the groups from Smart Home → Groups are used. New for this: `sensor.fritzportal_smarthome` (number of reachable devices, attribute `devices` with name, group, type and readings).
+- New (**dashboard card – calls**): The number of recent calls can be set in the editor (`phone_count`, 1–20, default 5; previously fixed at 3). For this, `sensor.fritzportal_last_call` has a new attribute `recent_calls` with the last 20 calls.
+- New (**dashboard card – Home Assistant design**): With `ha_style: true` (editor: "Use Home Assistant design") the card uses the colours, font and corner radius of the active HA theme instead of the terminal look.
+- Improved (**dashboard card – editor**): The visual editor now uses native HA controls (toggles, number fields, dropdowns, expandable groups).
+- Fix (dashboard card): The "free IPs" tile label wrapped, so its number sat lower than on the other tiles. Labels are now single-line ("IP-Pool"); on narrow cards the tiles switch to three columns.
+- Improved (#31, **WLAN switches in HA**): The switches now include the frequency band in their name, e.g. "WLAN Home (5 GHz)" – with the same SSID on all bands they were indistinguishable before. Entity IDs stay the same.
+- Improved (**fast panel start**): When reopening the panel, the last loaded view is shown immediately from the cache and refreshed in the background – no more loading screen (in testing 60 ms instead of 1.4 s to first content). The server also reuses the existing session instead of re-discovering the FRITZ!Box services every time.
+- Fix (**loading indicator**): The loading indicator had been invisible since an earlier design rework – a terminal-style hint (`$ loading …`) is shown again. The Traffic page shows a loading indicator on first load and afterwards immediately shows the last loaded counters from the cache.
 
 ## 1.4.7
 
-- Neu (**Italienisch** 🇮🇹, PR #36 von [@Mistergatti](https://github.com/Mistergatti) – danke!): Komplette italienische Oberfläche, Sprachwechsel im Header reihum DE → EN → IT, beim ersten Aufruf wird die Browsersprache übernommen (die bisher gewählte Sprache bleibt erhalten). Zusätzlich wurden feste deutsche Texte auf der System- und Traffic-Seite übersetzbar gemacht (u. a. Neustart-Meldung, MQTT-Hinweis, Traffic-Diagnose). Die italienischen Texte für die neuen Funktionen aus v1.4.7 wurden ergänzt. Nicht übernommen: das Auskommentieren von `image:` in `config.yaml` (das Add-on würde sonst bei allen Nutzern lokal gebaut).
-- Fix (Traffic-Seite): Der Button „Diagnose: Verfügbare Endpunkte prüfen" rief einen nicht vorhandenen Endpoint auf (`/api/fritz/traffic-raw`) – jetzt implementiert; er zeigt, ob `data.lua netCnt` bzw. TR-064 `GetAddonInfos` Zählerwerte liefert.
-- Neu (**Dashboard-Card für Home Assistant**): FRITZ!Portal bringt eine eigene Lovelace-Karte `custom:fritz-portal-card` im Terminal-Look des Portals mit – Bereiche: System (CPU/RAM/Temperatur/Geräte/freie IPs mit Auslastungsbalken), Internet/WAN (Status, Anschlussart, IPv4/IPv6, DSL-Sync, Online-Zeit), Live-Traffic mit 30-min-Verlauf (aus der HA-History), aktive Geräte (Suche, Filter Alle/LAN/WLAN/Gast, Sortierung Aktivität/IP/Name, IP öffnet die Weboberfläche des Geräts), Mesh-Geräte (inkl. „2/3 online"), WLAN-Schalter und letzte Anrufe. Klick auf Kacheln öffnet den HA-Detaildialog; visueller Editor zum Ein-/Ausblenden der Bereiche; Light/Dark automatisch nach HA-Theme. Die Karte wird beim Add-on-Start **automatisch** nach `/config/www/fritz-portal/` kopiert und als Lovelace-Ressource registriert (Storage-Modus; im YAML-Modus steht die Ressourcen-URL im Protokoll). Abschaltbar über die neue Option `dashboard_card: false`. Dafür neu in `config.yaml`: `map: homeassistant_config:rw`.
-- Neu (**Mesh-Topologie über die offizielle FRITZ!Box-Mesh-Liste**, Issues #35, #37, #38, #39): Die Mesh-Ansicht nutzt jetzt primär die TR-064-Aktion `Hosts:1#X_AVM-DE_GetMeshListPath` – dieselbe Quelle wie die Mesh-Übersicht der FRITZ!Box-Oberfläche. Repeater werden als echte Mesh-Knoten erkannt, Clients hängen am Repeater, über den sie tatsächlich verbunden sind (vorher hing alles am Master: „FRITZ!Box als Master injiziert (46 Waisen verbunden)"). Pro Verbindung werden Funkband (2,4/5/6 GHz), Linkrate und Signalstärke (dBm) angezeigt, für Mesh-Geräte zusätzlich Firmware und Update-Hinweis; getrennte Mesh-Repeater werden gezählt. Funktioniert ohne Web-Login (data.lua), die bisherige Kaskade über die Weboberfläche bleibt als Fallback für ältere Firmwares. Ohne Web-Login fiel die Mesh-Ansicht bisher komplett leer aus – jetzt greift dort mindestens die Host-Liste.
-- Fix (#37, Infrastruktur-Erkennung): Bei der offiziellen Mesh-Liste entscheidet die Mesh-Rolle statt des Gerätenamens – eine Steckdose namens „Router Plug" erscheint nicht mehr als Infrastruktur. Die Namens-Heuristik (nur noch für Fallback-Daten) ignoriert Steckdosen/Plugs/Lampen.
-- Neu (**Host-Liste in einem Request**): `/api/fritz/hosts` nutzt die TR-064-Aktion `X_AVM-DE_GetHostListPath` – die komplette Geräteliste kommt als eine XML-Datei statt über einen SOAP-Request pro Gerät (bei 90 Geräten: 1 statt 90 Requests → deutlich weniger FRITZ!Box-Last). Zusätzlich liefert die Liste Gast-, VPN-, Sperr- und Update-Kennzeichen sowie Port/Geschwindigkeit. Ohne Web-Login wird die LAN/WLAN-Zuordnung jetzt aus diesen Daten abgeleitet (#37: WLAN-Geräte wurden als LAN angezeigt). Fallback auf den Einzelabruf für ältere Firmwares.
-- Fix (SOAP-Parser, betrifft mehrere Funktionen): Antwortfelder mit Bindestrich (`NewX_AVM-DE_…`) wurden vom internen XML-Parser verworfen. Dadurch griff u. a. die **6-GHz-Erkennung aus v1.4.6 (#31) nie**, und `LastActivity` („zuletzt online") wurde nie von der Box gelesen. Behoben.
-- Fix (#39, WAN „Connecting" ohne IP auf DSL-Boxen wie 7530): Auf PPPoE-Anschlüssen existiert zusätzlich ein ungenutzter IP-Verbindungsdienst, der zuerst abgefragt wurde und „Connecting" meldete. Der aktive Dienst wird jetzt über `Layer3Forwarding#GetDefaultConnectionService` ermittelt; zusätzlich wird immer der tatsächlich verbundene Dienst bevorzugt.
-- Neu (#33, **Anschlussart & DSL-Werte**): Netzwerk → WAN zeigt jetzt Anschlussart (DSL, Glasfaser, Kabel, Mobilfunk/LTE, Ethernet), Verbindungstyp (PPPoE/IP), externe IPv6-Adresse, Online-Zeit, Leitungskapazität sowie bei DSL eine eigene Tabelle mit Sync-Rate, maximal erreichbarer Rate, Störabstand (farbig bewertet) und Leitungsdämpfung. Vorher standen Upstream/Downstream immer auf „-".
-- Neu (**HA-Sensoren für Internet, Mesh und Firmware**, #33-Wunsch „Sensor DSL up/down für Skripte"): `binary_sensor.fritzportal_wan_connected` (Internetverbindung, Attribute: Status, Anschlussart, IPv4/IPv6, Online-Zeit), `sensor.fritzportal_wan_access_type`, `sensor.fritzportal_external_ip`, `sensor.fritzportal_dsl_downstream`/`_upstream` (Sync-Rate in Mbit/s), `sensor.fritzportal_mesh_devices` (online Mesh-Geräte, Attribute mit Liste inkl. Modell, Firmware, Verbindung, Anzahl Clients) und `binary_sensor.fritzportal_firmware_update` (Update verfügbar, Attribute: installierte/neue Version, Release-Link). Die Entitäten werden erst registriert, wenn die Box Daten dafür liefert – Kabel-/Glasfaser-Kunden bekommen keine leeren DSL-Sensoren. Das Attribut `active_hosts` von `sensor.fritzportal_online_devices` enthält zusätzlich `mac`, `conn` und `guest`.
-- Neu (**Firmware-Update-Hinweis**): System-Seite zeigt, ob für die FRITZ!Box eine neue FRITZ!OS-Version bereitsteht (inkl. Link zu den Versionshinweisen) – die Box prüft selbst bei AVM, wir lesen nur das Ergebnis (`UserInterface:1#GetInfo`).
-- Neu (**Wake-on-LAN**): Button „Aufwecken (WoL)" in der Gerätedetail-Ansicht – die FRITZ!Box sendet das Magic Packet selbst ins Heimnetz (`Hosts:1#X_AVM-DE_WakeOnLANByMACAddress`), funktioniert also auch aus dem HA-Container heraus. Zusätzlich zeigt die Detailansicht Verbindungsdetail, Gast-/VPN-Kennzeichen, Modell und Update-Hinweis.
-- Neu (**Geräteliste**): Filterleiste (Alle, Online, Offline, LAN, WLAN, Gast, Feste IP), `GAST`-Kennzeichen für Geräte im Gastnetz und CSV-Export der aktuellen Ansicht (Excel-kompatibel).
-- Fix (#41, Anrufdauer zu kurz): AVM liefert die Dauer als „h:mm" (Stunden:Minuten) – „0:05" sind 5 Minuten, wurden aber als 5 Sekunden gelesen. Die Anrufliste zeigt jetzt „5 Min" bzw. „1 Std 5 Min"; die Telefonie-Sensoren haben ein neues Attribut `duration_minutes`.
-- Fix (#34, DECT-Telefone fehlen auf 6690 Cable): Handsets mit eigenem Namen (z. B. „Küche") wurden aussortiert, sobald die Box Smart-Home-Geräte hatte, die data.lua-Handset-Liste aber leer blieb. Nicht eindeutig klassifizierbare Einträge bleiben jetzt erhalten; Aktoren werden zusätzlich über das Modell erkannt. Außerdem wurde als „Modell" bisher die Hersteller-OUI gelesen – jetzt das echte Modell (`NewModel`, z. B. „C5"), angezeigt als neue Spalte inkl. Update-Hinweis.
+- New (**Italian** 🇮🇹, PR #36 by [@Mistergatti](https://github.com/Mistergatti) – thank you!): Complete Italian UI, the language pill in the header cycles DE → EN → IT, on first visit the browser language is used (a previously chosen language is kept). Additionally, hard-coded German texts on the System and Traffic pages were made translatable (e.g. reboot message, MQTT note, traffic diagnostics). The Italian texts for the new v1.4.7 features were added. Not taken over: commenting out `image:` in `config.yaml` (the add-on would otherwise be built locally for every user).
+- Fix (Traffic page): The "Diagnostics: check available endpoints" button called a non-existent endpoint (`/api/fritz/traffic-raw`) – now implemented; it shows whether `data.lua netCnt` or TR-064 `GetAddonInfos` returns counter values.
+- New (**dashboard card for Home Assistant**): FRITZ!Portal ships its own Lovelace card `custom:fritz-portal-card` in the portal's terminal look – sections: system (CPU/RAM/temperature/devices/free IPs with utilisation bars), internet/WAN (status, access type, IPv4/IPv6, DSL sync, uptime), live traffic with 30-min history (from HA history), active devices (search, filters all/LAN/WLAN/guest, sort by activity/IP/name, IP opens the device's web UI), mesh devices (incl. "2/3 online"), WLAN switches and recent calls. Clicking tiles opens the HA more-info dialog; visual editor to show/hide sections; light/dark follows the HA theme. On add-on start the card is **automatically** copied to `/config/www/fritz-portal/` and registered as a Lovelace resource (storage mode; in YAML mode the resource URL is printed to the log). Can be disabled with the new option `dashboard_card: false`. New in `config.yaml` for this: `map: homeassistant_config:rw`.
+- New (**mesh topology via the official FRITZ!Box mesh list**, issues #35, #37, #38, #39): The mesh view now primarily uses the TR-064 action `Hosts:1#X_AVM-DE_GetMeshListPath` – the same source as the mesh overview in the FRITZ!Box UI. Repeaters are recognised as real mesh nodes and clients hang under the repeater they are actually connected to (previously everything hung under the master: "FRITZ!Box injected as master (46 orphans connected)"). Each link shows band (2.4/5/6 GHz), link rate and signal strength (dBm); mesh devices additionally show firmware and an update hint; disconnected mesh repeaters are counted. Works without web login (data.lua); the previous web UI cascade stays as fallback for older firmwares. Without a web login the mesh view used to be completely empty – now at least the host list is shown.
+- Fix (#37, infrastructure detection): With the official mesh list the mesh role decides instead of the device name – a socket named "Router Plug" no longer shows up as infrastructure. The name heuristic (now only for fallback data) ignores sockets/plugs/lamps.
+- New (**host list in a single request**): `/api/fritz/hosts` uses the TR-064 action `X_AVM-DE_GetHostListPath` – the complete device list arrives as one XML file instead of one SOAP request per device (90 devices: 1 instead of 90 requests → noticeably less FRITZ!Box load). The list additionally provides guest, VPN, blocked and update flags plus port/speed. Without a web login the LAN/WLAN classification is now derived from this data (#37: WLAN devices were shown as LAN). Falls back to per-device queries on older firmwares.
+- Fix (SOAP parser, affects several features): Response fields containing a hyphen (`NewX_AVM-DE_…`) were dropped by the internal XML parser. As a result, among others, the **6 GHz detection from v1.4.6 (#31) never kicked in**, and `LastActivity` ("last online") was never read from the box. Fixed.
+- Fix (#39, WAN "Connecting" without IP on DSL boxes like 7530): PPPoE lines also expose an unused IP connection service that was queried first and reported "Connecting". The active service is now determined via `Layer3Forwarding#GetDefaultConnectionService`; additionally the service that is actually connected is always preferred.
+- New (#33, **access type & DSL line values**): Network → WAN now shows the access type (DSL, fiber, cable, mobile/LTE, Ethernet), connection type (PPPoE/IP), external IPv6 address, uptime, line capacity and – for DSL – a dedicated table with sync rate, max. attainable rate, noise margin (colour-rated) and line attenuation. Previously upstream/downstream always showed "-".
+- New (**HA sensors for internet, mesh and firmware**, #33 request "sensor DSL up/down for scripts"): `binary_sensor.fritzportal_wan_connected` (internet connection; attributes: status, access type, IPv4/IPv6, uptime), `sensor.fritzportal_wan_access_type`, `sensor.fritzportal_external_ip`, `sensor.fritzportal_dsl_downstream`/`_upstream` (sync rate in Mbit/s), `sensor.fritzportal_mesh_devices` (online mesh devices; attributes with list incl. model, firmware, link, client count) and `binary_sensor.fritzportal_firmware_update` (update available; attributes: installed/new version, release link). Entities are only registered once the box delivers data for them – cable/fiber customers don't get empty DSL sensors. The `active_hosts` attribute of `sensor.fritzportal_online_devices` additionally contains `mac`, `conn` and `guest`.
+- New (**firmware update hint**): The System page shows whether a new FRITZ!OS version is available for the FRITZ!Box (incl. link to the release notes) – the box checks with AVM itself, we only read the result (`UserInterface:1#GetInfo`).
+- New (**Wake-on-LAN**): "Wake up (WoL)" button in the device detail view – the FRITZ!Box sends the magic packet into the home network itself (`Hosts:1#X_AVM-DE_WakeOnLANByMACAddress`), so it also works from inside the HA container. The detail view additionally shows connection detail, guest/VPN flag, model and update hint.
+- New (**device list**): Filter bar (all, online, offline, LAN, WLAN, guest, static IP), `GUEST` badge for devices in the guest network and CSV export of the current view (Excel compatible).
+- Fix (#41, call duration too short): AVM delivers the duration as "h:mm" (hours:minutes) – "0:05" means 5 minutes but was read as 5 seconds. The call list now shows "5 min" or "1 h 5 min"; the telephony sensors have a new attribute `duration_minutes`.
+- Fix (#34, DECT phones missing on 6690 Cable): Handsets with a custom name (e.g. "Kitchen") were filtered out as soon as the box had smart home devices but the data.lua handset list stayed empty. Entries that cannot be classified are now kept; actuators are additionally recognised by their model. Also, the manufacturer OUI was read as "model" – now the real model (`NewModel`, e.g. "C5") is used, shown as a new column incl. update hint.
 
-### Abgleich mit der aktuellen AVM-/FRITZ!-Schnittstellendokumentation (Stand 2026)
+### Aligned with the current AVM/FRITZ! interface documentation (2026)
 
-- Fix (**Web-Login nach Spezifikation**, #31): Beim PBKDF2-Login aus v1.4.6 ging die Antwort an `login_sid.lua` ohne `?version=2` – die Box wertet sie dort als MD5-Antwort und lehnt sie ab. GET und POST gehen jetzt beide an `?version=2` (gegen die Testvektoren der AVM-Doku geprüft). Zusätzlich: MD5-Fallback kodiert Zeichen außerhalb von ISO-8859-1 (z. B. „€" im Passwort) wie gefordert als „.", die `BlockTime` der Box nach Fehlversuchen wird respektiert (keine Endlos-Sperre mehr durch wiederholte Versuche), und eine gültige Session wird weiterverwendet statt alle 5 Minuten eine neue anzulegen (AVM empfiehlt eine Session pro Box).
-- Neu (**Smart-Home-REST-API**, FRITZ!OS 8.20+): Die SmartHome-Seite nutzt primär die neue offizielle REST-API (`/api/v0/smarthome/overview`) – sie kennt auch **Zigbee-Geräte**, Akkustand, Luftfeuchte, Firmware und Update-Hinweis. Ältere Firmwares fallen automatisch auf die AHA-Schnittstelle zurück. Die Seite zeigt jetzt alle Messwerte (Temperatur, Soll-Temperatur, Luftfeuchte, Schaltzustand, Leistung, Energie), Akku (mit Warnung bei schwacher Batterie) und Firmware – vorher nur Temperatur.
-- Fix (**DECT nach Spezifikation**): `GetDECTInfo` ist keine TR-064-Aktion (schlug auf allen Boxen fehl), ebenso existieren `NewConnected`/`NewBatteryChargeStat` nicht. Die Mobilteile kommen jetzt per `GetDectListPath` in einem Request; die DECT-Id trennt dabei eindeutig Telefone (1–6) von DECT-ULE-Aktoren (ab 16) – ohne Namens-Heuristik. Akku/Gesprächsstatus werden weiterhin aus der Weboberfläche ergänzt. Die nie gefüllte „PIN"-Zeile wurde entfernt.
-- Fix (**Anschlussart Mobilfunk**, #33): Die Spezifikation nennt `X_AVM-DE_LTE`/`X_AVM-DE_UMTS` – ein LTE-Backup wurde vorher nicht als Mobilfunk erkannt.
-- Neu (**Live-Traffic ohne Web-Login**): Als zweite Quelle nach `netMon` wird die offizielle TR-064-Auslastung (`X_AVM-DE_DownstreamCurrentUtilization`) genutzt – Dashboard-Live-Rate und Verlauf funktionieren damit auch, wenn der data.lua-Login scheitert.
-- Neu (**WAN**): Anbieter (`X_AVM-DE_GetActiveProvider`), Sync- und gebuchte Tarif-Raten für alle Anschlussarten (`X_AVM-DE_GetAddonInfos`) sowie bei DSL die Fehlerzähler (CRC, FEC, fehlerhafte Sekunden). Der Anbieter steht auch als Attribut am Internet-Sensor und in der Card.
-- Neu (**Ereignisprotokoll**): System-Seite zeigt das Ereignisprotokoll der FRITZ!Box mit denselben Filtern wie die Box-Oberfläche (Alle, System, Internet, Telefonie, WLAN, USB) – `X_AVM-DE_GetDeviceLogPath`.
-- Neu (**Geräte-Detailansicht**): Echtzeit-Priorisierung an/aus (`X_AVM-DE_SetPrioritizationByIP`), automatisches Wake-on-LAN bei Zugriff aus dem Internet (`X_AVM-DE_Get/SetAutoWakeOnLANByMACAddress`) und die Geräteklasse der Box. Die Sperr-Schaltfläche respektiert `X_AVM-DE_HostFilterEditHide` (Box erlaubt für manche Geräte keine Sperre).
-- Neu (**Mesh**): Repeater sind im Mesh-Baum anklickbar und öffnen ihre Weboberfläche. Bei Mehrfachverbindungen zwischen zwei Knoten (Dual-Band; laut AVM sind auch Schleifen möglich) wird die schnellste als Eltern-Link gewählt, Powerline-Verbindungen heißen „PLC" statt „LAN".
-- Verbessert: Die Anrufliste wird mit `max=250` abgerufen (Standard der Box: 999 Einträge – bei aktiven Telefonie-Sensoren minütlich).
+- Fix (**web login per specification**, #31): The PBKDF2 login from v1.4.6 posted its response to `login_sid.lua` without `?version=2` – the box treats it as an MD5 response there and rejects it. GET and POST now both go to `?version=2` (verified against the test vectors in the AVM docs). Additionally: the MD5 fallback encodes characters outside ISO-8859-1 (e.g. "€" in the password) as "." as required, the box's `BlockTime` after failed attempts is respected (no more endless lockout from repeated attempts), and a valid session is reused instead of creating a new one every 5 minutes (AVM recommends one session per box).
+- New (**Smart Home REST API**, FRITZ!OS 8.20+): The SmartHome page primarily uses the new official REST API (`/api/v0/smarthome/overview`) – it also knows **Zigbee devices**, battery level, humidity, firmware and update hints. Older firmwares automatically fall back to the AHA interface. The page now shows all readings (temperature, target temperature, humidity, switch state, power, energy), battery (with low-battery warning) and firmware – previously only temperature.
+- Fix (**DECT per specification**): `GetDECTInfo` is not a TR-064 action (failed on every box), and `NewConnected`/`NewBatteryChargeStat` do not exist either. Handsets are now fetched in one request via `GetDectListPath`; the DECT id cleanly separates phones (1–6) from DECT ULE actuators (16+) – no name heuristics. Battery/call state are still added from the web UI. The never-populated "PIN" row was removed.
+- Fix (**mobile access type**, #33): The specification names `X_AVM-DE_LTE`/`X_AVM-DE_UMTS` – an LTE backup was previously not recognised as mobile.
+- New (**live traffic without web login**): The official TR-064 utilisation (`X_AVM-DE_DownstreamCurrentUtilization`) is used as second source after `netMon` – the dashboard live rate and history now work even when the data.lua login fails.
+- New (**WAN**): Provider (`X_AVM-DE_GetActiveProvider`), sync and booked tariff rates for all access types (`X_AVM-DE_GetAddonInfos`) and for DSL the error counters (CRC, FEC, errored seconds). The provider is also an attribute of the internet sensor and shown in the card.
+- New (**event log**): The System page shows the FRITZ!Box event log with the same filters as the box UI (all, system, internet, telephony, WLAN, USB) – `X_AVM-DE_GetDeviceLogPath`.
+- New (**device detail view**): Real-time prioritisation on/off (`X_AVM-DE_SetPrioritizationByIP`), automatic Wake-on-LAN on access from the internet (`X_AVM-DE_Get/SetAutoWakeOnLANByMACAddress`) and the box's device class. The block button respects `X_AVM-DE_HostFilterEditHide` (the box doesn't allow blocking some devices).
+- New (**mesh**): Repeaters in the mesh tree are clickable and open their web interface. With multiple links between two nodes (dual band; per AVM even loops are possible) the fastest one is chosen as parent link, powerline links are labelled "PLC" instead of "LAN".
+- Improved: The call list is fetched with `max=250` (box default: 999 entries – fetched every minute with telephony sensors enabled).
 
-### Weitere Neuerungen
+### Further additions
 
-- Neu (**HA-Events für Automationen**): `fritzportal_new_device` (ein bisher unbekanntes Gerät taucht im Heimnetz auf; Daten: `mac`, `ip`, `name`, `interface`, `guest`) und `fritzportal_external_ip_changed` (`old_ip`, `new_ip`). Beim allerersten Start wird nur die vorhandene Geräteliste gemerkt.
-- Neu: „Zuletzt online" überlebt jetzt Add-on-Neustarts (die Host-Liste der Box enthält keinen solchen Zeitstempel – FRITZ!Portal führt ihn selbst in `/data`).
-- Neu (**Tastenkürzel**): `1`–`7` wechselt die Seite, `/` springt in die Gerätesuche, `Esc` zurück zur Geräteliste. Die Fußzeile zeigte die Kürzel schon länger an – sie waren aber nie implementiert.
+- New (**HA events for automations**): `fritzportal_new_device` (a previously unknown device appears in the home network; data: `mac`, `ip`, `name`, `interface`, `guest`) and `fritzportal_external_ip_changed` (`old_ip`, `new_ip`). On the very first start only the existing device list is remembered.
+- New: "Last online" now survives add-on restarts (the box's host list has no such timestamp – FRITZ!Portal keeps it itself in `/data`).
+- New (**keyboard shortcuts**): `1`–`7` switches pages, `/` jumps to the device search, `Esc` goes back to the device list. The footer had been showing shortcuts for a while – they were never implemented.
 
-### Netzwerk-Zuordnung, Interaktivität & Dashboard
+### Network assignment, interactivity & dashboard
 
-- Neu (**Zugangspunkte erkennen – eigene Router/Access Points im Mesh**): Die FRITZ!Box sieht Geräte hinter Fremd-Routern oder Access Points (z. B. Xiaomi, TP-Link im AP-Modus) nur als LAN-Geräte an dem Port, an dem der Router hängt. FRITZ!Portal erkennt solche Zugangspunkte jetzt automatisch (Name + mehrere Geräte am selben LAN-Port der Box) und ordnet die Geräte des Ports darunter ein – in Mesh-Baum, Netzwerk-Ansicht, Geräteliste und HA-Attributen. Ein automatisch erkannter Router behält seinen Port; zusätzlich von Hand markierte Zugangspunkte am selben Port gelten als nachgeschaltet.
-- Neu (**Verbindung & Zuordnung korrigieren**, Gerätedetails): Verbindungsart (automatisch/LAN/WLAN), „Verbunden über" (Box oder Zugangspunkt) und „Ist ein Zugangspunkt" pro Gerät einstellbar. Am Zugangspunkt selbst lässt sich festlegen, dass sich seine Geräte per WLAN verbinden – eine Einstellung statt Dutzender einzelner Korrekturen. Die Einstellungen liegen in `/data` und bleiben bei Add-on-Updates erhalten; Zyklen (A → B → A) werden erkannt und aufgelöst.
-- Neu (**Zugangsprofile / Kindersicherung**, Gerätedetails): Zugangsprofil des Geräts anzeigen und wechseln, Online-Zeit des Tages sehen und **Zusatz-Zeit („Ticket")** gewähren – über die 2025 eingeführten TR-064-Aktionen `GetFilterProfiles`, `GetHostEntryByIP`, `AddHostEntryToFilterProfile` und `AddTicketTimeToHostEntryByIP`. Der Bereich erscheint nur, wenn die Box ihn für das Gerät unterstützt.
-- Neu (**Netzwerk-Ansicht mit Kreis pro Zugangspunkt**): Statt eines einzigen Sterns bildet jeder Zugangspunkt (FRITZ!Box, FRITZ!-Repeater, eigene Router) einen eigenen Kreis mit seinen Geräten; die Kreise ordnen sich überschneidungsfrei um die Box an. **Zoomen mit dem Mausrad** (um den Mauszeiger), Verschieben per Ziehen, Zoom-Buttons mit Zurücksetzen; beim Hineinzoomen erscheinen die Gerätenamen automatisch.
-- Neu (**mehr Interaktivität**): HOSTS.ACTIVE-Einträge auf dem Dashboard und Knoten der Mesh-/Netzwerk-Ansicht öffnen die Gerätedetails (FRITZ!-Repeater mit Weboberfläche öffnen diese); die Kacheln Modell, Hosts und IP-Pool führen zur passenden Seite; Zeilen sind per Tastatur erreichbar.
-- Neu (**Dashboard-Boxen**): „CALLS.RECENT" (letzte Anrufe mit Typ, Nummer, Dauer) und „SMARTHOME.STATUS" (Smart-Home-Geräte mit Zustand; ab FRITZ!OS 8.20 die zuletzt aktiven zuerst). Beide einzeln unter System → Dashboard ein-/ausschaltbar.
-- Verbessert (Gerätedetails): Das Feld „IPv4-Adresse dauerhaft zuweisen" ist mit der aktuellen IP vorbefüllt, beim Anklicken ist die letzte Stelle markiert; der Online-Punkt steht direkt vor „Online"; LAN/WLAN-Farben wie im übrigen Portal (waren vertauscht).
-- Fix (Dashboard): Lange Verbindungstexte („WLAN · mi-routermutti") brachen in der LINK-Spalte von HOSTS.ACTIVE mehrzeilig um – die Liste wurde höher als das Diagramm. Jetzt einzeilig mit Tooltip.
-- Fix (**Build**): Alte Einträge in der `.gitignore` (`src`, `server`, …) wirkten auf alle Unterordner – neue Dateien in `fritz-portal/src` und `fritz-portal/server` wären nicht ins Repository und damit nicht in den Build gelangt.
-- Neu (lokaler Test/Docker): Zugangsdaten können statt per Umgebungsvariablen in `fritz-portal/.data/options.json` stehen (Format wie die Add-on-Optionen, von Git ignoriert); ein belegter Port 3003 erzeugt eine klare Meldung statt eines Absturzes.
+- New (**access point detection – your own routers/access points in the mesh**): The FRITZ!Box only sees devices behind third-party routers or access points (e.g. Xiaomi, TP-Link in AP mode) as LAN devices on the port the router is connected to. FRITZ!Portal now detects such access points automatically (name + several devices on the same LAN port of the box) and places the port's devices underneath – in the mesh tree, network view, device list and HA attributes. An automatically detected router keeps its port; access points marked manually on the same port count as downstream.
+- New (**correct connection & assignment**, device details): Connection type (automatic/LAN/WLAN), "connected via" (box or access point) and "is an access point" can be set per device. On the access point itself you can define that its devices connect via WLAN – one setting instead of dozens of individual corrections. The settings live in `/data` and survive add-on updates; cycles (A → B → A) are detected and resolved.
+- New (**access profiles / parental control**, device details): Show and change the device's access profile, see today's online time and grant **extra time ("ticket")** – via the TR-064 actions `GetFilterProfiles`, `GetHostEntryByIP`, `AddHostEntryToFilterProfile` and `AddTicketTimeToHostEntryByIP` introduced in 2025. The section only appears if the box supports it for the device.
+- New (**network view with one circle per access point**): Instead of a single star, every access point (FRITZ!Box, FRITZ! repeater, own routers) forms its own circle with its devices; the circles arrange themselves around the box without overlapping. **Zoom with the mouse wheel** (around the cursor), pan by dragging, zoom buttons with reset; device names appear automatically when zooming in.
+- New (**more interactivity**): HOSTS.ACTIVE entries on the dashboard and nodes in the mesh/network view open the device details (FRITZ! repeaters with a web UI open it); the model, hosts and IP pool tiles lead to the matching page; rows are keyboard-accessible.
+- New (**dashboard panels**): "CALLS.RECENT" (latest calls with type, number, duration) and "SMARTHOME.STATUS" (smart home devices with state; on FRITZ!OS 8.20+ most recently active first). Both can be toggled individually under System → Dashboard.
+- Improved (device details): The "permanently assign IPv4 address" field is prefilled with the current IP and the last octet is selected on click; the online dot sits right next to "Online"; LAN/WLAN colours now match the rest of the portal (were swapped).
+- Fix (dashboard): Long connection texts ("WLAN · mi-routermutti") wrapped over several lines in the LINK column of HOSTS.ACTIVE – the list grew taller than the chart. Now single-line with tooltip.
+- Fix (**build**): Old `.gitignore` entries (`src`, `server`, …) applied to all subfolders – new files in `fritz-portal/src` and `fritz-portal/server` would not have made it into the repository and thus not into the build.
+- New (local testing/Docker): Credentials can be put in `fritz-portal/.data/options.json` instead of environment variables (same format as the add-on options, ignored by Git); an occupied port 3003 produces a clear message instead of a crash.
 
-### Bugfixes & Aufräumarbeiten aus dem Code-Review
+### Bug fixes & clean-up from the code review
 
-- Fix (**HA-Sensoren bei geschlossenem Portal**): „Geräte online", die Geräteliste-Attribute und „Freie IP-Adressen" wurden nur aktualisiert, solange das Portal im Browser offen war – der HA-Push las ausschließlich Caches, die der Browser füllte. Der Push holt die Daten jetzt selbst.
-- Fix (**Server-Cache**): Ein Cache-Eintrag wurde gelöscht, sobald ihn ein Aufrufer mit kürzerer Gültigkeit las – z. B. löschte das Dashboard (10 s) die Geräteinfos, die der Firmware-Check und die MQTT-Gerätedaten eine Stunde nutzen wollten; ebenso die Traffic-Zähler des HA-Pushs. Einträge werden jetzt nur noch periodisch aufgeräumt.
-- Fix (**Version im Header**): Der Header zeigte in v1.4.6 noch „v1.4.5" – die Version war an drei Stellen fest im Code hinterlegt. Sie wird jetzt beim Build aus `package.json` übernommen; `/api/fritz/version` lieferte im Docker-Image wegen fehlender Datei immer „1.1.2".
-- Fix (#40, **feste IP in der Detailansicht**): Die Aktion `GetSpecificStaticDHCPEntry` steht nicht in der AVM-Spezifikation und scheitert auf den meisten Boxen – die Detailseite zeigte deshalb nie „fest zugewiesen". Fallback auf die Reservierungs-Erkennung der Geräteliste; der nicht unterstützte SOAP-Aufruf wird nach dem ersten Fehlschlag nicht mehr wiederholt.
-- Fix (Detailansicht, englische Oberfläche): Fehlermeldungen wurden anhand des Wortes „Fehler" erkannt – auf Englisch („Error") erschienen sie grün als Erfolg. Außerdem 40+ fehlende englische Übersetzungen ergänzt (u. a. „Gerät entfernen", „Sitzung dauerhaft aktiv halten").
-- Performance: Gleichzeitige Abrufe der Host-Liste werden zusammengefasst (Geräteseite lud sie für `/hosts` und `/ip-stats` doppelt); `LANHostConfigManagement#GetInfo` wird für LAN, DHCP und IP-Statistik gemeinsam gecacht; Sperren nutzt die IP aus dem Cache statt die komplette Geräteliste neu zu laden; `/network-stats` fragt `GetAddonInfos` nur noch einmal ab; im Hintergrund-Collector wird pro Tick nur noch eine Session abgefragt (vorher bei mehreren Sessions doppelte Verlaufspunkte).
-- Performance (Card): Home Assistant meldet jede Zustandsänderung irgendeiner Entität an jede Karte – die FRITZ!Portal-Card zeichnet jetzt nur noch neu, wenn sich eine eigene Entität ändert.
-- Aufgeräumt: doppelte CPU/RAM-Auswertung und doppelte Live-Traffic-Kaskade in gemeinsame Funktionen zusammengeführt; tote Dateien `Login.tsx`/`Sidebar.tsx` (riefen einen nicht existierenden Endpoint auf) und die ungenutzten Endpoints `/device-stats` und `/logout`, die ungenutzte Funktion `removeMqttDiscovery` sowie der nie nutzbare IP-Zweig von `/device/update` entfernt.
+- Fix (**HA sensors while the portal is closed**): "Devices online", the device-list attributes and "Free IP addresses" were only updated while the portal was open in a browser – the HA push only read caches filled by the browser. The push now fetches the data itself.
+- Fix (**server cache**): A cache entry was deleted as soon as a caller with a shorter lifetime read it – e.g. the dashboard (10 s) deleted the device info that the firmware check and MQTT device data wanted to use for an hour; likewise the traffic counters of the HA push. Entries are now only cleaned up periodically.
+- Fix (**version in header**): The header still showed "v1.4.5" in v1.4.6 – the version was hard-coded in three places. It is now taken from `package.json` at build time; `/api/fritz/version` always returned "1.1.2" in the Docker image due to a missing file.
+- Fix (#40, **static IP in the detail view**): The action `GetSpecificStaticDHCPEntry` is not part of the AVM specification and fails on most boxes – the detail page therefore never showed "permanently assigned". Falls back to the reservation detection of the device list; the unsupported SOAP call is no longer retried after the first failure.
+- Fix (detail view, English UI): Error messages were detected by the word "Fehler" – in English ("Error") they showed up green as success. Also added 40+ missing English translations (e.g. "Remove device", "Keep session alive permanently").
+- Performance: Concurrent host-list fetches are merged (the devices page fetched it twice for `/hosts` and `/ip-stats`); `LANHostConfigManagement#GetInfo` is cached once for LAN, DHCP and IP statistics; blocking uses the cached IP instead of reloading the full device list; `/network-stats` queries `GetAddonInfos` only once; the background collector polls only one session per tick (previously duplicate history points with several sessions).
+- Performance (card): Home Assistant reports every state change of any entity to every card – the FRITZ!Portal card now only re-renders when one of its own entities changes.
+- Clean-up: merged the duplicated CPU/RAM parsing and duplicated live-traffic cascade into shared functions; removed dead files `Login.tsx`/`Sidebar.tsx` (called a non-existent endpoint), the unused endpoints `/device-stats` and `/logout`, the unused function `removeMqttDiscovery` and the never-reachable IP branch of `/device/update`.
 
 ## 1.4.6
 
-- Neu (Telefonie-Sensoren für Home Assistant, Opt-in): Drei neue Sensoren übertragen die Anrufliste-Highlights an HA – `sensor.fritzportal_last_call` (letzter Anruf), `sensor.fritzportal_last_missed_call` (letzter verpasster Anruf) und `sensor.fritzportal_last_incoming_call` (letzter angenommener eingehender Anruf). Der Sensor-Wert ist der Name der Gegenstelle (Fallback: Rufnummer); Details stehen als Attribute bereit (`number`, `name`, `date`, `duration`, `type`, `device`, `from`, `to`) – damit lässt sich in HA eine eigene Anruf-Card bauen. Übertragung wie gewohnt zweigleisig: **MQTT Discovery** (wenn Broker erreichbar) und **REST-API-Fallback** (wenn aktiviert). Da nicht jeder Telefonie über die FRITZ!Box nutzt, sind die Sensoren **standardmäßig aus** – neuer Toggle „Telefonie-Sensoren" auf der System-Seite bzw. Add-on-Option `ha_phone_sensors`. Beim Deaktivieren werden die MQTT-Discovery-Configs entfernt, damit keine verwaisten Entitäten in HA zurückbleiben. Die Anrufliste wird höchstens einmal pro Minute von der Box geholt (gemeinsamer 60-s-Cache mit der Telefonie-Seite).
-- Neu (Geräte-Seite, Offline-Geräte immer unten): Die Geräteliste zeigt jetzt immer zuerst alle Online-Geräte (sortiert nach gewähltem Kriterium – Name, IP, Verbindung), darunter die Offline-Geräte (ebenfalls sortiert). Vorher mischten sich Offline-Geräte je nach Sortierung zwischen die aktiven Geräte – die Übersicht ist damit deutlich klarer.
-- Fix (#32, SmartHome-Geräte doppelt): FRITZ!Smart Energy 250 (und andere Geräte mit Sub-Units) erschien doppelt in der SmartHome-Liste, weil AVM Hauptgerät und Sub-Unit mit AIN-Suffix („…-1") als zwei Einträge exportiert. Der Dedup-Key normalisiert jetzt auf die Basis-AIN, Hauptgerät + Sub-Unit verschmelzen zu einem Eintrag (Messwerte werden gemergt, generische „HAN-FUN"-Basisnamen weichen dem echten Unit-Namen) – so zeigt es auch die FRITZ!Box-Oberfläche.
-- Fix (#31/#33, FRITZ!OS-8-Boxen wie 5690 Pro / 7690 – Web-Login per PBKDF2): Der data.lua-Web-Login nutzte ausschließlich das alte MD5-Challenge-Verfahren. Neuere Boxen verlangen das PBKDF2-Verfahren (Login-Version 2) – schlug der Login fehl, blieben alle data.lua-basierten Werte leer: CPU/RAM/Temperatur 0 %, Traffic-Zähler leer, Mesh nur als Host-Fallback, DHCP-Fallback tot. `getWebSid()` fragt jetzt `login_sid.lua?version=2` an und beherrscht beide Verfahren (PBKDF2-Challenge „2$…" und klassisches MD5 für ältere Firmwares).
-- Fix (#31, Tri-Band-WLAN / 6 GHz): Die WLAN-Übersicht nahm die Band-Zuordnung stur nach Index an (1 = 2.4 GHz, 2 = 5 GHz, 3 = Gast) – auf Tri-Band-Boxen (5690 Pro: 2.4/5/6 GHz + Gast) war das falsch und das 6-GHz-Band fehlte. Der Server fragt jetzt pro WLAN `X_AVM-DE_GetWLANExtInfo` ab und liefert das echte Frequenzband (`_band`) mit; das Frontend beschriftet danach (Fallback: Kanal-Heuristik, dann Index). Die WLAN-Indizes werden zudem dynamisch aus den per `tr64desc.xml` entdeckten Services ermittelt statt fest 1–4, und der Aktiv-Status wird robust geparst (auch `true`/`UP`-Schreibweisen – vorher wurde ein aktives WLAN teils als „Inaktiv" angezeigt).
-- Fix (#33, WAN-Informationen fehlen): `/api/fritz/network/wan` versucht als letzten Fallback jetzt zusätzlich die IGD-Variante `urn:schemas-upnp-org:service:WANIPConnection:1` (funktioniert ohne TR-064-Authentifizierung) – hilft auf Boxen, deren dslforum-WAN-Dienste nicht antworten (7690, 5690 Pro).
+- New (telephony sensors for Home Assistant, opt-in): Three new sensors push call-list highlights to HA – `sensor.fritzportal_last_call` (last call), `sensor.fritzportal_last_missed_call` (last missed call) and `sensor.fritzportal_last_incoming_call` (last accepted incoming call). The sensor value is the name of the remote party (fallback: phone number); details are available as attributes (`number`, `name`, `date`, `duration`, `type`, `device`, `from`, `to`) – perfect for building your own call card in HA. Delivery is dual-path as usual: **MQTT Discovery** (when a broker is reachable) and **REST API fallback** (when enabled). Since not everyone runs telephony through the FRITZ!Box, the sensors are **off by default** – new toggle "Telephony sensors" on the System page or add-on option `ha_phone_sensors`. When disabled, the MQTT discovery configs are removed so no orphaned entities remain in HA. The call list is fetched at most once per minute (shared 60 s cache with the Telephony page).
+- New (devices page, offline devices always at the bottom): The device list now always shows all online devices first (sorted by the chosen criterion – name, IP, connection), followed by the offline devices (also sorted). Previously offline devices mixed in with active ones depending on the sort – the overview is much clearer now.
+- Fix (#32, duplicate SmartHome devices): FRITZ!Smart Energy 250 (and other devices with sub-units) appeared twice in the SmartHome list because AVM exports the main device and its sub-unit with an AIN suffix ("…-1") as two entries. The dedup key now normalises to the base AIN, merging main device + sub-unit into one entry (readings are merged, generic "HAN-FUN" base names yield to the real unit name) – matching what the FRITZ!Box UI shows.
+- Fix (#31/#33, FRITZ!OS 8 boxes like 5690 Pro / 7690 – web login via PBKDF2): The data.lua web login only used the old MD5 challenge scheme. Newer boxes require the PBKDF2 scheme (login version 2) – when the login failed, all data.lua-based values stayed empty: CPU/RAM/temperature 0 %, traffic counters empty, mesh only as host fallback, DHCP fallback dead. `getWebSid()` now requests `login_sid.lua?version=2` and supports both schemes (PBKDF2 challenge "2$…" and classic MD5 for older firmwares).
+- Fix (#31, tri-band WLAN / 6 GHz): The WLAN overview assumed the band mapping strictly by index (1 = 2.4 GHz, 2 = 5 GHz, 3 = guest) – wrong on tri-band boxes (5690 Pro: 2.4/5/6 GHz + guest), and the 6 GHz band was missing entirely. The server now queries `X_AVM-DE_GetWLANExtInfo` per WLAN and returns the real frequency band (`_band`); the frontend labels accordingly (fallback: channel heuristic, then index). WLAN indices are also determined dynamically from the services discovered via `tr64desc.xml` instead of a fixed 1–4, and the enabled state is parsed robustly (including `true`/`UP` spellings – previously an active WLAN was sometimes shown as "Inactive").
+- Fix (#33, WAN information missing): `/api/fritz/network/wan` now additionally tries the IGD variant `urn:schemas-upnp-org:service:WANIPConnection:1` as a last fallback (works without TR-064 authentication) – helps on boxes whose dslforum WAN services do not respond (7690, 5690 Pro).
 
 ## 1.4.5
 
-- Neu (WLAN aus Home Assistant schalten): Die seit v1.4.3 im Portal vorhandenen WLAN-Toggles (Netzwerk → WLAN, inkl. Gastzugang) sind jetzt auch als HA-Entität verfügbar. Pro WLAN/SSID wird ein **steuerbarer MQTT-Schalter** `switch.fritzportal_wlan_<N>` im „FRITZ!Portal"-Gerät registriert – damit lässt sich WLAN direkt vom HA-Dashboard, per Automation oder Sprachbefehl ein-/ausschalten. Technisch baut das Add-on dafür erstmals eine **echte MQTT-Broker-Verbindung** auf (Zugangsdaten via Supervisor-Service-Discovery `GET /services/mqtt`, neue Dependency `mqtt`) und abonniert `fritzportal/wlan/+/set`. Die bestehenden Sensor-Publishes laufen unverändert weiter über den Supervisor-Proxy – die Broker-Verbindung wird **ausschließlich zum Empfangen** der Schaltbefehle genutzt (minimal-invasiv). Geschaltet wird über den schon vorhandenen TR-064-`SetEnable`-Pfad (in die Helper `setWlanEnable()`/`getWlanStates()` ausgelagert). Für REST-API-Nutzer (ohne MQTT-Broker) erscheint der Status als **Nur-Anzeige-Sensor** `sensor.fritzportal_wlan_<N>` – ein steuerbarer Schalter ist über die HA-REST-API technisch nicht möglich. **Voraussetzung fürs Schalten bei geschlossenem Portal:** `keep_session_alive: true` (sonst fehlt die FRITZ!Box-Session) sowie Schreibrecht auf „FRITZ!Box-Einstellungen".
-- Neu (Dashboard-Chart sofort gefüllt, kein Loading-Screen): Beim Zurückkehren zum Ingress-Panel wurde der iframe neu geladen; der Chart-Verlauf lag bisher nur im RAM des Browser-Tabs (`window.__networkHistory`) und ging dabei verloren → Loading-Screen + halb leeres Diagramm. Zwei Maßnahmen:
-  1. **localStorage-Persistenz (immer aktiv, Default):** Der API-Cache inkl. des 30-min-Traffic-Verlaufs wird nach `localStorage` gespiegelt und beim Start hydratisiert. Der Chart erscheint beim Reload sofort gefüllt, ohne FritzBox-Mehrlast.
-  2. **Server-Verlauf durchgehend (Opt-in):** Neue Option `traffic_history_server` (System-Seite + Add-on-Konfig, Default aus). Wenn aktiv, sammelt der Background-Collector den Download-/Upload-Verlauf **durchgehend** – auch bei geschlossenem Portal und unabhängig von `keep_session_alive` –, sodass der 30-min-Verlauf garantiert lückenlos & frisch ist. `/api/fritz/network-stats` liefert dafür zusätzlich `serverHistory` (Punkte mit echten Timestamps), das das Frontend zum sofortigen Initial-Fill nutzt. Kostet etwas mehr FritzBox-Last (nur der leichte Traffic-Poll; der schwerere Eco-/Hosts-Teil bleibt im Idle weiterhin ausgesetzt).
-- Neu (Geräteliste als Sensor-Attribut): `sensor.fritzportal_online_devices` trägt die Liste der aktiven Geräte jetzt im Attribut **`active_hosts`** (je Eintrag `name`, `ip`, `type` = LAN/WLAN, nach letzter Aktivität sortiert) – der Sensor-Wert bleibt die Anzahl. Damit lässt sich ohne eigene Entität pro Gerät eine Geräte-/IP-Tabelle aufs HA-Dashboard bringen (z. B. via `flex-table-card` oder Markdown-Template). Für MQTT über `json_attributes_topic`, für REST als State-Attribut. Beispiel-YAML im README.
-- Doku (README DE + EN): Neuer Abschnitt „Dashboard-Features in Home Assistant nutzen" – erklärt die 6 Live-Tiles mit Sparklines und die sortierbare `HOSTS.ACTIVE`-Liste, inkl. konkreter YAML-Beispiele für mini-graph-card-Sparklines, das Einbetten der aktiven-Geräte-/IP-Liste via Ingress-`iframe` und `sensor.fritzportal_online_devices`, sowie den neuen WLAN-Schalter (`switch.fritzportal_wlan_…`).
+- New (switch WLAN from Home Assistant): The WLAN toggles available in the portal since v1.4.3 (Network → WLAN, incl. guest access) are now also exposed as HA entities. For each WLAN/SSID a **controllable MQTT switch** `switch.fritzportal_wlan_<N>` is registered in the „FRITZ!Portal" device – letting you turn WLAN on/off straight from the HA dashboard, via automation or voice command. Technically the add-on now opens a **real MQTT broker connection** for the first time (credentials via Supervisor service discovery `GET /services/mqtt`, new dependency `mqtt`) and subscribes to `fritzportal/wlan/+/set`. The existing sensor publishes still run unchanged via the Supervisor proxy – the broker connection is used **only to receive** the switch commands (minimally invasive). Switching uses the already existing TR-064 `SetEnable` path (extracted into the helpers `setWlanEnable()`/`getWlanStates()`). For REST API users (without an MQTT broker) the state appears as a **read-only sensor** `sensor.fritzportal_wlan_<N>` – a controllable switch is technically not possible via the HA REST API. **Prerequisite for switching while the portal is closed:** `keep_session_alive: true` (otherwise there is no FRITZ!Box session) plus write access to „FRITZ!Box settings".
+- New (dashboard chart filled instantly, no loading screen): When returning to the Ingress panel the iframe was reloaded; the chart history previously lived only in the browser tab's RAM (`window.__networkHistory`) and was lost → loading screen + half-empty chart. Two measures:
+  1. **localStorage persistence (always on, default):** The API cache including the 30-min traffic history is mirrored to `localStorage` and hydrated on startup. The chart appears fully filled immediately on reload, without extra FritzBox load.
+  2. **Server-side history, continuous (opt-in):** New option `traffic_history_server` (System page + add-on config, default off). When active, the background collector gathers the download/upload history **continuously** – even while the portal is closed and independently of `keep_session_alive` – so the 30-min history is guaranteed to be gap-free & fresh. For this `/api/fritz/network-stats` additionally returns `serverHistory` (points with real timestamps), which the frontend uses for an instant initial fill. Costs slightly more FritzBox load (only the lightweight traffic poll; the heavier eco/hosts part stays suspended while idle).
+- New (device list as a sensor attribute): `sensor.fritzportal_online_devices` now carries the list of active devices in the **`active_hosts`** attribute (each entry has `name`, `ip`, `type` = LAN/WLAN, sorted by last activity) – the sensor value stays the count. This lets you put a device/IP table on the HA dashboard without a separate entity per device (e.g. via `flex-table-card` or a Markdown template). For MQTT via `json_attributes_topic`, for REST as a state attribute. Example YAML in the README.
+- Docs (README DE + EN): New section „Using the dashboard features in Home Assistant" – explains the 6 live tiles with sparklines and the sortable `HOSTS.ACTIVE` list, including concrete YAML examples for mini-graph-card sparklines, embedding the active-devices/IP list via an Ingress `iframe` and `sensor.fritzportal_online_devices`, as well as the new WLAN switch (`switch.fritzportal_wlan_…`).
 
 ## 1.4.4
 
-- Neu (HA-Sensoren, Statistik-tauglich): Den REST-API-Sensoren (`sensor.fritzportal_cpu`, `…_ram`, `…_temperature`, `…_online_devices`, `…_free_ips`, `…_download_speed`, `…_upload_speed` sowie sämtliche `…_traffic_<periode>_received/sent`) fehlte bisher die `state_class`. HA hat die Werte zwar dargestellt, aber nicht in die Langzeit-Statistik aufgenommen – damit konnten sie nicht im **Statistik-Diagramm** verwendet werden. Die System-/Rate-Sensoren bekommen jetzt `state_class: measurement`, die Traffic-Zähler `state_class: total` (passend zu den MQTT-Discovery-Sensoren). Forums-Wunsch (Beitrag von Mai 2026): Volumen-Sensoren als Statistik-Diagramm darstellbar machen.
-- Fix (HA-Sensoren, stabile Einheit für Traffic): Die REST-API-Traffic-Sensoren wechselten je nach Volumen dynamisch zwischen `MB` und `GB` – HA Long-Term-Statistik verträgt aber keinen Unit-Wechsel über die Zeit (sonst werden Datenpunkte verworfen oder die Statistik bricht ab). Die Sensoren publishen jetzt durchgängig in **GB** (3 Nachkommastellen). Hintergrund: in Statistik-Diagrammen lässt sich die Y-Achseneinheit nicht ändern, GB ist für Tages-/Wochen-/Monatsvolumen die übersichtlichere Wahl.
-- Fix (#?, Live-Down-/Upload bleibt 0 auf Cable-/5G-Boxen wie 6660/6690/**6860 5G**): Die Live-Rate auf dem Dashboard (`Internet upstream/downstream`) blieb bei manchen Boxen dauerhaft auf 0, weil weder `data.lua?page=netMon → sync_groups` (DSL-spezifisch, auf 5G/Cable nicht befüllt) noch `GetAddonInfos → NewByteReceiveRate/NewByteSendRate` (auf einigen Cable-Firmwares 0) etwas liefern. Als dritte Stufe leiten wir die Rate jetzt aus dem Delta der monoton steigenden `NewX_AVM_DE_TotalBytesReceived64`/`…Sent64`-Counter zwischen zwei Collector-Ticks (30 s) ab; die Logik liegt sowohl im Hintergrund-Collector als auch im On-Demand-Pfad `/api/fritz/network-stats`. Cache-Read-TTL für `network-stats` auf 35 s angehoben (passend zum Collector-Intervall), damit Browser-Polls dazwischen nicht die Box neu treffen.
-- Fix (Supervisor-Deprecation-Warnung `arch uses deprecated values ['armhf']`): Die HA-Supervisor-App-Validierung warnt seit kurzem für jedes Add-on, das in `config.yaml` noch `armhf` listet – die alte 32-Bit-ARM-Hardfloat-Architektur (Raspberry Pi 1/Zero) wird aufgegeben. Wir bauen das Add-on im GitHub-Workflow ohnehin nur für `linux/amd64,linux/arm64,linux/arm/v7`, daher haben wir `armhf` aus `config.yaml` und `build.yaml` entfernt und stattdessen `armv7` (modernes 32-Bit-ARM, deckt z. B. RPi 2/3 im 32-Bit-Modus ab) ergänzt. Die Warnung im Supervisor-Log verschwindet damit ohne Funktionsverlust für reale Installationen.
+- New (HA Sensors, statistics-compatible): The REST-API sensors (`sensor.fritzportal_cpu`, `…_ram`, `…_temperature`, `…_online_devices`, `…_free_ips`, `…_download_speed`, `…_upload_speed` as well as all `…_traffic_<period>_received/sent`) were missing the `state_class`. HA displayed the values but did not include them in long-term statistics – they could not be used in the **Statistics Chart**. System/rate sensors now get `state_class: measurement`, traffic counters get `state_class: total` (matching the MQTT discovery sensors). Forum request (post from May 2026): Make volume sensors displayable as statistics charts.
+- Fix (HA Sensors, stable unit for traffic): The REST-API traffic sensors switched dynamically between `MB` and `GB` depending on volume – but HA long-term statistics cannot handle unit changes over time (otherwise data points are discarded or statistics break). Sensors now publish consistently in **GB** (3 decimal places). Background: in statistics charts, the Y-axis unit cannot be changed, GB is the clearer choice for daily/weekly/monthly volumes.
+- Fix (#?, Live down/upload stuck at 0 on cable/5G boxes like 6660/6690/**6860 5G**): Live rate on the dashboard (`Internet upstream/downstream`) remained permanently at 0 on some boxes because neither `data.lua?page=netMon → sync_groups` (DSL-specific, not populated on 5G/cable) nor `GetAddonInfos → NewByteReceiveRate/NewByteSendRate` (0 on some cable firmwares) provided anything. As a third level, we now derive the rate from the delta of the monotonically increasing `NewX_AVM_DE_TotalBytesReceived64`/`…Sent64` counter between two collector ticks (30 s); the logic exists both in the background collector and in the on-demand path `/api/fritz/network-stats`. Cache-read TTL for `network-stats` increased to 35 s (matching the collector interval), so browser polls in between don't hit the box again.
+- Fix (Supervisor deprecation warning `arch uses deprecated values ['armhf']`): The HA Supervisor app validation has recently warned for every add-on that still lists `armhf` in `config.yaml` – the old 32-bit ARM hardfloat architecture (Raspberry Pi 1/Zero) is being phased out. We build the add-on in the GitHub workflow only for `linux/amd64,linux/arm64,linux/arm/v7` anyway, so we removed `armhf` from `config.yaml` and `build.yaml` and added `armv7` instead (modern 32-bit ARM, covers e.g. RPi 2/3 in 32-bit mode). The warning in the Supervisor log disappears without loss of functionality for real installations.
 
 ## 1.4.3
 
-- Neu (Netzwerk → WLAN, Gastzugang an/aus): Jede WLAN-Karte hat jetzt direkt neben dem `Aktiv`/`Inaktiv`-Status einen klickbaren Toggle-Switch. Damit kann der WLAN-Gastzugang (und bei Bedarf auch die Haupt-WLANs) ohne Umweg über die FRITZ!Box-Web-UI ein- und ausgeschaltet werden. Backend nutzt TR-064 `WLANConfiguration:N#SetEnable`; das UI macht ein optimistisches Update und rollt bei API-Fehler den Schalter zurück. Cache wird invalidiert, sodass die nächste Statusabfrage den realen Zustand der Box liefert.
-- Fix (#30, deutsche Übersetzung „Verschlüsselung"): Auf der WLAN-Seite stand wörtlich `Verschlüsselung` im Frontend, weil das Label nicht durch i18n lief und der Unicode-Escape als String stehen blieb. Jetzt korrekt als `Verschlüsselung` über `t()` ausgegeben.
-- Fix (Telefonie / SmartHome – strikte Trennung der Rubriken): Auf der Telefonie-Seite landeten weiterhin DECT-Aktoren (DECT 200, DECT 301, Comet DECT, RolloTron DECT …), obwohl der AHA-Cross-Reference-Filter aus v1.4.2 bereits aktiv war. Ursache: Namensabweichungen zwischen DECT- und AHA-Liste sowie HAN-FUN-Aktoren, die manche Firmwares gar nicht in AHA listen, glitten durch.
-  - Neuer Helper `fetchDectClassification(session)` zieht **data.lua?page=dect** und trennt explizit `handsets`/`mobiles` (= echte Telefone, Whitelist) von `devices` (= DECT-Aktoren, zusätzliche Blacklist). 60 s gecacht.
-  - `/api/fritz/dect` kombiniert jetzt drei Signale: (1) data.lua-Handsets-Whitelist (override), (2) AHA-SmartHome-Namen + data.lua-actors-Blacklist, (3) `looksLikePhone()`-Heuristik. Ergebnis: auf der Telefonie-Seite wird ein DECT-Eintrag *nur dann* angezeigt, wenn er explizit als Telefon klassifiziert ist.
-  - Strengere Namens-Normalisierung `normDectName()`: lowercase + NFD-Akzent-Strip (`ä→a`, `ß→ss`) + alnum-only. Damit matcht „Comet DECT-Bad" zwischen DECT und AHA auch dann noch, wenn der Nutzer den Namen in einer Quelle anders geschrieben hat.
-  - `/api/fritz/smartHome` nutzt umgekehrt dieselbe data.lua-Handsets-Whitelist – Telefone fliegen aus der SmartHome-Anzeige, auch wenn `looksLikePhone()` sie verfehlt.
-  - data.lua-Fallback in `/api/fritz/dect` mischt nicht mehr `devices` mit `handsets`/`mobiles` zusammen, sondern nimmt nur noch Handset-Listen als Telefone.
-- Fix (#28, Sonderzeichen in der Anrufliste): `&`, Umlaute und andere HTML-Entities (`&amp;`, `&auml;`, `&#252;` …) in `<Name>` / `<Caller>` / `<Called>` / `<Device>` aus der FRITZ-Call-XML wurden 1:1 ans Frontend durchgereicht. Auf `/api/fritz/calls` wird jetzt der gleiche `decodeXmlEntities`-Helper angewandt, den seit v1.4.1 auch die WLAN-Werte verwenden.
-- Verbessert (#20, Mesh-Topologie auf 6690/6860 5G & weiteren Boxen): Die Phase-1-Endpunkte (`meshlist.lua` / `internet/meshlist.lua` / `net/mesh_overview.lua`) und Phase-2-data.lua-Seiten teilen sich jetzt einen gemeinsamen `extractMeshFromJson`-Parser, der die Topologie auch unter `data.topology.nodes`, `data.mesh.nodes`, `meshlist.nodes` usw. findet. Vorher erkannte `tryUrl()` nur `raw.meshlist.nodes` / `raw.nodes` und verwarf JSON-Antworten von `mesh_overview.lua` (das 6690/6860 ausliefert) als leer – die Folge war der Fallback auf die reine Host-Liste statt der echten Mesh-Topologie. Zusätzlich: Bei Status 200 ohne extrahierbare Topologie wird jetzt der Set der obersten JSON-Keys ins Log geschrieben (`Mesh: page=… extract leer (top=[…] data=[…])`) – das macht das Hinzufügen weiterer Box-Formate ohne Sniffing möglich.
-- Dokumentation (README): Features-Tabelle in `README.md` und `README_eng.md` um die seit v1.3.9 hinzugekommenen Bereiche ergänzt.
+- New (Network → WLAN, guest access on/off): Each WLAN card now has a clickable toggle switch directly next to the `Active`/`Inactive` status. This allows the WLAN guest access (and if needed the main WLANs) to be switched on and off without detouring through the FRITZ!Box web UI. Backend uses TR-064 `WLANConfiguration:N#SetEnable`; the UI does an optimistic update and rolls back the switch on API error. Cache is invalidated so the next status query provides the real state of the box.
+- Fix (#30, German translation "Verschlüsselung"): The WLAN page literally showed `Verschlüsselung` in the frontend because the label didn't go through i18n and the Unicode escape remained as a string. Now correctly output as `Verschlüsselung` via `t()`.
+- Fix (Telefonie / SmartHome – strict separation of categories): DECT actuators (DECT 200, DECT 301, Comet DECT, RolloTron DECT …) continued to land on the Telefonie page, even though the AHA cross-reference filter from v1.4.2 was already active. Cause: name discrepancies between DECT and AHA lists plus HAN-FUN actuators that some firmwares don't even list in AHA slipped through.
+  - New helper `fetchDectClassification(session)` pulls **data.lua?page=dect** and explicitly separates `handsets`/`mobiles` (= actual phones, whitelist) from `devices` (= DECT actuators, additional blacklist). Cached for 60 s.
+  - `/api/fritz/dect` now combines three signals: (1) data.lua handsets whitelist (override), (2) AHA SmartHome names + data.lua actors blacklist, (3) `looksLikePhone()` heuristic. Result: on the Telefonie page a DECT entry is *only* displayed if it is explicitly classified as a phone.
+  - Stricter name normalization `normDectName()`: lowercase + NFD accent stripping (`ä→a`, `ß→ss`) + alnum-only. So "Comet DECT-Bad" matches between DECT and AHA even if the user has spelled the name differently in one source.
+  - `/api/fritz/smartHome` uses the same data.lua handsets whitelist in reverse – phones are removed from SmartHome display, even if `looksLikePhone()` misses them.
+  - data.lua fallback in `/api/fritz/dect` no longer mixes `devices` with `handsets`/`mobiles`, but only takes handset lists as phones.
+- Fix (#28, Special characters in call list): `&`, umlauts and other HTML entities (`&amp;`, `&auml;`, `&#252;` …) in `<Name>` / `<Caller>` / `<Called>` / `<Device>` from the FRITZ call XML were passed through to the frontend as-is. The `/api/fritz/calls` endpoint now applies the same `decodeXmlEntities` helper that WLAN values have been using since v1.4.1.
+- Improved (#20, Mesh topology on 6690/6860 5G & other boxes): Phase-1 endpoints (`meshlist.lua` / `internet/meshlist.lua` / `net/mesh_overview.lua`) and phase-2 data.lua pages now share a common `extractMeshFromJson` parser that finds the topology under `data.topology.nodes`, `data.mesh.nodes`, `meshlist.nodes` etc. Previously `tryUrl()` only recognized `raw.meshlist.nodes` / `raw.nodes` and discarded JSON responses from `mesh_overview.lua` (which 6690/6860 deliver) as empty – the result was fallback to the plain host list instead of the real mesh topology. Additionally: With status 200 but no extractable topology, the set of top JSON keys is now written to the log (`Mesh: page=… extract empty (top=[…] data=[…])`) – this allows adding further box formats without sniffing.
+- Documentation (README): Features table in `README.md` and `README_eng.md` supplemented with the areas added since v1.3.9.
 
 ## 1.4.2
 
-- Fix (Telefonie / SmartHome – saubere Trennung): Im Telefonie‑Tab erschienen bisher auch DECT‑Aktoren (FRITZ!DECT 200 Schaltsteckdosen, DECT 301 Heizkörperregler, Comet DECT, RolloTron DECT …), weil `Hosts:1#GetGenericDectEntry` schlicht **alle** DECT‑registrierten Geräte zurückgibt. Der `/api/fritz/dect`‑Endpoint quervergleicht die SOAP‑Liste jetzt mit der AHA‑SmartHome‑Liste (autoritative Quelle für Smart‑Home‑Aktoren) und filtert übereinstimmende Namen raus – im Telefonie‑Tab landen so wirklich nur noch Telefone. Auf der SmartHome‑Seite wird umgekehrt eine defensive `looksLikePhone`‑Heuristik (productname `FRITZ!Fon …`, Name‑Token `Mobilteil`/`Handset`/`MT-D`/…, nur HAN‑FUN‑Bit ohne Smart‑Home‑Bits) angewandt, falls ein Firmware‑data.lua‑Fallback Telefone in der SmartHome‑Liste mitliefern sollte.
-- Fix (HA Fritz!SmartHome‑Integration entlasten): Anwender berichteten, dass die HA‑interne **Fritz!Smarthome**‑Integration nicht mehr funktioniert, sobald das FRITZ!Portal‑Add‑on läuft. Ursache: das Add‑on hielt die `AUTO_SID`‑Session und pollte alle 30 s `data.lua?page=netMon` plus Eco‑History – auch dann, wenn niemand das Portal aktuell im Browser geöffnet hatte. Der HA‑Integration ging dabei reproduzierbar Session‑/Rate‑Quote auf der FRITZ!Box verloren. Zwei Maßnahmen:
-  1. **Idle‑Detection** im 30 s‑Background‑Collector: Sessions, deren letzter API‑Call > 5 min zurückliegt UND `keep_session_alive=false` (Default), werden übersprungen. Eine express‑Middleware aktualisiert `session.lastUsed` automatisch bei jedem `/api`‑Call. Folge: sobald der Browser‑Tab zu ist, hört das Add‑on innerhalb von ≤ 5 min auf, gegen die FRITZ!Box zu pollen – HA bekommt seine Slots zurück. Beim nächsten Portal‑Aufruf bumpt der erste Request `lastUsed`, der Collector ist sofort wieder aktiv.
-  2. **Server‑Cache für `/api/fritz/smartHome`**: 60 s TTL. Pro AHA‑XML‑Aufruf an `homeautoswitch.lua?switchcmd=getdevicelistinfos` darf jetzt max. 1× pro Minute hits werden, statt bei jedem Page‑Visit – das ist genau der Endpoint, mit dem HA's Fritz!SmartHome‑Integration ebenfalls arbeitet. Der DECT‑Filter (s.o.) nutzt denselben Cache, doppelte AHA‑Treffer entfallen.
-  Wer dauerhafte HA‑Sensor‑Updates braucht, kann `keep_session_alive` weiterhin in der System‑Page einschalten – dann pollt das Add‑on bewusst weiter und muss sich Slots mit der Fritz‑Integration teilen.
-- Neu (Geräte entfernen): Auf der Geräte‑Seite können Offline‑Geräte jetzt direkt aus der FRITZ!Box‑Hostliste gelöscht werden – z. B. um Altlasten von ehemaligen Gästen oder ausgetauschten Geräten loszuwerden. Zwei Wege: kleines `×` rechts neben jeder Offline‑Zeile in der Liste (für schnelles Bulk‑Aufräumen) und ein dedizierter `Gerät entfernen`‑Button am Ende der Detail‑Seite. Online‑Geräte werden bewusst ausgegraut bzw. abgelehnt, weil die FRITZ!Box ihre Löschung verweigert. Backend: neuer `DELETE /api/fritz/device`‑Endpoint nutzt primär TR‑064 `Hosts:1#X_AVM-DE_DeleteHost` und fällt bei nicht unterstützten Firmwares auf `data.lua?page=netDev&dev=…&btn_del=` zurück. Hosts‑/netDev‑Cache wird nach erfolgreichem Löschen sofort invalidiert.
-- Fix (Layout, Footer am unteren Bildschirmrand): Die Command‑Hint‑Bar (`$ ready / ↑↓ navigate …`) saß durch eine harte `min-height: calc(100vh - 85px - 38px)` auf `.main-content` immer ein Stück unterhalb des Folds – man musste 30–40 px scrollen, um sie zu sehen. Krücke entfernt; das `.app`‑Flex‑Layout (`min-height: 100vh`, `.main-content { flex: 1 }`) sorgt jetzt von selbst dafür, dass kurze Seiten den Footer sauber an der Viewport‑Unterkante andocken.
-- Neu (Typografie, TerminalPanel‑Footer): `.tpanel-foot` von 11 px auf **14 px** vergrößert – die `MONTH ↓ … ── ↑ …` / `SAMPLE 30s ── N PTS`‑Zeile am unteren Rand des `TRAFFIC.LIVE`‑Panels war im Mono‑Font kaum lesbar.
-- Fix (FritzBox‑CPU‑Last): Der Background‑Collector im Server‑Prozess pollte alle **15 s** Netz‑Throughput (`data.lua?page=netMon`) und Eco‑History – das verursachte spürbar messbare CPU‑Auslastung auf der FRITZ!Box (besonders auf der 7530er). Tick auf **30 s** halbiert; das Dashboard‑Live‑Polling wurde im selben Schritt von 15 s auf 30 s gestellt (Chart‑Footer zeigt jetzt `SAMPLE 30s`). Das 60‑Punkte‑Fenster decken damit 30 min statt 15 min Verlauf ab – eher ein Plus.
-- Neu (Mesh, Cache‑first): Beim Wechsel zwischen anderen Seiten und „Netzwerk" verschwand die Mesh‑Topologie, bis der Refresh (auf manchen Boxen 1–2 min) durchgelaufen war. Jetzt bleibt die zuletzt geladene Mesh‑Ansicht direkt sichtbar (`getApiCache('network-mesh')`); der Refresh läuft transparent im Hintergrund und überschreibt erst, wenn die neuen Daten da sind. Spinner zeigen wir nur noch beim ersten Aufruf, wenn überhaupt kein Cache existiert.
-- Fix (StatusLine, LOAD entfernt → Footer): `LAST 0.49 / 0.49 / 0.49` in der Statusleiste war kryptisch. Die Werte (1‑/5‑/15‑min‑CPU‑Mittel der FRITZ!Box) sind jetzt rechts in der Command‑Hint‑Bar als `CPU AVG 1m·5m·15m: …` mit Tooltip‑Erklärung gelandet. Im Gegenzug entfällt der bisherige `theme: SLATE`‑Slot – das Theme wird über den `◐ DARK/LIGHT`‑Toggle im Header eindeutig kommuniziert.
-- Neu (Header‑Logo, größer): `header-logo` jetzt **75 px** hoch (vorher 35 px), Header‑Höhe entsprechend auf 85 px ausgedehnt; `main-content`‑Min‑Height und sticky `top` der StatusLine mitgezogen. Mobile (< 768 px): 56 px Logo bei 70 px Header.
-- Fix (System‑Page, „Sitzung dauerhaft aktiv halten" default OFF): Der in 1.4.2 neu eingeführte Toggle war auf `true` defaulted. Da die Option zusätzliches Hintergrund‑Polling der FRITZ!Box bedeutet, ist sie jetzt **standardmäßig deaktiviert** – Anwender, die durchgehende HA‑Sensor‑Updates brauchen, schalten sie bewusst per Toggle (oder Add‑on‑Konfig `keep_session_alive: true`) ein. `config.yaml` und Server‑Default (`KEEP_SESSION_ALIVE === 'true'`) entsprechend gesetzt.
-- Neu (Dashboard): `THROUGHPUT.LIVE`‑Panel umbenannt in **`TRAFFIC.LIVE`**. Funktion und Footer (MONTH ↓/↑, SAMPLE 30 s) unverändert.
-- Neu (Dashboard, HOSTS.ACTIVE): Liste sortiert jetzt nach **Last‑Activity** (zuletzt gesehen zuerst) – vorher war die Reihenfolge willkürlich. Der `↑↓ SORT`‑Knopf rechts im Panel‑Header ist nun ein echter Button und schaltet zyklisch zwischen `BY ACTIVITY`, `BY IP` (numerisch) und `BY NAME` (alphabetisch) um; der gewählte Modus steht direkt neben den Pfeilen.
-- Fix (DeviceDetail‑Ladezeit): Der Wechsel von der Geräte‑Liste in die Detail‑Ansicht dauerte 5–10 s, obwohl die Daten im Cache lagen. Drei Ursachen:
-  1. Frontend hat `/api/fritz/hosts` synchron geholt, obwohl der Cache durch die gerade verlassene Geräte‑Liste warm war – die Detail‑Page hängt jetzt direkt am In‑Memory‑Cache (`getApiCache('hosts')`) und rendert sofort.
-  2. `/api/fritz/device/blockstate` rief intern `getHostsViaSoap()` auf, was bei 70+ Geräten ~70 SOAP‑Requests in 8er‑Batches = ~5 s erzeugt hat, nur um die IP zu einem MAC zu finden. Der Endpoint liest nun erst den Server‑Cache (`getCached('hosts', 60s)`) und akzeptiert zusätzlich einen `&ip=`‑Query‑Param; den schickt das Frontend direkt aus dem schon bekannten Host‑Datensatz mit. Der SOAP‑Sweep bleibt als Fallback, wird in der Praxis aber praktisch nie ausgelöst.
-  3. Block‑Status und DHCP‑Reservierung wurden seriell mit `await` geladen – jetzt laufen beide parallel im Hintergrund und blocken die UI nicht mehr. Klick auf Gerät → Detail‑Seite ist quasi instant.
-- Neu (Header‑Logo): Die blaue Gradient‑`F!`‑Box plus zweite `fritz!portal`‑Wordmark im Header sind durch das Bildlogo `src/logo.png` (35 px hoch, 30 px auf Mobile) ersetzt. Der Versions‑Chip rechts daneben bleibt – das Logo enthält den Schriftzug schon.
-- Fix (Seitenladezeit, Cache‑first auf allen Hauptseiten): Geräte, Netzwerk, Telefonie und SmartHome haben jetzt denselben Cache‑first‑Pfad wie das Dashboard – beim Wechsel zwischen Seiten wird sofort der zuletzt bekannte Stand gerendert, Live‑Daten fließen im Hintergrund nach. Dashboard‑Spinner wird ausgeblendet sobald *irgendein* gecachter Wert vorliegt (vorher erforderte er `device-info` *und* `hosts`); DeviceList ruft `setLoading(false)` direkt beim Cache‑Hit auf, nicht erst nach dem Fresh‑Fetch.
-- Fix (Telefonie‑Performance): `/api/fritz/dect` und `/api/fritz/calls` haben jetzt jeweils 60 s Server‑Cache. Der SOAP‑Sweep über alle DECT‑Handsets und der Anrufliste‑XML‑Download (auf manchen Fritz!Boxen >5 s) treffen nur noch beim ersten Besuch pro Minute – Folgenavigationen sind quasi instant.
-- Fix (BUG‑05, DECT): Handsets wurden trotz Registrierung wieder mit grauem Offline‑Punkt angezeigt, sobald die Firmware weder `NewActive=1` noch einen Akkustand zurücklieferte (ältere 7530er liefern keinen Battery‑Wert im SOAP‑Pfad). Der Status‑Punkt richtet sich jetzt allein nach `registered` – sobald das Handset in der Box‑Konfiguration steht, ist der Punkt grün. Nur tatsächlich abgemeldete Geräte zeigen den Offline‑Punkt. Das Label („Im Gespräch / Aktiv / Standby / Abgemeldet") bleibt wie in 1.4.0.
-- Fix (StatusLine WAN): Hinter `WAN` im sticky Statusbalken unter dem Header blieb das Feld leer. `/api/fritz/device-info` liefert `NewExternalIPAddress` firmware‑abhängig praktisch nie mit; der `App.tsx`‑Loader holt jetzt zusätzlich `/api/fritz/network/wan` (alle 120 s, parallel zum bestehenden Info‑Poll) und übernimmt die externe IP von dort.
-- Neu (System‑Page, Keep‑Session‑Alive): Neuer Toggle „**Sitzung dauerhaft aktiv halten**" in der HA‑Sensoren‑Sektion (default: **an**). Bei aktivierter Option wird die FRITZ!Box‑Verbindung bereits beim Add‑on‑Start aufgebaut (statt erst bei der ersten Browser‑Anfrage an `/api/fritz/auto-session`) und alle 60 s automatisch wiederhergestellt, falls sie verloren geht. Damit aktualisiert der 15‑s‑Background‑Collector die `eco-stats`/`network-stats`/`hosts`‑Caches und somit auch alle HA‑Sensoren *durchgehend*, ohne dass das Portal jemals im Browser geöffnet sein muss. Persistiert in `/data/fritz-portal.json`, gespiegelt in die Add‑on‑Konfiguration (`config.yaml` → neue Option `keep_session_alive: true`).
-- Fix (System‑Page Versionsanzeige): „FRITZ!Portal v1.4.0" in der Tabelle der Systeminformationen war hartcodiert und wurde beim Versionssprung nicht mitgezogen – jetzt auf 1.4.2 aktualisiert.
-- Neu (UI, Redesign): Komplettes visuelles Refresh auf das **TERMINAL.OS**-Design (Slate · Blue) – dichtes, technisches CLI/Hacker-Layout. Harte 1‑px‑Linien statt weicher Schatten, fast quadratische Ecken (3 px) statt 12 px, 3‑px‑Corner‑Ticks (`┌ ┐ └ ┘`) auf jeder Stat‑Kachel, ASCII‑Ornamentik (`┃`, `──`, `●`, `▰`) sparsam als Strukturhilfe.
-- Neu (Typografie): JetBrains Mono für alle Daten/Labels, Inter Tight für Hauptnavigation und Headlines – per `<link>` im `index.html` von Google Fonts eingebunden; Fallback auf IBM Plex Mono / ui‑monospace.
-- Neu (Tokens, src/index.css): Beide Themes komplett neu (Dark `#171b22`/`#1a1f28` und Light `#f5f6f8`/`#ffffff`). Ein einziger Blau‑Akzent (`#5aa6ff` dark / `#2b6fd9` light) abgeleitet aus dem Logo; muted Status‑Farben (success/warning/danger/info‑cyan/info‑pink). `--radius` 12 → 3 px, `--shadow` durchgängig `none`. Alte Inline‑Hex‑Werte (`#3b82f6`, `#22c55e`, …) in `Network.tsx` und allen Pages auf CSS‑Variablen umgestellt.
-- Neu (Header): `Header.tsx` neu geschrieben – 28×28 Gradient‑`F!`‑Mark, Wordmark `fritz!portal` (Inter Tight 600, mit blauem `!`) plus Versions‑Suffix in Mono, Sans‑serif Navigation in Mixed Case (Dashboard, Geräte, …), aktiver Tab als dim‑accent‑Pill. Theme‑Toggle als `◐ DARK / ◐ LIGHT`‑Pill in Mono.
-- Neu (StatusLine): neue Komponente `src/components/StatusLine.tsx` als zweite sticky Bar direkt unter dem Header. Zeigt `● SID OK`, `UPTIME 14d 03:22`, `FW <Version>`, `LOAD … / … / …`, `WAN <IPv4>` und rechts eine Live‑Uhr `13.05.26  14:08:42 ● REC`. Ab 900 px Breite werden LOAD/WAN/Clock automatisch ausgeblendet.
-- Neu (LOAD‑Anzeige, Backend): `/api/fritz/eco-stats` liefert zusätzlich `load1`, `load5`, `load15` – berechnet aus `ecoHistory.cpu` als 1/5/15‑Minuten‑Mittel der CPU‑Auslastung, normalisiert auf 0..1 (Linux‑Loadavg‑Stil, z. B. `0.23 / 0.41 / 0.18`). Die Werte bauen sich automatisch auf, sobald genug Datenpunkte gesammelt sind.
-- Neu (Wiederverwendbare Primitive): `src/components/TerminalPanel.tsx` (Box mit `┃ TITLE ── subtitle`‑Kopfzeile + optionalem Footer) und `src/components/StatTile.tsx` (Kachel mit Corner‑Ticks, optionaler SVG‑Sparkline und Hint/Progress‑Slot).
-- Neu (Dashboard): 6‑spaltiges Stat‑Grid (MODELL / CPU / RAM / TEMP / HOSTS / IP POOL) mit live tracked SVG‑Sparklines (60 Punkte). THROUGHPUT.LIVE‑Panel (gestyltes Recharts: 1,6‑px‑Strokes, gestrichelte Grid‑Linien `stroke-dasharray="2 5"`, gradient Fills 18 % → 0 %, mono‑Achsen, kein dot/animation) mit DOWN/UP‑Legend‑Chips und MONTH/SAMPLE‑Footer. HOSTS.ACTIVE‑Panel als kompakte monospace Liste mit IP‑Tail (`.24`), LINK‑Tag und Status‑Dot.
-- Neu (Eco‑History‑Modal): wird im neuen `.modal-card`‑Stil (1‑px‑Rand, kein Radius über 3 px, Mono‑`[ ✕ ]`‑Close) gerendert; Modal‑Linien‑Charts angepasst auf die neue Achsen‑ und Tooltip‑Optik.
-- Neu (Login/Loading‑Screen): redesigned als `AUTH ── fritz.box`‑Panel – Gradient‑`F!`‑Logo, Mono‑Eingabefelder, `$ login --user fritz`‑Buttons, blinkender Terminal‑Cursor `$ loading▮` ersetzt globalen Spinner.
-- Neu (Footer): persistente Command‑Hint‑Bar am Seitenende mit Tastatur‑Hints (`↑↓ navigate / enter open / / search`) und aktuell aktivem Theme.
-- Neu (i18n): Wörterbuch in `src/lib/i18n.tsx` (aus v1.3.9) um die neuen Redesign-Strings ergänzt (Status‑Slots, Dashboard‑Tile‑Labels, Panel‑Titel, Command‑Hint, Modal‑Texte). Die DE/EN‑Pill im Header bleibt funktional und schaltet zwischen den Sprachen.
-- Fix (Spinner): alle Vorkommen des CSS‑Spinners (Dashboard, DeviceList, DeviceDetail, Network, Traffic, Telefonie, SmartHome, System) durch den blinkenden Cursor ersetzt – einheitlicher Loading‑State über alle Seiten.
-- Fix (Stat‑Card Migration): Stat‑Cards mit deko‑Icons in Geräte‑, Traffic‑ und Dashboard‑Seiten durch `StatTile` mit Corner‑Ticks und Akzent‑Variablen ersetzt; die SVG‑Icons der alten Stat‑Cards sind via `display: none` deaktiviert.
-- Fix (Tabellen): globaler Stil (`thead th`, `tbody td`) auf mono, dashed Header‑Border, kleinere Padding (10 px / 9 px) und 12.5 px Body‑Font umgestellt – konsistent über alle Pages.
-- Fix (Buttons/Forms): `.btn`, `.btn-primary`, `.btn-outline`, `.btn-danger`, `.form-group input/select/textarea` neu definiert – mono, 13 px, 3‑px‑Radius, fokussierter Input bekommt 1‑px‑Accent‑Ring statt 3‑px‑RGB‑Glow.
-- Fix (Responsive): Stat‑Grid bricht ab 1200 px auf 3 Spalten, ab 600 px auf 2; Header collapsed unter 768 px (kleinere Padding/Font); StatusLine clipped LOAD/WAN/Clock unter 900 px.
+- Fix (Telefonie / SmartHome – clean separation): DECT actuators (FRITZ!DECT 200 power outlets, DECT 301 heating controllers, Comet DECT, RolloTron DECT …) previously also appeared in the Telefonie tab because `Hosts:1#GetGenericDectEntry` simply returns **all** DECT-registered devices. The `/api/fritz/dect` endpoint now cross-checks the SOAP list against the AHA SmartHome list (authoritative source for smart home actuators) and filters out matching names – the Telefonie tab now truly only shows phones. Conversely, on the SmartHome page a defensive `looksLikePhone` heuristic is applied (productname `FRITZ!Fon …`, name token `Mobilteil`/`Handset`/`MT-D`/…, HAN-FUN bit only without smart home bits), in case a firmware data.lua fallback should deliver phones in the SmartHome list.
+- Fix (HA Fritz!SmartHome integration relief): Users reported that the HA-internal **Fritz!Smarthome** integration no longer works once the FRITZ!Portal add-on is running. Cause: the add-on held the `AUTO_SID` session and polled `data.lua?page=netMon` every 30 s plus eco history – even when no one had the portal currently open in the browser. The HA integration reproducibly ran out of session/rate quota on the FRITZ!Box. Two measures:
+  1. **Idle detection** in the 30 s background collector: Sessions whose last API call is > 5 min ago AND `keep_session_alive=false` (default) are skipped. An express middleware automatically updates `session.lastUsed` on every `/api` call. Result: once the browser tab is closed, the add-on stops polling the FRITZ!Box within ≤ 5 min – HA gets its slots back. On the next portal call, the first request bumps `lastUsed` and the collector is immediately active again.
+  2. **Server cache for `/api/fritz/smartHome`**: 60 s TTL. Per AHA XML call to `homeautoswitch.lua?switchcmd=getdevicelistinfos`, max. 1× per minute now hits instead of at every page visit – this is exactly the endpoint that HA's Fritz!SmartHome integration also uses. The DECT filter (see above) uses the same cache, duplicate AHA hits are eliminated.
+  Users who need permanent HA sensor updates can continue to enable `keep_session_alive` on the System page – then the add-on deliberately polls and must share slots with the Fritz integration.
+- New (Remove devices): On the Devices page, offline devices can now be deleted directly from the FRITZ!Box host list – e.g. to get rid of old baggage from former guests or replaced devices. Two ways: small `×` to the right of each offline line in the list (for quick bulk cleanup) and a dedicated `Remove device` button at the end of the detail page. Online devices are deliberately grayed out or rejected because the FRITZ!Box refuses to delete them. Backend: new `DELETE /api/fritz/device` endpoint primarily uses TR-064 `Hosts:1#X_AVM-DE_DeleteHost` and falls back to `data.lua?page=netDev&dev=…&btn_del=` on unsupported firmwares. Hosts/netDev cache is immediately invalidated after successful deletion.
+- Fix (Layout, footer at bottom of screen): The command hint bar (`$ ready / ↑↓ navigate …`) sat due to a hard `min-height: calc(100vh - 85px - 38px)` on `.main-content` slightly below the fold – you had to scroll 30–40 px to see it. Crutch removed; the `.app` flex layout (`min-height: 100vh`, `.main-content { flex: 1 }`) now automatically ensures that short pages dock the footer cleanly at the viewport bottom.
+- New (Typography, TerminalPanel footer): `.tpanel-foot` increased from 11 px to **14 px** – the `MONTH ↓ … ── ↑ …` / `SAMPLE 30s ── N PTS` line at the bottom of the `TRAFFIC.LIVE` panel was barely readable in mono font.
+- Fix (FritzBox CPU load): The background collector in the server process polled network throughput (`data.lua?page=netMon`) and eco history every **15 s** – this caused noticeably measurable CPU load on the FRITZ!Box (especially on the 7530). Tick increased to **30 s**; dashboard live polling was simultaneously stepped from 15 s to 30 s (chart footer now shows `SAMPLE 30s`). The 60-point window thus covers 30 min instead of 15 min of history – rather a plus.
+- New (Mesh, cache-first): When switching between other pages and "Network", the mesh topology disappeared until the refresh (on some boxes 1–2 min) had run through. Now the last loaded mesh view remains directly visible (`getApiCache('network-mesh')`); the refresh runs transparently in the background and only overwrites when new data arrives. We only show spinners on first call, if any cache exists at all.
+- Fix (StatusLine, LOAD removed → Footer): `LAST 0.49 / 0.49 / 0.49` in the status bar was cryptic. The values (1/5/15-min CPU average of the FRITZ!Box) are now right-aligned in the command hint bar as `CPU AVG 1m·5m·15m: …` with tooltip explanation. In return, the previous `theme: SLATE` slot is eliminated – the theme is now uniquely communicated via the `◐ DARK/LIGHT` toggle in the header.
+- New (Header logo, larger): `header-logo` now **75 px** tall (previously 35 px), header height extended to 85 px accordingly; `main-content` min-height and sticky `top` of StatusLine adjusted. Mobile (< 768 px): 56 px logo at 70 px header.
+- Fix (System page, "Keep session alive" default OFF): The toggle newly introduced in 1.4.2 defaulted to `true`. Since the option means additional background polling of the FRITZ!Box, it is now **disabled by default** – users who need continuous HA sensor updates deliberately enable it via toggle (or add-on config `keep_session_alive: true`). `config.yaml` and server default (`KEEP_SESSION_ALIVE === 'true'`) set accordingly.
+- New (Dashboard): `THROUGHPUT.LIVE` panel renamed to **`TRAFFIC.LIVE`**. Function and footer (MONTH ↓/↑, SAMPLE 30 s) unchanged.
+- New (Dashboard, HOSTS.ACTIVE): List now sorts by **last activity** (most recently seen first) – previously the order was arbitrary. The `↑↓ SORT` button on the right in the panel header is now a proper button and toggles cyclically between `BY ACTIVITY`, `BY IP` (numerically), and `BY NAME` (alphabetically); the selected mode is shown directly next to the arrows.
+- Fix (DeviceDetail load time): Switching from the device list to the detail view took 5–10 s even though the data was cached. Three causes:
+  1. Frontend was fetching `/api/fritz/hosts` synchronously even though the cache was warm from the just-left device list – the detail page now hangs directly off the in-memory cache (`getApiCache('hosts')`) and renders immediately.
+  2. `/api/fritz/device/blockstate` internally called `getHostsViaSoap()`, which for 70+ devices generated ~70 SOAP requests in 8-device batches = ~5 s just to find the IP for a MAC. The endpoint now first reads the server cache (`getCached('hosts', 60s)`) and also accepts a `&ip=` query param; the frontend sends this directly from the already-known host dataset. The SOAP sweep remains as a fallback, but is practically never triggered in practice.
+  3. Block status and DHCP reservation were loaded serially with `await` – now both run in parallel in the background and don't block the UI. Click on device → detail page is virtually instant.
+- New (Header logo): The blue gradient `F!` box plus second `fritz!portal` wordmark in the header are replaced by the image logo `src/logo.png` (35 px tall, 30 px on mobile). The version chip to the right remains – the logo already contains the text.
+- Fix (Page load time, cache-first on all main pages): Devices, Network, Telefonie and SmartHome now have the same cache-first path as the dashboard – when switching between pages, the last known state is rendered immediately, live data flows in the background. Dashboard spinner is hidden as soon as *any* cached value is available (previously required `device-info` *and* `hosts`); DeviceList calls `setLoading(false)` directly on cache hit, not just after fresh fetch.
+- Fix (Telefonie performance): `/api/fritz/dect` and `/api/fritz/calls` now each have 60 s server cache. The SOAP sweep across all DECT handsets and the call list XML download (>5 s on some fritz!boxes) hit only on first visit per minute – subsequent navigations are virtually instant.
+- Fix (BUG-05, DECT): Handsets were displayed as offline with gray dot despite registration as soon as the firmware returned neither `NewActive=1` nor a battery level (older 7530 don't deliver battery value in SOAP path). The status dot now depends solely on `registered` – once the handset is in the box configuration, the dot is green. Only actually unregistered devices show the offline dot. The label ("On call / Active / Standby / Unregistered") remains as in 1.4.0.
+- Fix (StatusLine WAN): The field behind `WAN` in the sticky status bar below the header remained empty. `/api/fritz/device-info` provides `NewExternalIPAddress` practically never firmware-dependent; the `App.tsx` loader now additionally fetches `/api/fritz/network/wan` (every 120 s, parallel to the existing info poll) and takes the external IP from there.
+- New (System page, keep-session-alive): New toggle **"Keep session alive"** in the HA sensors section (default: **on**). When enabled, the FRITZ!Box connection is established at add-on startup (instead of on first browser request to `/api/fritz/auto-session`) and is automatically restored every 60 s if lost. The 15-s background collector thus updates the `eco-stats`/`network-stats`/`hosts` caches and thus also all HA sensors *continuously*, without the portal ever needing to be open in the browser. Persists in `/data/fritz-portal.json`, mirrored to add-on configuration (`config.yaml` → new option `keep_session_alive: true`).
+- Fix (System page version display): "FRITZ!Portal v1.4.0" in the system information table was hardcoded and wasn't updated on version change – now updated to 1.4.2.
+- New (UI, Redesign): Complete visual refresh to the **TERMINAL.OS** design (Slate · Blue) – dense, technical CLI/hacker layout. Hard 1-px lines instead of soft shadows, almost square corners (3 px) instead of 12 px, 3-px corner ticks (`┌ ┐ └ ┘`) on each stat tile, ASCII ornaments (`┃`, `──`, `●`, `▰`) sparingly as structural aid.
+- New (Typography): JetBrains Mono for all data/labels, Inter Tight for main navigation and headlines – included via `<link>` in `index.html` from Google Fonts; fallback to IBM Plex Mono / ui-monospace.
+- New (Tokens, src/index.css): Both themes completely new (Dark `#171b22`/`#1a1f28` and Light `#f5f6f8`/`#ffffff`). Single blue accent (`#5aa6ff` dark / `#2b6fd9` light) derived from logo; muted status colors (success/warning/danger/info-cyan/info-pink). `--radius` 12 → 3 px, `--shadow` throughout `none`. Old inline hex values (`#3b82f6`, `#22c55e`, …) in `Network.tsx` and all pages switched to CSS variables.
+- New (Header): `Header.tsx` rewritten – 28×28 gradient `F!` mark, wordmark `fritz!portal` (Inter Tight 600, with blue `!`) plus version suffix in mono, sans-serif navigation in mixed case (Dashboard, Devices, …), active tab as dim-accent pill. Theme toggle as `◐ DARK / ◐ LIGHT` pill in mono.
+- New (StatusLine): new component `src/components/StatusLine.tsx` as second sticky bar directly under the header. Shows `● SID OK`, `UPTIME 14d 03:22`, `FW <Version>`, `LOAD … / … / …`, `WAN <IPv4>` and right a live clock `13.05.26  14:08:42 ● REC`. Above 900 px width LOAD/WAN/Clock are automatically hidden.
+- New (LOAD display, backend): `/api/fritz/eco-stats` additionally provides `load1`, `load5`, `load15` – calculated from `ecoHistory.cpu` as 1/5/15-minute average CPU utilization, normalized to 0..1 (Linux loadavg style, e.g. `0.23 / 0.41 / 0.18`). The values build up automatically once enough data points are collected.
+- New (Reusable primitives): `src/components/TerminalPanel.tsx` (box with `┃ TITLE ── subtitle` header + optional footer) and `src/components/StatTile.tsx` (tile with corner ticks, optional SVG sparkline and hint/progress slot).
+- New (Dashboard): 6-column stat grid (MODEL / CPU / RAM / TEMP / HOSTS / IP POOL) with live-tracked SVG sparklines (60 points). TRAFFIC.LIVE panel (styled recharts: 1.6-px strokes, dashed grid lines `stroke-dasharray="2 5"`, gradient fills 18% → 0%, mono axes, no dot/animation) with DOWN/UP legend chips and MONTH/SAMPLE footer. HOSTS.ACTIVE panel as compact monospace list with IP tail (`.24`), LINK tag and status dot.
+- New (Eco-history modal): rendered in the new `.modal-card` style (1-px border, no radius above 3 px, mono `[ ✕ ]` close); modal line charts adjusted to new axes and tooltip look.
+- New (Login/Loading screen): redesigned as `AUTH ── fritz.box` panel – gradient `F!` logo, mono input fields, `$ login --user fritz` buttons, blinking terminal cursor `$ loading▮` replaces global spinner.
+- New (Footer): persistent command hint bar at end of page with keyboard hints (`↑↓ navigate / enter open / / search`) and currently active theme.
+- New (i18n): Dictionary in `src/lib/i18n.tsx` (from v1.3.9) supplemented with new redesign strings (status slots, dashboard tile labels, panel titles, command hint, modal texts). The DE/EN pill in the header remains functional and switches between languages.
+- Fix (Spinner): all occurrences of the CSS spinner (dashboard, device list, device detail, network, traffic, telefonie, smart home, system) replaced by the blinking cursor – consistent loading state across all pages.
+- Fix (Stat card migration): stat cards with decorative icons on device, traffic and dashboard pages replaced by `StatTile` with corner ticks and accent variables; the SVG icons of old stat cards are disabled via `display: none`.
+- Fix (Tables): global style (`thead th`, `tbody td`) switched to mono, dashed header border, smaller padding (10 px / 9 px) and 12.5 px body font – consistent across all pages.
+- Fix (Buttons/Forms): `.btn`, `.btn-primary`, `.btn-outline`, `.btn-danger`, `.form-group input/select/textarea` redefined – mono, 13 px, 3-px radius, focused input gets 1-px accent ring instead of 3-px RGB glow.
+- Fix (Responsive): stat grid breaks to 3 columns at 1200 px, to 2 at 600 px; header collapsed below 768 px (smaller padding/font); StatusLine clips LOAD/WAN/Clock below 900 px.
 
 ## 1.4.1
 
-- Fix (#25, Anrufliste): Anruf-Typen waren vertauscht – Typ 2 ist „Verpasst", Typ 3 ist „Ausgehend" (laut AVM-Call-XML). UI-Mapping, Filter-Buttons und das Legacy-Feld `number` (Caller/Called-Auswahl) werden korrigiert; zusätzlich wird Typ 10 als „Abgewiesen" sichtbar.
-- Fix (#17, WLAN): SSIDs mit Umlauten erschienen verstümmelt. SOAP-Antwort-Werte werden jetzt durch einen XML-Entity-Decoder gereicht (`&auml;`, `&#252;` usw.).
-- Fix (#19, SmartHome): RolloTron-DECT-Geräte erschienen auf der SmartHome-Seite doppelt. AHA-Geräteliste wird jetzt nach `identifier` (AIN) dedupliziert; Sub-Device-Felder werden in den Hauptdatensatz gemerged. Dedup gilt auch für den data.lua-Fallback.
-- Fix (#16, Geräteliste): Statisch reservierte IPs auf 7530-Firmware wurden meist nicht als „FEST" angezeigt. Die Reservierungs-Liste wird jetzt zusätzlich aus `data.lua?page=netSet/lanExpert` (bzw. SOAP `GetGenericLANHostStaticDHCPEntry` als Fallback) geholt und 15 s gecacht; Geräte werden über MAC-Match markiert.
-- Fix (#21, Dashboard): CPU/RAM/Temperatur zeigten auf 7590 dauerhaft 0, obwohl der Verlaufsgraph korrekt war. `/api/fritz/eco-stats` liest den 15-s-Collector-Cache jetzt mit 30 s TTL und fällt – wenn der On-Demand-Pfad ebenfalls 0 liefert – auf den letzten Eintrag aus dem `ecoHistory`-Buffer zurück.
+- Fix (#25, Call list): Call types were swapped – type 2 is "Missed", type 3 is "Outgoing" (per AVM call XML). UI mapping, filter buttons, and legacy field `number` (caller/called selection) are corrected; additionally type 10 is shown as "Rejected".
+- Fix (#17, WLAN): SSIDs with umlauts appeared corrupted. SOAP response values are now passed through an XML entity decoder (`&auml;`, `&#252;` etc.).
+- Fix (#19, SmartHome): RolloTron DECT devices appeared twice on the SmartHome page. AHA device list is now deduplicated by `identifier` (AIN); sub-device fields are merged into the main dataset. Dedup also applies to the data.lua fallback.
+- Fix (#16, Device list): Statically reserved IPs on 7530 firmware mostly weren't displayed as "FIXED". The reservation list is now additionally fetched from `data.lua?page=netSet/lanExpert` (or SOAP `GetGenericLANHostStaticDHCPEntry` as fallback) and cached for 15 s; devices are marked via MAC match.
+- Fix (#21, Dashboard): CPU/RAM/temperature showed 0 on 7590 even though the history graph was correct. `/api/fritz/eco-stats` now reads the 15-s collector cache with 30 s TTL and – if the on-demand path also returns 0 – falls back to the last entry in the `ecoHistory` buffer.
 
 ## 1.4.0
 
-- Fix (BUG-05, DECT): Status-Wording entschärft. Manche Fritz!Box-Firmwares melden `NewActive=0` auch für aktive Handsets im Tiefschlaf-Standby – das definitive „Ausgeschaltet" war dadurch irreführend. Neue Labels: „Im Gespräch" → „Aktiv / Bereitschaft" → **„Standby / Aus"** (statt „Ausgeschaltet") → „Abgemeldet". Zusätzlich gilt der Status-Punkt als grün, wenn die Box einen Akkustand > 0 zurückgibt – das ist ein zuverlässiges Lebenszeichen, das auch im Tiefschlaf gemeldet wird.
-- Fix (HA-Update): Fortschrittsanzeige beim Add-on-Update blieb bei 0 %. Ursache: ohne `image:`-Feld in `config.yaml` baute der Supervisor das Image lokal aus dem Dockerfile – lokale Builds haben keine granular trackbaren Pull-Layer. Die Add-on-Konfiguration verweist jetzt auf das vom GitHub-Workflow nach `ghcr.io/jayjojayson/fritz-portal/fritz-portal-addon` gepushte Multi-Arch-Image, sodass HA es regulär per `docker pull` zieht und den Fortschritt 0–100 % korrekt anzeigt.
+- Fix (BUG-05, DECT): Status wording toned down. Some Fritz!Box firmwares report `NewActive=0` even for active handsets in deep sleep standby – the definitive "Switched off" was misleading. New labels: "On call" → "Active / Ready" → **"Standby / Off"** (instead of "Switched off") → "Unregistered". Additionally the status dot is considered green if the box returns a battery level > 0 – that's a reliable sign of life reported even in deep sleep.
+- Fix (HA update): Progress display during add-on update stuck at 0%. Cause: without `image:` field in `config.yaml` the supervisor built the image locally from the Dockerfile – local builds have no granularly trackable pull layers. The add-on configuration now points to the multi-arch image pushed by the GitHub workflow to `ghcr.io/jayjojayson/fritz-portal/fritz-portal-addon`, so HA pulls it regularly and displays progress 0–100% correctly.
 
 ## 1.3.10
 
-- Fix (BUG-04, Mesh): Mesh-Abfragen liefen in 1.3.9 auf Timeout („Mesh: page=netDev Fehler: timeout"). Ursache war das Zusammenspiel der strengeren Rate-Limits (2 parallel data.lua + 400 ms Abstand) mit dem Mesh-`timeoutFetch`, dessen Abort-Timer bereits *vor* der Queue-Wartezeit startete – die Wartezeit im Rate-Limiter fraß dadurch das Timeout-Budget auf. `timeoutFetch` holt jetzt zuerst den Rate-Limiter-Slot über einen neuen Helper `acquireDataLuaSlot()` und startet den Abort-Timer erst danach, sodass die angegebenen 8/15 s wieder tatsächlich für den HTTP-Call zur Verfügung stehen.
+- Fix (BUG-04, Mesh): Mesh queries timed out in 1.3.9 ("Mesh: page=netDev error: timeout"). Cause was the interaction of stricter rate limits (2 parallel data.lua + 400 ms gap) with mesh `timeoutFetch`, whose abort timer started *before* the queue wait – the queue wait in the rate limiter consumed the timeout budget. `timeoutFetch` now first acquires the rate limiter slot via new helper `acquireDataLuaSlot()` and only then starts the abort timer, so the specified 8/15 s are actually available for the HTTP call.
 
 ## 1.3.9
 
-- Fix (BUG-05, DECT): Ausgeschaltete Handsets wurden fälschlich als aktiv angezeigt. Der Status wird jetzt wieder aus `NewActive`/`NewConnected` abgeleitet; der Registrierungs-Status (Handset ist in der Entry-Liste der Box) wird separat als `registered` geführt. UI-Zustände: „Im Gespräch" → „Aktiv / Bereitschaft" → „Ausgeschaltet" → „Abgemeldet" (letzteres erscheint nur, wenn das Handset nicht mehr registriert ist).
-- Neu (Anrufliste): Statt einer einzelnen „Rufnummer"-Spalte werden jetzt **Von** und **An** separat angezeigt (Caller/Called aus der Fritz-Call-XML), plus eine neue **Gerät**-Spalte mit dem DECT/Festnetzanschluss, an dem der Anruf eingegangen bzw. abgesetzt wurde. Eingehende Nummern bei Anrufen in Abwesenheit sowie ausgehende Nummern bei ausgehenden Anrufen sind damit direkt sichtbar.
-- Fix (BUG-02, SmartHome-Interop): Rate-Limiter deutlich strenger gestellt, um die parallele Nutzung mit der Fritz-SmartHome-Integration in Home Assistant zu stabilisieren. data.lua: max. 2 parallele Anfragen (vorher 3), 400 ms Mindestabstand (vorher 300 ms). Neu: SOAP-Anfragen (`:49000`) werden auf max. 6 parallel limitiert (vorher ungebremst). Die parallele SOAP-Host-Abfrage wurde von BATCH=15 auf BATCH=8 reduziert – vermeidet Bursts, die die Fritz!Box zeitweise zur Session-Sperre verleiten können.
-- Neu (Mehrsprachigkeit): Die gesamte Oberfläche ist jetzt auf **Deutsch und Englisch** umschaltbar. Oben rechts im Header neben dem Theme-Toggle gibt es einen neuen Button (DE/EN), der die Sprache umschaltet und in `localStorage` merkt. Deutsche Strings dienen intern als Keys – fehlt eine Übersetzung, wird der deutsche Text als Fallback angezeigt, sodass die App in beiden Sprachen stabil bleibt.
+- Fix (BUG-05, DECT): Switched-off handsets were incorrectly displayed as active. The status is now derived again from `NewActive`/`NewConnected`; the registration status (handset is in the box's entry list) is tracked separately as `registered`. UI states: "On call" → "Active / Ready" → "Switched off" → "Unregistered" (the latter only appears if the handset is no longer registered).
+- New (Call list): Instead of a single "Number" column, **From** and **To** are now displayed separately (Caller/Called from the Fritz call XML), plus a new **Device** column with the DECT/landline port where the call came in or was made. Incoming numbers on missed calls and outgoing numbers on outgoing calls are now directly visible.
+- Fix (BUG-02, SmartHome interop): Rate limiter significantly tightened to stabilize parallel use with the Fritz SmartHome integration in Home Assistant. data.lua: max. 2 parallel requests (previously 3), 400 ms minimum gap (previously 300 ms). New: SOAP requests (`:49000`) are limited to max. 6 parallel (previously unlimited). The parallel SOAP host query was reduced from BATCH=15 to BATCH=8 – avoids bursts that can tempt the Fritz!Box to session lock.
+- New (Multilingual): The entire interface is now switchable between **German and English**. Top right in the header next to the theme toggle there is a new button (DE/EN) that switches the language and remembers it in `localStorage`. German strings serve as internal keys – if a translation is missing, the German text is displayed as a fallback, so the app remains stable in both languages.
 
 ## 1.3.8
 
-- Fix (BUG-05, DECT): Angemeldete DECT-Handsets wurden trotz aktiver Nutzung als „Abgemeldet" angezeigt. Der SOAP-Eintrag `GetGenericDectEntry` listet nur registrierte Geräte – der Registrierungs-Status wird jetzt daraus abgeleitet statt aus `NewActive` (das je nach Firmware nur die momentane Erreichbarkeit widerspiegelt und im Bereitschaftsmodus `0` liefert). Die Erreichbarkeit fließt in den „Verbunden / Bereitschaft"-Status ein.
-- Fix (BUG-05, DECT): „DECT aktiv: Nein" obwohl Handsets registriert sind. Schlägt `GetDECTInfo` mit UPnPError 401 fehl (z. B. 6690, 7590 AX), wird die Basis jetzt automatisch als aktiv gewertet, sobald mindestens ein Handset gefunden wurde.
-- Fix (BUG-05, DECT): data.lua-Fallback erkennt Registrierungsstatus robuster über breitere Feldprüfung (`state`, `registered`, `connected`, `connect`, `active`) – Handsets werden zuverlässiger gelistet.
-- Fix (BUG-04, Mesh): Mesh-Abfragen brachen nahezu gleichzeitig mit „This operation was aborted" ab. Ursache war der data.lua-Rate-Limiter (max. 3 parallel, 300 ms Abstand aus 1.3.7) – die per-Request-Timer liefen schon, während die Anfragen noch in der Queue warteten. Mesh-Requests nutzen jetzt einen Timer, der erst nach dem Rate-Limiter startet.
-- Fix (BUG-04, Mesh): Per-Request-Timeout von 5 s auf 15 s erhöht (manche Fritz!Boxen brauchen für `data.lua` deutlich länger als 5 s zum Antworten) und data.lua-Seiten laufen jetzt seriell mit Early-Exit (statt 6× parallel), um Rate-Limiter-Staus zu vermeiden.
-- Neu (BUG-04, Mesh): `data.lua?page=netDev&xhrId=cleanup` ist jetzt die primäre Quelle – genau diese Seite nutzt die Fritz-Weboberfläche selbst für die Mesh-Ansicht (liefert `data.active` mit `mesh_role` und `parent.uid` pro Gerät). `normalizeMeshDevices` parst jetzt auch das netDev-Format (UID, ipv4.ip, parent.uid).
-- Neu (BUG-04, Mesh): Zusätzliche Endpunkte `/internet/meshlist.lua?useajax=1`; spekulative Fallback-Seiten (`meshTopo`, `netTopo`, `hostTopo`) bekommen ein verkürztes 6-s-Timeout, damit unbekannte Seiten schnell fehlschlagen statt die Gesamtabfrage zu blockieren.
-- Neu (Mesh-Ansicht): Echte Baumstruktur (Tidy-Tree-Layout) statt einer einzigen horizontalen Reihe – Master oben, Repeater/Satellites als Infrastruktur-Ebene, Clients verzweigen darunter unter ihrem tatsächlichen Parent. Unterbäume werden bottom-up skaliert, lange Zweige bekommen horizontalen Scroll statt überlappende Labels.
-- Neu (Mesh-Ansicht): Knoten sind jetzt abgerundete Rechtecke mit Name + IP; Farbe folgt der Legende (Master cyan, Infrastruktur orange, LAN-Client blau, WLAN-Client grün).
-- Neu (Mesh-Ansicht): Verbindungslinien verlaufen orthogonal (L-Form) in der Verbindungstyp-Farbe (LAN blau durchgezogen, WLAN grün gestrichelt). Beim Hover wird der Pfad Kind → Eltern hervorgehoben, alle anderen abgeblendet.
-- Fix (Mesh-Ansicht): Legende im Header zeigt jetzt Master, Infrastruktur, LAN-Client, WLAN-Client, LAN-Linie, WLAN-Linie – passend zu den tatsächlich gezeichneten Farben (vorher Master/Satellite/Client ohne Infrastruktur-Eintrag).
-- Fix (Mesh-Ansicht): FRITZ!Box wird jetzt immer als Master angezeigt. Manche netDev-Responses enthalten die Box selbst nicht in `data.active`, wodurch bisher ein zufälliger Client (z. B. „Sonoff-NSPanel") als Master markiert wurde. Wird keine Master-Flagge im Response gefunden, wird ein Master-Knoten aus dem FritzOS-Device-Info (`NewModelName`, Host-IP) synthetisiert und alle Waisen-Knoten unter ihn gehängt.
-- Fix (Mesh-Ansicht): Layout ist jetzt vertikal (indentierte Baumansicht) – Master oben, Infrastruktur eingerückt darunter, Clients weiter eingerückt. Kein horizontales Scrollen mehr nötig, auch bei vielen Geräten. Jeder Knoten zeigt Name + IP + LAN/WLAN-Badge rechts.
-- Fix (BUG-08, WLAN/LAN): WLAN-Erkennung deutlich verbessert – statt nur `conn_type` werden jetzt `conn` („wlan"/„lan"/„guest"), `master_wifi_uid`, `wlan_UIDs`, `rssi`, `wlan_show_rssi`, `port`/`port_name` und das verschachtelte `wlan`-Objekt geprüft. Verhindert, dass WLAN-Clients fälschlicherweise als LAN-Geräte erscheinen.
-- Fix (Mesh-Topologie): Parent-Erkennung nutzt jetzt zusätzlich `master_wifi_uid` – WLAN-Clients werden korrekt unter ihrem WLAN-Master (FritzBox oder Repeater) einsortiert statt als Waise an der Wurzel zu hängen.
-- Fix (BUG-08, Geräteliste): WLAN/LAN-Kennzeichnung auf der Geräteseite stimmt jetzt mit der Mesh-Ansicht überein. Die TR-064-SOAP-Hostliste meldet für WLAN-Clients, die über einen Repeater verbunden sind, oft `Ethernet` – /api/fritz/hosts augmentiert jede Zeile jetzt mit der netDev-Info (Quelle: Fritz-Weboberfläche selbst). Beide Ansichten zeigen jetzt dieselbe Anzahl WLAN- und LAN-Geräte.
-- Neu (Geräteliste + Mesh): Anschlussdetails werden angezeigt – `LAN 2 → 1 Gbit/s`, `WLAN 2,4 GHz → 58 Mbit/s` usw. Quelle ist das netDev-Feld `conn_info`/`ipinfo` (von FritzOS vorformatiert); wenn nicht vorhanden, wird Port/Band + Speed aus `port_name`, `wlan_band`, `conn_speed`, `txrate` rekonstruiert. In der Mesh-Box passt die Namens-Länge sich dynamisch an die Badge-Breite an, damit nichts überlappt.
-- Neu (intern): Gemeinsame Helfer `deviceIsWlan()` und `formatConnDetail()` – Mesh-Topologie und Geräteliste nutzen jetzt exakt dieselbe WLAN-Erkennung und Verbindungstext-Formatierung (keine Divergenz mehr zwischen den Ansichten). netDev wird 15 s in `netdev-map` gecacht, sodass Hosts- und Mesh-Endpunkt nicht doppelt zur Fritz!Box greifen.
-- Fix (Dashboard, Download/Upload): Live-Raten zeigten viel zu niedrige Werte (z. B. 0,2 Mbit/s statt echten 105,9 Mbit/s). Der Hintergrund-Collector holte die Live-Werte bisher über den SOAP-`GetAddonInfos`-1-Sekunden-Snapshot, der Bursts verpasst – jetzt wird stattdessen `data.lua?page=netMon` angezapft (genau die Quelle, die die Fritz-Weboberfläche selbst für den Live-Graph nutzt). `GetAddonInfos` bleibt als Fallback nur für Zähler ohne netMon-Daten.
-- Fix (Dashboard/Traffic): Umrechnung auf dezimale Mbit/s (1 Mbit/s = 1.000.000 bit/s) statt binäre Mibit/s – zeigt jetzt exakt dieselben Zahlen wie die Fritz!Box-UI statt eines ~7 %-Offsets nach unten.
-- Fix (Geräteliste, FEST-Marker): Statisch reservierte IPs werden jetzt deutlich zuverlässiger erkannt. TR-064 meldet `NewAddressSource = "DHCP"` trotz statischer Reservierung; die FRITZ!Portal-Anzeige liest das Flag jetzt aus dem netDev-Feld `static_dhcp` (auch `ipv4.static_dhcp`, `is_static`, `dhcp === '2'`) – deckt damit alle Reservierungen ab, die in der Fritz-Weboberfläche sichtbar sind.
+- Fix (BUG-05, DECT): Registered DECT handsets were displayed as "Unregistered" despite active use. The SOAP entry `GetGenericDectEntry` lists only registered devices – the registration status is now derived from this instead of `NewActive` (which depending on firmware only reflects momentary reachability and returns 0 in standby mode). Reachability flows into the "Connected / Standby" status.
+- Fix (BUG-05, DECT): "DECT active: No" even though handsets are registered. If `GetDECTInfo` fails with UPnPError 401 (e.g. 6690, 7590 AX), the base is now automatically considered active as soon as at least one handset is found.
+- Fix (BUG-05, DECT): data.lua fallback recognizes registration status more robustly via broader field check (`state`, `registered`, `connected`, `connect`, `active`) – handsets are listed more reliably.
+- Fix (BUG-04, Mesh): Mesh queries broke almost simultaneously with "This operation was aborted". Cause was the data.lua rate limiter (max 3 parallel, 300 ms gap from 1.3.7) – the per-request timers were already running while requests were still in queue. Mesh requests now use a timer that only starts after the rate limiter.
+- Fix (BUG-04, Mesh): Per-request timeout increased from 5 s to 15 s (some Fritz!Boxes take significantly longer than 5 s to respond to `data.lua`) and data.lua pages now run serially with early exit (instead of 6× parallel) to avoid rate limiter congestion.
+- New (BUG-04, Mesh): `data.lua?page=netDev&xhrId=cleanup` is now the primary source – exactly this page is used by the Fritz web interface itself for the mesh view (provides `data.active` with `mesh_role` and `parent.uid` per device). `normalizeMeshDevices` now also parses the netDev format (UID, ipv4.ip, parent.uid).
+- New (BUG-04, Mesh): Additional endpoints `/internet/meshlist.lua?useajax=1`; speculative fallback pages (`meshTopo`, `netTopo`, `hostTopo`) get a shortened 6-s timeout, so unknown pages fail quickly instead of blocking the overall query.
+- New (Mesh view): Real tree structure (tidy tree layout) instead of a single horizontal row – master at top, repeaters/satellites as infrastructure layer, clients branch underneath their actual parent. Subtrees are scaled bottom-up, long branches get horizontal scroll instead of overlapping labels.
+- New (Mesh view): Nodes are now rounded rectangles with name + IP; color follows legend (master cyan, infrastructure orange, LAN client blue, WLAN client green).
+- New (Mesh view): Connection lines run orthogonal (L-shape) in connection type color (LAN blue solid, WLAN green dashed). On hover the path child → parent is highlighted, all others dimmed.
+- Fix (Mesh view): Legend in header now shows master, infrastructure, LAN client, WLAN client, LAN line, WLAN line – matching the colors actually drawn (previously master/satellite/client without infrastructure entry).
+- Fix (Mesh view): FRITZ!Box is now always displayed as master. Some netDev responses don't include the box itself in `data.active`, so previously a random client (e.g. "Sonoff-NSPanel") was marked as master. If no master flag is found in the response, a master node is synthesized from FritzOS device info (`NewModelName`, host IP) and all orphan nodes are hung under it.
+- Fix (Mesh view): Layout is now vertical (indented tree view) – master at top, infrastructure indented below, clients further indented. No more horizontal scrolling needed, even with many devices. Each node shows name + IP + LAN/WLAN badge on right.
+- Fix (BUG-08, WLAN/LAN): WLAN detection significantly improved – instead of just `conn_type`, now checks `conn` ("wlan"/"lan"/"guest"), `master_wifi_uid`, `wlan_UIDs`, `rssi`, `wlan_show_rssi`, `port`/`port_name` and nested `wlan` object. Prevents WLAN clients from being incorrectly displayed as LAN devices.
+- Fix (Mesh topology): Parent detection now also uses `master_wifi_uid` – WLAN clients are correctly sorted under their WLAN master (FritzBox or repeater) instead of as orphans at the root.
+- Fix (BUG-08, Device list): WLAN/LAN labeling on the device page now matches mesh view. The TR-064 SOAP host list reports `Ethernet` for WLAN clients connected via repeater – /api/fritz/hosts now augments each row with netDev info (source: Fritz web interface itself). Both views now show the same number of WLAN and LAN devices.
+- New (Device list + Mesh): Connection details are displayed – `LAN 2 → 1 Gbit/s`, `WLAN 2.4 GHz → 58 Mbit/s` etc. Source is the netDev field `conn_info`/`ipinfo` (pre-formatted by FritzOS); if not available, port/band + speed is reconstructed from `port_name`, `wlan_band`, `conn_speed`, `txrate`. In the mesh box the name length adapts dynamically to badge width so nothing overlaps.
+- New (internal): Common helpers `deviceIsWlan()` and `formatConnDetail()` – mesh topology and device list now use exactly the same WLAN detection and connection text formatting (no divergence between views). netDev is cached for 15 s in `netdev-map` so hosts and mesh endpoints don't hit the Fritz!Box twice.
+- Fix (Dashboard, download/upload): Live rates showed much lower values (e.g. 0.2 Mbit/s instead of actual 105.9 Mbit/s). The background collector previously fetched live values via SOAP `GetAddonInfos` 1-second snapshot, which missed bursts – now `data.lua?page=netMon` is tapped instead (exactly the source the Fritz web interface itself uses for the live graph). `GetAddonInfos` remains as fallback only for counters without netMon data.
+- Fix (Dashboard/Traffic): Conversion to decimal Mbit/s (1 Mbit/s = 1,000,000 bit/s) instead of binary Mibit/s – now shows exactly the same numbers as the Fritz!Box UI instead of ~7% offset downward.
+- Fix (Device list, FIXED marker): Statically reserved IPs are now recognized much more reliably. TR-064 reports `NewAddressSource = "DHCP"` despite static reservation; the FRITZ!Portal display now reads the flag from the netDev field `static_dhcp` (also `ipv4.static_dhcp`, `is_static`, `dhcp === '2'`) – covers all reservations visible in the Fritz web interface.
 
 ## 1.3.7
 
-- Fix (BUG-01/02, Kritisch): Rate-Limiter für data.lua-Anfragen – maximal 3 parallele Anfragen, 300 ms Mindestabstand. Verhindert Fritz!Box-UI-Blockaden und SmartHome-Offlinephasen bei hoher Last (hoffentlich)
-- Fix (BUG-03/10): Startup-Warnung wenn Fritz!Box-Hostname nicht per DNS auflösbar ist – klare Fehlermeldung im Add-on-Protokoll statt stiller Fehler
-- Fix (BUG-04): Mesh-Timeouts von 10 s auf 5 s reduziert – UI blockiert nicht mehr bei langsamen Mesh-Antworten
-- Fix (BUG-07/08): WLAN-Schleife auf Netzwerk-Index 1–4 erweitert (war 1–3) – Gastnetzwerk und 6-GHz-Band werden jetzt korrekt abgefragt
-- Fix (BUG-09): IP-Sortierung in der Geräteliste ist jetzt numerisch statt alphabetisch (192.168.1.10 kommt nach 192.168.1.9)
-- Fix (BUG-13): Hintergrund-Timer von 10 s auf 15 s erhöht – weniger parallele Fritz!Box-Anfragen, geringere Systemlast
-- Fix (DECT): DECT-Handset-Status basiert jetzt auf dem Feld `active` (registriert) statt `connected` (DECT-Funkverbindung aktiv) – Geräte im Bereitschaftsmodus werden nicht mehr als "Getrennt" angezeigt, sondern als "Aktiv / Bereitschaft"
-- Neu: Dashboard-Graph zeigt jetzt die letzten 15 Minuten (60 Punkte à 15 s); der Verlauf bleibt bei Navigation zwischen Seiten erhalten und wird nicht neu aufgebaut
-- Neu: Geräteliste zeigt "FEST"-Badge bei statisch zugewiesener IP-Adresse; offline-Geräte zeigen die Zeit seit letzter Aktivität ("Zuletzt online") – server-seitig getrackt als Fallback falls Fritz!Box-Firmware das SOAP-Feld nicht liefert
-- Neu: IP-Adressen in der Geräteliste sind anklickbar und öffnen das Gerät (Web-UI) in einem neuen Browser-Tab
-- Neu: SmartHome als eigenständiger Menüpunkt im Hauptmenü; Telefonie zeigt nur noch DECT und Anrufliste
-- Neu: Debug-Logging-Modus – alle API-Anfragen (data.lua, SOAP) werden im Add-on-Protokoll ausgegeben; aktivierbar per `debug_logging: true` in der Add-on-Konfiguration oder über den neuen Toggle in den HA-Sensor-Einstellungen
-- Neu: `config.yaml` enthält `debug_logging: false` als neue Option mit Schema-Definition
+- Fix (BUG-01/02, Critical): Rate limiter for data.lua requests – maximum 3 parallel requests, 300 ms minimum gap. Prevents Fritz!Box UI blockades and SmartHome offline phases under high load (hopefully)
+- Fix (BUG-03/10): Startup warning if Fritz!Box hostname is not resolvable via DNS – clear error message in add-on log instead of silent failure
+- Fix (BUG-04): Mesh timeouts reduced from 10 s to 5 s – UI no longer blocks on slow mesh responses
+- Fix (BUG-07/08): WLAN loop on network indices 1–4 extended (was 1–3) – guest network and 6 GHz band now queried correctly
+- Fix (BUG-09): IP sorting in device list now numeric instead of alphabetical (192.168.1.10 comes after 192.168.1.9)
+- Fix (BUG-13): Background timer increased from 10 s to 15 s – fewer parallel Fritz!Box requests, lower system load
+- Fix (DECT): DECT handset status now based on `active` field (registered) instead of `connected` (DECT radio connection active) – devices in standby mode no longer shown as "Disconnected", but as "Active / Standby"
+- New: Dashboard graph now shows last 15 minutes (60 points at 15 s each); history remains preserved on navigation between pages, not rebuilt
+- New: Device list shows "FIXED" badge for statically assigned IP address; offline devices show time since last activity ("Last online") – server-side tracked as fallback if Fritz!Box firmware doesn't provide SOAP field
+- New: IP addresses in device list are clickable and open device (web UI) in new browser tab
+- New: SmartHome as standalone menu item in main menu; Telefonie shows only DECT and call list
+- New: Debug logging mode – all API requests (data.lua, SOAP) are output to add-on log; can be enabled via `debug_logging: true` in add-on configuration or via new toggle in HA sensor settings
+- New: `config.yaml` contains `debug_logging: false` as new option with schema definition
 
 ## 1.3.6
 
-- Neu: GitHub Actions Workflow – bei jedem Release wird der `fritz-portal`-Ordner automatisch als ZIP-Asset angehängt
-- Neu: Workflow kann auch manuell über GitHub Actions ausgelöst werden (workflow_dispatch)
-- Fix: `plan.md` wird per `.gitignore` aus dem Repository ausgeschlossen
+- New: GitHub Actions workflow – `fritz-portal` folder is automatically attached as ZIP asset on each release
+- New: Workflow can also be triggered manually via GitHub Actions (workflow_dispatch)
+- Fix: `plan.md` is excluded from repository per `.gitignore`
 
 ## 1.3.5
 
-- Fix: MQTT Discovery wird jetzt IMMER ausgeführt – das FRITZ!Portal-Gerät erscheint zuverlässig unter MQTT in Home Assistant, auch wenn REST-API Fallback aktiv ist
-- Fix: Sensordaten werden immer via MQTT gesendet wenn Broker erreichbar – REST-API sendet zusätzlich wenn aktiviert (statt entweder/oder)
-- Fix: `removeMqttDiscovery()` wird nicht mehr beim Start aufgerufen – MQTT-Gerät bleibt dauerhaft erhalten
+- Fix: MQTT discovery is now ALWAYS executed – the FRITZ!Portal device appears reliably in MQTT in Home Assistant, even if REST API fallback is active
+- Fix: Sensor data is always sent via MQTT if broker is reachable – REST API sends additionally if enabled (instead of either/or)
+- Fix: `removeMqttDiscovery()` is no longer called on startup – MQTT device remains permanently
 
 ## 1.3.4
 
-- Fix: SUPERVISOR_TOKEN wurde nicht erkannt – `run.sh` nutzt jetzt `with-contenv` für HA Base Images (S6 Overlay), damit der Token an Node.js weitergereicht wird
-- Fix: Fallback auf `HASSIO_TOKEN` für ältere HA-Versionen
-- Fix: `run.sh` erkennt automatisch ob S6 (`with-contenv`) vorhanden ist – lokal ohne HA funktioniert weiterhin
+- Fix: SUPERVISOR_TOKEN was not recognized – `run.sh` now uses `with-contenv` for HA base images (S6 overlay) so token is passed to Node.js
+- Fix: Fallback to `HASSIO_TOKEN` for older HA versions
+- Fix: `run.sh` automatically detects whether S6 (`with-contenv`) is available – works locally without HA
 
 ## 1.3.3
 
-- Fix: REST-API Fallback Toggle in der GUI funktioniert jetzt sofort – auch wenn MQTT-Broker erreichbar ist
-- Fix: GUI-Einstellungen werden in die Add-on-Konfiguration synchronisiert (kein Neustart nötig)
-- Neu: Klare Modus-Trennung – REST-API hat Vorrang wenn aktiviert, sonst MQTT (verhindert Blockierung durch MQTT-False-Positive)
-- Neu: Beim Wechsel auf REST-API werden MQTT Discovery-Konfigurationen automatisch aus HA entfernt
-- Neu: MQTT Discovery zählt registrierte Sensoren und loggt das Ergebnis (z.B. „17/17 Sensoren registriert")
-- Neu: MQTT publish Fehler zeigen jetzt auch den HTTP-Response-Body für bessere Diagnose
-- Neu: `hassio_api: true` – erlaubt dem Add-on die Konfiguration via Supervisor API zu synchronisieren
-- Neu: Hinweis in der GUI dass Änderungen sofort wirken ohne Neustart
+- Fix: REST API fallback toggle in GUI now works immediately – even if MQTT broker is reachable
+- Fix: GUI settings are synced to add-on configuration (no restart needed)
+- New: Clear mode separation – REST API takes precedence if enabled, else MQTT (prevents blocking by MQTT false positive)
+- New: When switching to REST API, MQTT discovery configurations are automatically removed from HA
+- New: MQTT discovery counts registered sensors and logs result (e.g. "17/17 sensors registered")
+- New: MQTT publish errors now show HTTP response body as well for better diagnosis
+- New: `hassio_api: true` – allows add-on to sync configuration via Supervisor API
+- New: Hint in GUI that changes take effect immediately without restart
 
 ## 1.3.2
 
-- Neu: MQTT Discovery ist jetzt immer aktiv – Sensoren werden standardmäßig via MQTT an Home Assistant gesendet (kein separater Schalter nötig)
-- Neu: REST-API Fallback – optional aktivierbar in der GUI oder Add-on-Konfiguration für Nutzer ohne MQTT-Broker
-- Neu: REST-API Fallback ist standardmäßig deaktiviert – verhindert doppelte Entitäten wenn MQTT aktiv ist
-- Neu: Status-Anzeige zeigt ob MQTT-Broker erreichbar ist (grün/orange Indikator in der GUI)
-- Fix: MQTT Discovery – Gerätename und Hersteller auf „FRITZ!Portal" geändert (statt „FRITZ!Box" / „AVM")
-- Fix: REST-API-Sensoren erhalten `unique_id` – Sensoren sind in HA bearbeitbar (Name, Icon, Bereich etc.)
-- Fix: MQTT publish und Discovery mit verbessertem Logging – zeigt im Protokoll ob Broker erreichbar ist
-- Fix: HA Update-Fortschrittsanzeige blieb bei 0 % – Dockerfile verwendet jetzt `BUILD_FROM` (HA Base Image) für korrektes Build-Tracking
+- New: MQTT discovery is now always active – sensors are sent to Home Assistant via MQTT by default (no separate switch needed)
+- New: REST API fallback – optionally enabled in GUI or add-on configuration for users without MQTT broker
+- New: REST API fallback is disabled by default – prevents duplicate entities if MQTT is active
+- New: Status display shows if MQTT broker is reachable (green/orange indicator in GUI)
+- Fix: MQTT discovery – device name and manufacturer changed to "FRITZ!Portal" (instead of "FRITZ!Box" / "AVM")
+- Fix: REST API sensors get `unique_id` – sensors are editable in HA (name, icon, area etc.)
+- Fix: MQTT publish and discovery with improved logging – shows in log if broker is reachable
+- Fix: HA update progress display stuck at 0% – Dockerfile now uses `BUILD_FROM` (HA base image) for correct build tracking
 
 ## 1.3.1 (closed)
 
-- Neu: MQTT-Schalter (`ha_mqtt`) in der Add-on-Konfiguration sichtbar (config.yaml Schema)
-- Neu: REST-API-Sensoren erhalten `unique_id` – Sensoren sind jetzt in HA bearbeitbar (Name, Icon, Bereich etc.)
-- Fix: MQTT Discovery Toggle in der GUI steht jetzt unterhalb der Intervall-Einstellungen (statt dazwischen)
-- Fix: MQTT Discovery mit verbessertem Logging – zeigt im Protokoll ob Broker erreichbar ist und ob Sensoren registriert wurden
-- Fix: MQTT publish Fehler werden jetzt mit HTTP-Status geloggt für bessere Diagnose
+- New: MQTT switch (`ha_mqtt`) visible in add-on configuration (config.yaml schema)
+- New: REST API sensors get `unique_id` – sensors now editable in HA (name, icon, area etc.)
+- Fix: MQTT discovery toggle in GUI now located below interval settings (instead of between)
+- Fix: MQTT discovery with improved logging – shows in log if broker is reachable and if sensors were registered
+- Fix: MQTT publish errors now logged with HTTP status for better diagnosis
 
 ## 1.3.0 (closed)
 
-- Neu: MQTT Discovery als optionaler Toggle auf der Systemseite – erstellt ein FRITZ!Portal-Gerät in der HA-Geräteübersicht mit bearbeitbaren Sensoren
-- Neu: REST-API und MQTT unabhängig schaltbar – Hinweis bei gleichzeitiger Aktivierung warnt vor Duplikaten
-- Neu: Beim Deaktivieren von MQTT werden die Discovery-Konfigurationen automatisch aus HA entfernt
-- Fix: MQTT Discovery – Gerätename und Hersteller auf „FRITZ!Portal" geändert (statt doppelt „FRITZ!Box" / „AVM")
-- Fix: MQTT Entity-IDs verwenden `fritzportal_*` Präfix (via `object_id`)
-- Fix: HA Update-Fortschrittsanzeige blieb bei 0 % – Dockerfile verwendet jetzt `BUILD_FROM` (HA Base Image) für korrektes Build-Tracking
+- New: MQTT discovery as optional toggle on system page – creates a FRITZ!Portal device in HA device overview with editable sensors
+- New: REST API and MQTT independently switchable – warning if both active warns of duplicates
+- New: When MQTT is disabled, discovery configurations are automatically removed from HA
+- Fix: MQTT discovery – device name and manufacturer changed to "FRITZ!Portal" (instead of double "FRITZ!Box" / "AVM")
+- Fix: MQTT entity IDs use `fritzportal_*` prefix (via `object_id`)
+- Fix: HA update progress display stuck at 0% – Dockerfile now uses `BUILD_FROM` (HA base image) for correct build tracking
 
 ## 1.2.9
 
-- Neu: Farbschema für Netzwerk-Ansicht – Master türkis, LAN blau, WLAN grün, Infrastruktur (Router/Repeater/Fritz) orange
-- Neu: Infrastruktur-Erkennung – Geräte mit „router", „repeater" oder „fritz" im Namen werden automatisch als Infrastruktur-Geräte markiert
-- Neu: Legende und Zusammenfassung zeigen Infrastruktur-Geräte separat an
-- Neu: MQTT Discovery – Fritz!Box wird als eigenes Gerät in der HA-Geräteübersicht registriert (erfordert MQTT-Broker) ansonsten wie bisher via REST-API-Fallback über setState()
-- Neu: Alle FRITZ!Portal-Sensoren werden unter einem Fritz!Box-Gerät gruppiert (CPU, RAM, Temperatur, Traffic etc.)
-- Fix: WebSid-Timeout von 3s auf 8s erhöht – verbessert Kompatibilität mit 6490 und anderen Cable-Boxen
+- New: Color scheme for network view – master turquoise, LAN blue, WLAN green, infrastructure (router/repeater/fritz) orange
+- New: Infrastructure detection – devices with "router", "repeater" or "fritz" in name automatically marked as infrastructure devices
+- New: Legend and summary show infrastructure devices separately
+- New: MQTT discovery – Fritz!Box is registered as separate device in HA device overview (requires MQTT broker) otherwise as before via REST API fallback via setState()
+- New: All FRITZ!Portal sensors grouped under one Fritz!Box device (CPU, RAM, temperature, traffic etc.)
+- Fix: WebSid timeout increased from 3s to 8s – improved compatibility with 6490 and other cable boxes
 
 ## 1.2.8
 
-- Neu: „Namen“-Button zum Ein-/Ausblenden der Gerätenamen unter den Bubbles (max. 12 Zeichen)
-- Neu: Fritz!Box-Name und IP werden im Master-Kreis angezeigt (kleiner, gut lesbar) statt außerhalb bis max 80 Geräte
-- Fix: Fritz!Box erscheint nicht mehr doppelt als Client-Gerät im Netzwerk-Diagramm
+- New: "Names" button to show/hide device names under bubbles (max 12 characters)
+- New: Fritz!Box name and IP displayed in master circle (small, readable) instead of outside up to max 80 devices
+- Fix: Fritz!Box no longer appears twice as client device in network diagram
 
 ## 1.2.7
 
-- Neu: Toggle-Schalter „Mesh / Netzwerk" neben der Topologie-Überschrift – erlaubt Wechsel zwischen Mesh-Ansicht und Netzwerk-Ansicht (Host-Fallback)
-- Neu: Radiales Star-Layout für die Netzwerk-Ansicht – Fritz!Box in der Mitte, Geräte in konzentrischen Ringen angeordnet, skaliert automatisch für 10–150+ Geräte
-- Neu: LAN/WLAN-Leitungen korrekt aus Interface-Daten zugeordnet – LAN blau durchgezogen, WLAN grün gestrichelt (statt alle blau)
-- Neu: Hover-Highlight – beim Überfahren eines Geräts wird nur dessen Verbindungslinie hervorgehoben, alle anderen werden abgeblendet
-- Neu: WLAN-Geräte bekommen ein WLAN-Icon (Funkwellen), LAN-Geräte ein Monitor-Icon im Knoten
-- Neu: Zusammenfassung über dem Diagramm zeigt Anzahl Geräte online, LAN und WLAN
-- Neu: Tooltip zeigt jetzt auch den Verbindungstyp (LAN/WLAN) an
-- Neu: „Namen"-Button zum Ein-/Ausblenden der Gerätenamen unter den Bubbles (max. 12 Zeichen)
-- Neu: Fritz!Box-Name und IP werden im Master-Kreis angezeigt (kleiner, gut lesbar)
-- Fix: Fritz!Box erscheint nicht mehr doppelt als Client-Gerät im Netzwerk-Diagramm
-- Fix: WLAN-Erkennung im Host-Fallback erkennt jetzt auch `802.11` und `Ethernet` (SOAP-Werte) korrekt
-- Fix: Geräte-Limit im Host-Fallback von 50 auf unbegrenzt erhöht
+- New: Toggle switch "Mesh / Network" next to topology heading – allows switching between mesh view and network view (host fallback)
+- New: Radial star layout for network view – Fritz!Box in center, devices arranged in concentric rings, automatically scales for 10–150+ devices
+- New: LAN/WLAN connections correctly assigned from interface data – LAN blue solid, WLAN green dashed (instead of all blue)
+- New: Hover highlight – hovering a device highlights only its connection line, all others dimmed
+- New: WLAN devices get WLAN icon (radio waves), LAN devices monitor icon in node
+- New: Summary above diagram shows number of devices online, LAN and WLAN
+- New: Tooltip now also shows connection type (LAN/WLAN)
+- New: "Names" button to show/hide device names under bubbles (max 12 characters)
+- New: Fritz!Box name and IP displayed in master circle (small, readable)
+- Fix: Fritz!Box no longer appears twice as client device in network diagram
+- Fix: WLAN detection in host fallback now correctly recognizes `802.11` and `Ethernet` (SOAP values)
+- Fix: Device limit in host fallback increased from 50 to unlimited
 
 ## 1.2.6
 
-- Fix: Statische DHCP-Vergabe – data.lua Fallback wenn SOAP `401 Invalid Action` liefert (betrifft 6591, 6490 u. a.)
-- Fix: Statische DHCP-Löschung – ebenfalls data.lua Fallback
-- Fix: Mesh-Timeout von 4s auf 10s erhöht – manche Fritz!Box-Modelle antworten langsamer
-- Neu: Mesh-Logging zeigt jetzt HTTP-Status und Antwort-Länge für bessere Diagnose
-- Neu: Mesh zusätzliche Seiten (`meshSet`, `meshNet`) und `/net/mesh_overview.lua` als Alternativen
-- Neu: Mesh Fallback aus Host-Liste – zeigt Fritz!Box als Master mit allen online Clients als Netzwerkdiagramm wenn keine echte Mesh-API verfügbar ist
+- Fix: Static DHCP assignment – data.lua fallback if SOAP returns `401 Invalid Action` (affects 6591, 6490 etc.)
+- Fix: Static DHCP deletion – also data.lua fallback
+- Fix: Mesh timeout increased from 4s to 10s – some Fritz!Box models respond slower
+- New: Mesh logging now shows HTTP status and response length for better diagnosis
+- New: Mesh additional pages (`meshSet`, `meshNet`) and `/net/mesh_overview.lua` as alternatives
+- New: Mesh fallback from host list – shows Fritz!Box as master with all online clients as network diagram if no real mesh API available
 
 ## 1.2.5
 
-- Fix: HA Supervisor Warning – `armv7` in `config.yaml` durch `armhf` ersetzt (alter Wert wurde als deprecated gemeldet)
-- Fix: HA-Sensoren springen nicht mehr auf 0 – letzter bekannter Wert wird beibehalten wenn Cache abgelaufen ist
-- Fix: Fritz!Box 6490 – Modell-Ermittlung jetzt via `tr64desc.xml` (kein Login nötig) und data.lua Fallback
-- Fix: Fritz!Box 6490 – IP-Statistiken mit data.lua Fallback wenn SOAP `606 Action Not Authorized` liefert
-- Fix: WAN-Seite – data.lua Fallback für WAN-IP wenn beide SOAP-Dienste nicht erreichbar sind
-- Fix: Dashboard Tablet-Ansicht – alle 6 Stat-Boxen werden jetzt in einer Zeile dargestellt
-- Fix: Dashboard Mobil-Ansicht – Stat-Boxen in 2 Spalten (statt 1), Traffic-Boxen untereinander
+- Fix: HA Supervisor warning – `armhf` in `config.yaml` replaced with `armv7` (old value reported as deprecated)
+- Fix: HA sensors no longer jump to 0 – last known value retained if cache expires
+- Fix: Fritz!Box 6490 – model detection now via `tr64desc.xml` (no login needed) and data.lua fallback
+- Fix: Fritz!Box 6490 – IP statistics with data.lua fallback if SOAP returns `606 Action Not Authorized`
+- Fix: WAN page – data.lua fallback for WAN IP if both SOAP services unavailable
+- Fix: Dashboard tablet view – all 6 stat boxes now displayed in one row
+- Fix: Dashboard mobile view – stat boxes in 2 columns (instead of 1), traffic boxes underneath each other
 
 ## 1.2.4
 
-- Neu: Alle Server-Logs im HA-Protokoll haben jetzt Zeitstempel (z.B. `[08:31:42] Auto-session: Created session`)
-- Neu: README komplett überarbeitet – Logo, Screenshot, Feature-Tabelle, Schritt-für-Schritt-Installation und Docker-Anleitung
+- New: All server logs in HA log now have timestamps (e.g. `[08:31:42] Auto-session: Created session`)
+- New: README completely revised – logo, screenshot, feature table, step-by-step installation and Docker instructions
 
 ## 1.2.3
 
-- Fix: Mesh-Abfragen laufen jetzt parallel statt seriell – Wartezeit beim ersten Aufruf von ~20s auf ~4s reduziert
-- Fix: Negatives Ergebnis (kein Mesh) wird 60s gecacht – verhindert wiederholte Timeouts bei jedem Seitenaufruf
+- Fix: Mesh queries now run in parallel instead of serially – wait time on first call reduced from ~20s to ~4s
+- Fix: Negative result (no mesh) cached for 60s – prevents repeated timeouts on each page call
 
 ## 1.2.2
 
-- Neu: Mesh-Topologie-Visualisierung im Tab "Übersicht" der Netzwerk-Seite
-- Neu: SVG-Diagramm zeigt Fritz!Box-Geräte (Master, Satellite, Clients) mit Verbindungslinien (LAN/WLAN)
-- Neu: Hover-Tooltip mit IP, MAC und Modell des jeweiligen Knotens
-- Neu: Backend-Endpunkt `/api/fritz/mesh` mit Fallback durch mehrere `data.lua`-Seiten und `/meshlist.lua`
-- Fix: Mesh-Topologie-Spinner drehte sich endlos – alle fetch-Aufrufe im `/api/fritz/mesh`-Endpunkt haben jetzt 4s Timeout (AbortController)
-- Fix: Seite `overview` aus der Mesh-Suchliste entfernt (zu große Antwort, zu langsam)
-- Fix: Frontend-Sicherheitsnetz: Spinner bricht nach 25s automatisch ab
-- Neu: Server-Logging für Mesh-Endpunkt (zeigt welche Seite versucht wird und Fehlermeldungen)
+- New: Mesh topology visualization in "Overview" tab of network page
+- New: SVG diagram shows Fritz!Box devices (master, satellite, clients) with connection lines (LAN/WLAN)
+- New: Hover tooltip with IP, MAC and model of each node
+- New: Backend endpoint `/api/fritz/mesh` with fallback through multiple `data.lua` pages and `/meshlist.lua`
+- Fix: Mesh topology spinner spun endlessly – all fetch calls in `/api/fritz/mesh` endpoint now have 4s timeout (AbortController)
+- Fix: Page `overview` removed from mesh search list (too large response, too slow)
+- Fix: Frontend safety net: spinner breaks after 25s automatically
+- New: Server logging for mesh endpoint (shows which page is tried and error messages)
 
 ## 1.2.1
 
-- Änderung: HA Traffic-Sensoren (Heute/Gestern/Woche/Monat/Vormonat) werden jetzt in MB oder GB übertragen – unter 1 GiB als MB (2 Nachkommastellen), ab 1 GiB als GB (3 Nachkommastellen)
+- Change: HA traffic sensors (today/yesterday/week/month/previous month) now transferred in MB or GB – below 1 GiB as MB (2 decimal places), from 1 GiB as GB (3 decimal places)
 
 ## 1.2.0
 
-- Fix: Traffic-Sensoren für Home Assistant (Heute/Gestern/Woche/Monat/Vormonat) wurden nie an HA gesendet, da kein Background-Collector existierte. `pushTrafficSensorsToHA()` holt jetzt aktiv Daten von der FritzBox wenn der Cache abgelaufen ist.
-- Änderung: HA-Sensoren `download_speed` und `upload_speed` werden jetzt in MB/s statt B/s übertragen (auf 3 Nachkommastellen gerundet)
+- Fix: Traffic sensors for Home Assistant (today/yesterday/week/month/previous month) were never sent to HA as no background collector existed. `pushTrafficSensorsToHA()` now actively fetches data from FritzBox when cache expires.
+- Change: HA sensors `download_speed` and `upload_speed` now transferred in MB/s instead of B/s (rounded to 3 decimal places)
 
 ## 1.1.30
 
-- Neu: FRITZ!Portal Logo im Header anstelle der bisherigen Text-Schriftzug
-- Neu: Add-on Icon (`icon.png`) für die Home Assistant Add-on-Kachel
+- New: FRITZ!Portal logo in header instead of previous text lettering
+- New: Add-on icon (`icon.png`) for Home Assistant add-on tile
 
 ## 1.1.29
 
-- Fix: Light-Mode Tabellen-Hover war schwarz-auf-schwarz – `--bg-hover` im Light-Mode auf `#e8eaed` korrigiert
-- Fix: Fritz!Box 7530 (DSL/PPPoä) – WAN-Endpunkt versucht jetzt zuerst `WANIPConnection:1`, dann `WANPPPConnection:1` als Fallback
-- Fix: Fritz!Box 7530 – LAN- und DHCP-Endpunkt fallen auf `data.lua` zurück wenn SOAP `401 Invalid Action` liefert
-- Fix: Eco-Stats (CPU/RAM/Temperatur) – zusätzliche Seiten (`system`, `sysStat`) und Feldpfade für 7530-Firmware (`cpuUtil`, `ramUtil`, `memUsage`, `stat.*`)
-- Fix: `WANPPPConnection:1` Control-URL in Discovery-Fallbacks ergänzt
+- Fix: Light mode table hover was black-on-black – `--bg-hover` in light mode corrected to `#e8eaed`
+- Fix: Fritz!Box 7530 (DSL/PPPoE) – WAN endpoint now tries `WANIPConnection:1` first, then `WANPPPConnection:1` as fallback
+- Fix: Fritz!Box 7530 – LAN and DHCP endpoint fall back to `data.lua` if SOAP returns `401 Invalid Action`
+- Fix: Eco-stats (CPU/RAM/temperature) – additional pages (`system`, `sysStat`) and field paths for 7530 firmware (`cpuUtil`, `ramUtil`, `memUsage`, `stat.*`)
+- Fix: `WANPPPConnection:1` control URL added to discovery fallbacks
 
 ## 1.1.28
 
-- Fix: HA Sensor Push übertrug Nullwerte – Background-Collector schreibt eco-stats und network-stats jetzt in den API-Cache
-- Fix: pushFastSensorsToHA liest Cache mit 120s TTL – verhindert Nullwerte wenn HA-Intervall länger als Standard-Cache-TTL ist
+- Fix: HA sensor push transferred null values – background collector now writes eco-stats and network-stats to API cache
+- Fix: pushFastSensorsToHA reads cache with 120s TTL – prevents null values if HA interval longer than standard cache TTL
 
 ## 1.1.27
 
-- Neu: HA-Sensor-Einstellungen direkt in der GUI auf der Systemseite konfigurierbar
-- Neu: Schalter zum Aktivieren/Deaktivieren des Sensor-Push in der GUI
-- Neu: Intervall für Systemsensoren (CPU, RAM, Temp, Geräte, IPs, Download, Upload) separat einstellbar (Standard: 60 Sek.)
-- Neu: Intervall für Traffic-Sensoren (Heute/Gestern/Woche/Monat/Vormonat) separat einstellbar (Standard: 300 Sek.)
-- Neu: Einstellungen werden in `/data/fritz-portal.json` gespeichert und nach Neustart beibehalten
-- Neu: Status-Anzeige in der GUI zeigt ob HA Supervisor erreichbar ist
-- Fix: HA Sensor Push in zwei unabhängige Timer aufgeteilt (Systemsensoren / Traffic) für reduzierte API-Last
+- New: HA sensor settings directly configurable in GUI on system page
+- New: Switch to enable/disable sensor push in GUI
+- New: Interval for system sensors (CPU, RAM, temp, devices, IPs, download, upload) separately configurable (default: 60 sec)
+- New: Interval for traffic sensors (today/yesterday/week/month/previous month) separately configurable (default: 300 sec)
+- New: Settings stored in `/data/fritz-portal.json` and retained after restart
+- New: Status display shows if HA supervisor is reachable
+- Fix: HA sensor push split into two independent timers (system sensors / traffic) for reduced API load
 
 ## 1.1.26
 
-- Neu: HA Sensor Push – Fritz!Box-Werte werden automatisch als Home Assistant Sensoren bereitgestellt
-- Neu: Sensoren für CPU, RAM, CPU-Temperatur, Geräte online, freie IPs, Live-Download, Live-Upload
-- Neu: Traffic-Sensoren für Heute, Gestern, Aktuelle Woche, Aktueller Monat und Vormonat (jeweils Download & Upload)
-- Neu: Add-on-Option `ha_sensors` (true/false) zum Aktivieren/Deaktivieren des Sensor-Push
-- Neu: Add-on-Option `ha_sensors_interval` (Sekunden) für das Abfrageintervall (Standard: 30s)
-- Fix: ip-stats Endpunkt cached Ergebnis jetzt serverseitig (30s TTL) – vermeidet redundante SOAP-Aufrufe beim Sensor-Push
+- New: HA sensor push – Fritz!Box values automatically provided as Home Assistant sensors
+- New: Sensors for CPU, RAM, CPU temperature, devices online, free IPs, live download, live upload
+- New: Traffic sensors for today, yesterday, current week, current month and previous month (each download & upload)
+- New: Add-on option `ha_sensors` (true/false) to enable/disable sensor push
+- New: Add-on option `ha_sensors_interval` (seconds) for query interval (default: 30s)
+- Fix: ip-stats endpoint now caches result server-side (30s TTL) – avoids redundant SOAP calls during sensor push
 
 ## 1.1.25
 
-- Fix: Theme-Wechsel (Dark/Light) löst kein Seiten-Reload mehr aus – CSS wird reaktiv per State aktualisiert
+- Fix: Theme change (dark/light) no longer triggers page reload – CSS updated reactively per state
 
 ## 1.1.24
 
-- Fix: Dashboard zeigt Modell, Geräte und IP-Stats sofort an – eco-stats, traffic und chart laden danach ohne Spinner im Hintergrund nach
-- Fix: WebSID wird beim Session-Start vorab gecacht – erster eco-stats-Request trifft keinen Cold-Cache mehr
+- Fix: Dashboard shows model, devices and IP stats immediately – eco-stats, traffic and chart load afterward without spinner in background
+- Fix: WebSID pre-cached at session start – first eco-stats request no longer hits cold cache
 
 ## 1.1.23
 
-- Fix: Dashboard Live-Chart fror nach dem ersten Laden ein – Ursache war ein useEffect-Cleanup-Bug der das 10s-Interval vorzeitig zerstörte
-- Fix: Geräteliste wird jetzt parallel statt sequentiell per SOAP abgerufen (bis zu 15 gleichzeitige Requests) – Ladezeit von ~7s auf ~1s reduziert
-- Fix: Hosts-Cache-TTL auf 60 Sekunden erhöht (war 10s) – schnelleres Wechseln zwischen Seiten
-- Neu: eco-History Zeitraum von 1h auf 3h erhöht
-- Neu: Modal-Titel zeigt jetzt korrekt "letzte 3h"
+- Fix: Dashboard live chart froze after first load – cause was useEffect cleanup bug that destroyed 10s interval prematurely
+- Fix: Device list now fetched in parallel instead of sequentially via SOAP (up to 15 simultaneous requests) – load time reduced from ~7s to ~1s
+- Fix: Hosts cache TTL increased to 60 seconds (was 10s) – faster page switching
+- New: Eco-history period increased from 1h to 3h
+- New: Modal title now correctly shows "last 3h"
 
 ## 1.1.22
 
-- Fix: DECT SOAP-Fehler (401 Invalid Action) blockiert nicht mehr den data.lua-Fallback
-- Neu: CPU-, RAM- und Temperatur-Karten auf dem Dashboard sind jetzt klickbar
-- Neu: Klick öffnet ein Modal mit dem Verlaufsgraphen der letzten 1 Stunde
-- Neu: Server sammelt eco-Stats (CPU/RAM/Temp) server-seitig alle 10 s für den Verlauf
+- Fix: DECT SOAP error (401 Invalid Action) no longer blocks data.lua fallback
+- New: CPU, RAM and temperature cards on dashboard now clickable
+- New: Click opens modal with history graph of last 1 hour
+- New: Server collects eco-stats (CPU/RAM/temp) server-side every 10 s for history
 
 ## 1.1.21
 
-- Fix: DECT-Handsets – data.lua-Fallback nutzt jetzt Seite `dect`/`dectReg` statt `dectSet`; breitere Suche nach Handset-Listen-Pfaden
-- Fix: DECT-Fallback verwendet gecachte WebSID (kein redundanter Login mehr)
-- Neu: SmartHome-Geräte werden über das offizielle AHA-HTTP XML-Interface abgerufen (Fallback: data.lua)
-- Fix: WebSID-Cache – fehlgeschlagene Logins werden nur 30 s gecacht statt 5 min; ermöglicht schnelleren Retry
-- Fix: Eco-Stats (CPU/RAM/Temperatur) – zusätzliche data.lua-Seiten (`ecoStat`) und direkte Feldpfade als Fallback für verschiedene Modelle
+- Fix: DECT handsets – data.lua fallback now uses page `dect`/`dectReg` instead of `dectSet`; broader search for handset list paths
+- Fix: DECT fallback uses cached WebSID (no redundant login anymore)
+- New: SmartHome devices retrieved via official AHA HTTP XML interface (fallback: data.lua)
+- Fix: WebSID cache – failed logins cached for only 30 s instead of 5 min; enables faster retry
+- Fix: Eco-stats (CPU/RAM/temperature) – additional data.lua pages (`ecoStat`) and direct field paths as fallback for different models
 
 ## 1.1.20
 
-- Fix: apiFetch - Pfad-Konkatenierung fürHA Ingress und Nicht-Ingress korrigiert
+- Fix: apiFetch - path concatenation for HA ingress and non-ingress corrected
 
 ## 1.1.19
 
-- Fix: apiFetch - Pfad-Konkatenierung korrigiert für HA Ingress
+- Fix: apiFetch - path concatenation corrected for HA ingress
 
 ## 1.1.18
 
-- Fix: DeviceDetail - apiFetch statt fetch für blockstate und static-dhcp
+- Fix: DeviceDetail - apiFetch instead of fetch for blockstate and static-dhcp
 
 ## 1.1.17
 
-- Fix: Sortierung nach Verbindung - Fehler bei leeren Interfaces behoben
+- Fix: Sorting by connection - error on empty interfaces fixed
 
 ## 1.1.15
 
-- Neu: Sortierung auf der Geräteseite nach Name, Status, IP-Adresse oder Verbindung
-- Klick auf die Spaltenüberschrift sortiert die Tabelle auf- oder absteigend
+- New: Sorting on device page by name, status, IP address or connection
+- Click on column header sorts table ascending or descending
 
 ## 1.1.14
 
-- Fix: Browser-Caching auf 10 Minuten erhöht für schnellere Seitennavigation
-- Fix: GitHub Actions auf Node.js 24 aktualisiert
-- Fix: Server-Caching für API-Antworten (10 Sekunden TTL)
-- Fix: Doppeltes Komma in server/package.json entfernt
+- Fix: Browser caching increased to 10 minutes for faster page navigation
+- Fix: GitHub Actions updated to Node.js 24
+- Fix: Server caching for API responses (10 seconds TTL)
+- Fix: Removed double comma in server/package.json
 
 ## 1.1.13
 
-- Fix: armv7 Architektur zur config.yaml hinzugefügt
+- Fix: armv7 architecture added to config.yaml
 
 ## 1.1.12
 
-- Fix: Browser-Caching implementiert (30 Sekunden)
-- Version auf Systemseite fest eingebaut (nicht mehr dynamisch vom Server)
+- Fix: Browser caching implemented (30 seconds)
+- Version hardcoded on system page (no longer dynamic from server)
 
 ## 1.1.11
 
-- Neu: Browser-Caching für schnelle Seitennavigation
-- Fix: Server-seitiges Caching für alle API-Antworten
+- New: Browser caching for fast page navigation
+- Fix: Server-side caching for all API responses
 
 ## 1.1.10
 
-- Fix: Server-Cache TTL auf 10 Sekunden erhöht
+- Fix: Server cache TTL increased to 10 seconds
 
 ## 1.1.9
 
-- Neu: Version wird fest im Frontend eingebaut (Systemseite)
+- New: Version hardcoded in frontend (system page)
 
 ## 1.1.8
 
-- Neu: Vierte Box "Freie IPs" auf der Geräteseite
-- Zeigt die letzten 5 freien IP-Adressen aus dem DHCP-Bereich
+- New: Fourth box "Free IPs" on device page
+- Shows last 5 free IP addresses from DHCP range
 
 ## 1.1.7
 
-- Neu: Screenshot in DOCS.md eingefügt
+- New: Screenshot added to DOCS.md
 
 ## 1.0.0
 
-- Erste Version des FRITZ!Portal Home Assistant Add-ons
-- Dashboard mit Systemübersicht (CPU, RAM, Temperatur)
-- Geräteliste mit Detailansicht
-- Netzwerk-Einstellungen (LAN, WAN, WLAN, DHCP)
-- Traffic-Übersicht (Tag, Woche, Monat, Vormonat)
-- Telefonie (Anrufliste, DECT-Telefone)
-- System-Informationen und Neustart-Funktion
-- Automatische Anmeldung über Add-on-Konfiguration
-- Home Assistant Ingress-Support
+- First version of FRITZ!Portal Home Assistant add-on
+- Dashboard with system overview (CPU, RAM, temperature)
+- Device list with detail view
+- Network settings (LAN, WAN, WLAN, DHCP)
+- Traffic overview (day, week, month, previous month)
+- Telefonie (call list, DECT phones)
+- System information and restart function
+- Automatic login via add-on configuration
+- Home Assistant ingress support
